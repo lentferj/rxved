@@ -1,0 +1,552 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Copyright (C) 2026  rxved contributors
+#
+# This file is part of rxved.
+#
+# rxved is free software: you can redistribute it and/or modify it under the
+# terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 2 of the License, or (at your option) any later
+# version.
+#
+# rxved is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+# details.
+
+"""Build ``xv/data/catalog.json`` from Roland's own files.
+
+**The output of this tool is not distributed with rxved**, and neither is any
+of its input. Both are Roland's; you run this against your own copies, on
+your own machine, and the result is gitignored. rxved works without it -- see
+xv/catalog.py.
+
+Two sources, chosen per bank by which one is actually authoritative:
+
+**The XV Editor binary is the better source and is preferred wherever it
+reaches.** Roland's own editor embeds the preset patch names as fixed-width
+12-byte records -- the same width the device stores them in -- so they come
+out byte-exact, with the curly apostrophes intact that a PDF text layer turns
+into mojibake ("Drifting'Comb", not "DriftingOComb"). The GM tables are better
+still: each record carries its own Bank Select MSB, LSB and program change,
+so that mapping is read rather than inferred.
+
+**The PDFs cover what the binary does not.** The USER bank's factory contents
+(the editor reads those from the device, so it embeds no copy) and the
+performance and rhythm-set lists.
+
+What this tool will **not** do is guess. Where the binary and a manual
+disagree, it says so and keeps the binary; where a table cannot be located at
+all, that bank is left out of the catalog rather than half-filled, because a
+browser showing 60% of a bank's names with no indication which 40% are
+missing is worse than one showing none.
+
+Usage::
+
+    python3 tools/extract_catalog.py --editor <XV-2020Editor.exe> \\
+        [--patch-list xv2020patch.pdf] [--manual XV-2020_OM.pdf] \\
+        [-o xv/data/catalog.json]
+
+Typical locations on this machine are the defaults; pass yours if they
+differ.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import json
+import os
+import re
+import subprocess
+import sys
+from typing import Dict, List, Optional, Tuple
+
+# --- record layouts in the editor binary ------------------------------------
+#
+# Found by locating a known name and reading outwards; every boundary below is
+# cross-checked against the printed lists before use, and the tool re-checks
+# them at run time rather than trusting these offsets blindly.
+
+#: Preset patch record: 12-byte space-padded name, NUL, category byte.
+PRESET_RECORD = 14
+#: 512 of them, contiguous: PST-A, PST-B, PST-C, PST-D, 128 each, in order.
+PRESET_COUNT = 512
+PRESET_BANKS = ("PST-A", "PST-B", "PST-C", "PST-D")
+
+#: GM record: Bank Select MSB, LSB, program change (0-based), then the same
+#: 12-byte name and NUL. This is the layout that makes the binary worth
+#: preferring -- the wire mapping is data here, not something to derive.
+GM_RECORD = 16
+GM_PATCH_MSB = 121
+GM_RHYTHM_MSB = 120
+
+#: Patch categories, in the order the category byte indexes them (1-based).
+#: Transcribed from the "Choosing Patches by Category" table, OM p. 37, in the
+#: order that table prints -- which is the order the byte counts in, verified
+#: against the printed Category column for all 512 preset patches.
+CATEGORIES = (
+    "PNO", "EP", "KEY", "BEL", "MLT", "ORG", "ACD", "HRM",
+    "AGT", "EGT", "DGT", "BS", "SBS",
+    "STR", "OCH", "HIT", "WND", "FLT", "BRS", "SBR", "SAX",
+    "HLD", "SLD", "TEK", "PLS", "FX", "SYN", "BPD", "SPD", "VOX",
+    "PLK", "ETH", "FRT",
+    "PRC", "SFX", "BTS", "DRM", "CMB",
+)
+
+DEFAULT_EDITOR = (
+    "/home/lentferj/.wine64_roland/drive_c/Program Files (x86)/Roland/"
+    "XVEditor/XV-2020Editor.exe"
+)
+DEFAULT_PATCH_LIST = "/home/lentferj/Dokumente/SYNTHS/XV2020/xv2020patch.pdf"
+DEFAULT_MANUAL = (
+    "/home/lentferj/Seafile/Bibliothek/Handbücher/"
+    "Audio-Daws_and_Plugins/Synthesizer/XV-2020_OM.pdf"
+)
+DEFAULT_OUTPUT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "xv", "data", "catalog.json",
+)
+
+
+# --- the binary -------------------------------------------------------------
+
+
+def _name_at(data: bytes, offset: int, length: int = 12) -> Optional[str]:
+    chunk = data[offset:offset + length]
+    if len(chunk) < length:
+        return None
+    if not all(32 <= b <= 126 for b in chunk):
+        return None
+    return chunk.decode("ascii").rstrip()
+
+
+def find_preset_table(data: bytes) -> int:
+    """Offset of the 512-record preset patch table.
+
+    Located by structure, not by a hardcoded address: the table is the only
+    run of at least 512 consecutive ``[12 printable][NUL][byte]`` records in
+    the file. Searching for it means this keeps working against a different
+    build of the editor, and fails loudly rather than silently reading
+    whatever happens to sit at a stale offset.
+    """
+    def ok(off: int) -> bool:
+        return data[off + 12] == 0 and _name_at(data, off) is not None
+
+    best: Optional[int] = None
+    best_count = 0
+    index = 0
+    limit = len(data) - PRESET_RECORD
+    while index < limit:
+        if not ok(index):
+            index += 1
+            continue
+        start = index
+        count = 0
+        while index < limit and ok(index):
+            count += 1
+            index += PRESET_RECORD
+        if count > best_count:
+            best, best_count = start, count
+    if best is None or best_count < PRESET_COUNT:
+        raise SystemExit(
+            f"error: no {PRESET_COUNT}-record preset patch table in the "
+            f"editor binary (longest run found: {best_count}). This tool "
+            f"knows the 2006 XV-2020 Editor build; a different one may lay "
+            f"its tables out differently."
+        )
+    return best
+
+
+def find_gm_table(data: bytes, msb: int, expect: int) -> int:
+    """Offset of a GM table, identified by its records' own MSB byte."""
+    def ok(off: int) -> bool:
+        return (
+            data[off] == msb
+            and data[off + 15] == 0
+            and _name_at(data, off + 3) is not None
+        )
+
+    index = 0
+    limit = len(data) - GM_RECORD
+    while index < limit:
+        if not ok(index):
+            index += 1
+            continue
+        start = index
+        count = 0
+        while index < limit and ok(index):
+            count += 1
+            index += GM_RECORD
+        if count >= expect:
+            return start
+    raise SystemExit(
+        f"error: no run of {expect} GM records with MSB {msb} in the editor "
+        f"binary."
+    )
+
+
+def read_preset_banks(data: bytes) -> Dict[str, List[dict]]:
+    """PST-A through PST-D, 128 entries each, with category tags."""
+    base = find_preset_table(data)
+    out: Dict[str, List[dict]] = {}
+    for bank_index, bank_id in enumerate(PRESET_BANKS):
+        rows = []
+        for number in range(1, 129):
+            offset = base + ((bank_index * 128) + number - 1) * PRESET_RECORD
+            name = _name_at(data, offset)
+            if name is None:
+                raise SystemExit(
+                    f"error: {bank_id} record {number} is not a valid name"
+                )
+            category_byte = data[offset + 13]
+            row: Dict[str, object] = {"n": number, "name": name}
+            if 1 <= category_byte <= len(CATEGORIES):
+                row["category"] = CATEGORIES[category_byte - 1]
+            rows.append(row)
+        out[bank_id] = rows
+    return out
+
+
+def read_gm_patches(data: bytes) -> Dict[str, List[dict]]:
+    """The 256 GM2 patches, filed under the bank their own LSB names.
+
+    Each record states its LSB, so the split into GM (variation 0) and
+    GM-1..GM-9 is read off the data rather than assumed.
+    """
+    base = find_gm_table(data, GM_PATCH_MSB, 256)
+    out: Dict[str, List[dict]] = {}
+    for index in range(256):
+        offset = base + index * GM_RECORD
+        lsb = data[offset + 1]
+        program = data[offset + 2]
+        name = _name_at(data, offset + 3)
+        if name is None:
+            raise SystemExit(f"error: GM record {index} is not a valid name")
+        bank_id = f"GM-{lsb}" if lsb else "GM"
+        # The catalog is keyed on the number the display shows, which is the
+        # program change plus one -- see xv/banks.py on why the two are never
+        # conflated.
+        out.setdefault(bank_id, []).append({"n": program + 1, "name": name})
+    for rows in out.values():
+        rows.sort(key=lambda row: row["n"])
+    return out
+
+
+def read_gm_rhythm(data: bytes) -> Dict[str, List[dict]]:
+    """The nine GM2 drum kits, at the program changes the records state."""
+    base = find_gm_table(data, GM_RHYTHM_MSB, 9)
+    rows = []
+    for index in range(9):
+        offset = base + index * GM_RECORD
+        program = data[offset + 2]
+        name = _name_at(data, offset + 3)
+        if name is None:
+            raise SystemExit(f"error: GM rhythm record {index} is invalid")
+        # Filed by position in the bank (1-9), because that is how
+        # xv.banks.slots() numbers this bank -- its program changes are not
+        # contiguous, so the display number and the PC are different things.
+        rows.append({"n": index + 1, "name": name, "pc": program + 1})
+    rows.sort(key=lambda row: row["pc"])
+    for position, row in enumerate(rows, start=1):
+        row["n"] = position
+        del row["pc"]
+    return {"R-GM": rows}
+
+
+# --- the PDFs ---------------------------------------------------------------
+
+
+def pdf_text(path: str) -> str:
+    """Extract a PDF's text layer with ``pdftotext -layout``."""
+    try:
+        result = subprocess.run(
+            ["pdftotext", "-layout", path, "-"],
+            check=True, capture_output=True,
+        )
+    except FileNotFoundError:
+        raise SystemExit(
+            "error: pdftotext is not installed; it is in poppler-utils."
+        ) from None
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(f"error: pdftotext failed on {path}: {exc}") from None
+    return result.stdout.decode("utf-8", errors="replace")
+
+
+#: The patch-listing PDF was distilled from Word in 2003 and its text layer
+#: renders the typographic apostrophe as a capital O-tilde. Left alone this
+#: puts "Saw nO 202" in the catalog. Only needed for that document; the
+#: editor binary has the real byte.
+_PDF_FIXUPS = {"Õ": "'", "’": "'", "“": '"', "”": '"'}
+
+
+def _fix_pdf_text(text: str) -> str:
+    for wrong, right in _PDF_FIXUPS.items():
+        text = text.replace(wrong, right)
+    return text
+
+
+# "1.    Name Here" but "100. Name Here" -- the column is padded to a fixed
+# width, so a three-digit number leaves a single space. Requiring two
+# silently dropped every entry from 100 up, a quarter of the bank.
+# re.MULTILINE is load-bearing: without it "$" is end-of-*string*, so the
+# lookahead only terminated a name at a run of spaces. Every entry that ends
+# its line -- the whole rightmost column, 31 of 128 -- fell out silently.
+_ENTRY = re.compile(r"(\d{1,3})\.\s+(\S.*?)(?=\s{2,}|$)", re.MULTILINE)
+
+
+def read_user_bank(path: str) -> Dict[str, List[dict]]:
+    """The USER bank's factory contents, from the patch-listing PDF.
+
+    Worth remembering what this actually is: what shipped in USER, not what
+    is in it now. rxved reads the live USER names from the device and shows
+    those in preference -- see xv/catalog.py. This is the fallback for when
+    the hardware is not connected.
+    """
+    text = _fix_pdf_text(pdf_text(path))
+    section = text.split("USER:", 1)
+    if len(section) < 2:
+        raise SystemExit(f"error: no 'USER:' section in {path}")
+    # Stop at the next bank heading; the document runs USER, PR-A .. PR-D.
+    body = re.split(r"\bPR-A:", section[1], 1)[0]
+    found: Dict[int, str] = {}
+    for match in _ENTRY.finditer(body):
+        number = int(match.group(1))
+        name = match.group(2).strip()
+        if 1 <= number <= 128 and number not in found:
+            found[number] = name
+    missing = [n for n in range(1, 129) if n not in found]
+    if missing:
+        print(
+            f"warning: USER bank incomplete in {os.path.basename(path)} -- "
+            f"{len(missing)} of 128 missing ({missing[:6]}...); leaving the "
+            f"bank out rather than shipping a partial one",
+            file=sys.stderr,
+        )
+        return {}
+    return {"USER": [{"n": n, "name": found[n]} for n in range(1, 129)]}
+
+
+def read_performances(path: str) -> Dict[str, List[dict]]:
+    """The three performance banks, from the owner's manual.
+
+    The manual prints USER and Preset-A with identical contents (the machine
+    ships with USER holding a copy of Preset-A) and Preset-B beside them, in
+    a four-column layout that ``pdftotext -layout`` preserves well enough to
+    read by column position.
+    """
+    text = _fix_pdf_text(pdf_text(path))
+    lines = text.splitlines()
+    # Anchored on the table's own column header rather than on the phrase
+    # "Performance List", whose first occurrence in the document is the entry
+    # in the table of contents -- 9000 lines before the table itself.
+    header = re.compile(r"\s*USER\s+Preset-A\s+Preset-B\s*$")
+    start = None
+    for index, line in enumerate(lines):
+        if header.match(line):
+            start = index
+            break
+    if start is None:
+        print("warning: no Performance List in the manual; skipping",
+              file=sys.stderr)
+        return {}
+    body = lines[start:start + 220]
+    # Rows look like:  001   Name        033   Name       001   Name   001  Name
+    # i.e. up to four (number, name) pairs per line. Columns one and two are
+    # the USER bank's two halves, three is Preset-A, four is Preset-B.
+    pair = re.compile(r"(\d{3})\s{2,}(\S[^\s](?:[^\s]|\s(?!\s))*)")
+    columns: Dict[int, Dict[int, str]] = {0: {}, 1: {}, 2: {}, 3: {}}
+    for line in body:
+        matches = list(pair.finditer(line))
+        if len(matches) < 2:
+            continue
+        for column, match in enumerate(matches[:4]):
+            number = int(match.group(1))
+            name = match.group(2).strip()
+            columns[column].setdefault(number, name)
+    user = dict(columns[0])
+    user.update(columns[1])
+    preset_a = columns[2]
+    preset_b = columns[3]
+    out: Dict[str, List[dict]] = {}
+    for bank_id, rows, expect in (
+        ("P-USER", user, 64), ("P-PST-A", preset_a, 32),
+        ("P-PST-B", preset_b, 32),
+    ):
+        have = [n for n in range(1, expect + 1) if n in rows]
+        if len(have) != expect:
+            print(
+                f"warning: {bank_id} incomplete ({len(have)}/{expect}); "
+                f"leaving it out",
+                file=sys.stderr,
+            )
+            continue
+        out[bank_id] = [{"n": n, "name": rows[n]} for n in range(1, expect + 1)]
+    return out
+
+
+def read_rhythm_sets(path: str) -> Dict[str, List[dict]]:
+    """The eight internal rhythm sets, from the manual's Rhythm Set List.
+
+    The kit names are the column headings of that list -- the row beneath a
+    line of ``001  002  003  004`` -- because the list itself is a matrix of
+    which sample sits on which key, one column per kit.
+
+    Not taken from the editor binary, although the names are in there: the
+    linker pools identical string constants, and three of the eight kit names
+    are also performance names, so the rhythm table's own entries are shared
+    with the performance table's and the run is not contiguous. Reading order
+    off a pooled table would be guesswork.
+    """
+    text = _fix_pdf_text(pdf_text(path))
+    lines = text.splitlines()
+    groups = {"User Group": "R-USER", "Preset A Group": "R-PST-A",
+              "Preset B Group": "R-PST-B"}
+    out: Dict[str, List[dict]] = {}
+    for index, line in enumerate(lines):
+        label = line.strip()
+        if label not in groups:
+            continue
+        # The heading is followed by the number row, then the name row.
+        for lookahead in range(index + 1, min(index + 5, len(lines))):
+            if not re.match(r"\s*001\s+002\s+003\s+004\s*$",
+                            lines[lookahead]):
+                continue
+            names_line = lines[lookahead + 1]
+            names = re.sub(r"^\s*Note No\.\s*", "", names_line)
+            # Kit names are separated by runs of two or more spaces.
+            parts = [p.strip() for p in re.split(r"\s{2,}", names.strip())
+                     if p.strip()]
+            if len(parts) == 4:
+                out[groups[label]] = [
+                    {"n": n, "name": name}
+                    for n, name in enumerate(parts, start=1)
+                ]
+            break
+    for bank_id in groups.values():
+        if bank_id not in out:
+            print(f"warning: {bank_id} not found in the Rhythm Set List",
+                  file=sys.stderr)
+    return out
+
+
+# --- cross-checking ---------------------------------------------------------
+
+
+def crosscheck_presets(from_binary: Dict[str, List[dict]],
+                       manual_path: Optional[str]) -> None:
+    """Report where the manual's printed preset names differ from the binary.
+
+    Differences are expected and mostly cosmetic -- the PDF text layer
+    mangles apostrophes -- but a difference that is *not* cosmetic would mean
+    one of the two sources has been misread, and that is worth seeing rather
+    than averaging away.
+    """
+    if manual_path is None:
+        return
+    # Whitespace-collapsed substring search. The printed lists are laid out
+    # in columns, so a name can be followed by any amount of padding, and
+    # tokenising the text instead would never match the majority of names --
+    # most of them contain a space.
+    haystack = re.sub(r"\s+", " ", _fix_pdf_text(pdf_text(manual_path)))
+    mismatched = []
+    for bank_id, rows in from_binary.items():
+        for row in rows:
+            needle = re.sub(r"\s+", " ", row["name"])
+            if needle not in haystack:
+                mismatched.append(f"{bank_id} {row['n']:03d} {row['name']!r}")
+    if mismatched:
+        print(
+            f"note: {len(mismatched)} of "
+            f"{sum(len(r) for r in from_binary.values())} names from the "
+            f"binary were not found anywhere in the manual's text layer. "
+            f"That is usually the PDF's fault, not the binary's. First few: "
+            f"{', '.join(mismatched[:5])}",
+            file=sys.stderr,
+        )
+
+
+# --- entry point ------------------------------------------------------------
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="extract_catalog.py",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--editor", default=DEFAULT_EDITOR,
+                        help="path to XV-2020Editor.exe")
+    parser.add_argument("--patch-list", default=DEFAULT_PATCH_LIST,
+                        help="path to the XV-2020 patch listing PDF")
+    parser.add_argument("--manual", default=DEFAULT_MANUAL,
+                        help="path to the XV-2020 owner's manual PDF")
+    parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT)
+    parser.add_argument("--no-crosscheck", action="store_true")
+    return parser
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = build_parser().parse_args(argv)
+
+    banks_out: Dict[str, List[dict]] = {}
+    sources: List[str] = []
+
+    if not os.path.exists(args.editor):
+        raise SystemExit(
+            f"error: no editor binary at {args.editor}. It is the only source "
+            f"for the preset and GM banks; pass --editor with your copy."
+        )
+    with open(args.editor, "rb") as handle:
+        data = handle.read()
+    banks_out.update(read_preset_banks(data))
+    banks_out.update(read_gm_patches(data))
+    banks_out.update(read_gm_rhythm(data))
+    sources.append(f"Roland XV-2020 Editor ({os.path.basename(args.editor)})")
+
+    if os.path.exists(args.patch_list):
+        banks_out.update(read_user_bank(args.patch_list))
+        sources.append(f"XV-2020 Patch Listing "
+                       f"({os.path.basename(args.patch_list)})")
+    else:
+        print(f"note: no patch listing at {args.patch_list}; the USER bank's "
+              f"factory names will be missing (rxved reads USER from the "
+              f"device anyway)", file=sys.stderr)
+
+    if os.path.exists(args.manual):
+        banks_out.update(read_performances(args.manual))
+        banks_out.update(read_rhythm_sets(args.manual))
+        sources.append(f"XV-2020 Owner's Manual "
+                       f"({os.path.basename(args.manual)})")
+        if not args.no_crosscheck:
+            crosscheck_presets(
+                {k: v for k, v in banks_out.items() if k.startswith("PST-")},
+                args.manual,
+            )
+    else:
+        print(f"note: no manual at {args.manual}; performance and rhythm-set "
+              f"names will be missing", file=sys.stderr)
+
+    payload = {
+        "source": "; ".join(sources),
+        "generated": datetime.date.today().isoformat(),
+        "note": (
+            "Generated locally by tools/extract_catalog.py from Roland's own "
+            "files. Not distributed with rxved."
+        ),
+        "banks": banks_out,
+    }
+    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+    with open(args.output, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=1, ensure_ascii=False)
+        handle.write("\n")
+
+    total = sum(len(rows) for rows in banks_out.values())
+    print(f"wrote {args.output}: {total} names across {len(banks_out)} banks")
+    for bank_id in sorted(banks_out):
+        print(f"  {bank_id:<8} {len(banks_out[bank_id]):>4}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,73 @@
+rxved — Terminal browser for the Roland XV-2020 synthesizer
+Copyright (C) 2026  rxved contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+The full, verbatim text of the GNU General Public License version 2 is in
+the file COPYING alongside this one. This file records only the project's
+copyright notice and its third-party attributions.
+
+-------------------------------------------------------------------------------
+Third-party references and their licenses
+-------------------------------------------------------------------------------
+
+xv/messages.py
+  The System Exclusive frame layout, the RQ1/DT1 command IDs, the model ID
+  (00H 10H), the checksum rule, the four-byte parameter address map and the
+  Identity Reply payload are transcribed as data from Roland's own
+  documentation:
+
+    "XV-2020 Owner's Manual", Roland Corporation, 2003.
+    MIDI Implementation chapter, pp. 140-146.
+
+xv/banks.py
+  The Bank Select MSB / LSB / Program Change map for the internal banks is
+  transcribed from the same manual (pp. 40-41 and p. 136).
+
+  The SRX expansion-board allocation -- every board's MSB, LSB range and
+  program-change range -- is transcribed from:
+
+    Roland Supplemental Note SN 132, v3.00, Summer 2007,
+    "Selecting Internal and SRX-Series Sounds Via MIDI",
+    (C) 2005, 2006, 2007 Roland Corporation U.S.
+
+  Cross-checked against the individual SRX-02/05/06/07/08 Owner's Manuals.
+
+xv/bridge.py
+  The throttled-output queue, the MultiIn merged-input facade, the
+  rtmidi-backend-client leak fix, the port-enumeration helpers, the
+  read-modify-write configuration store and the clean-exit signal handling
+  are ported from the author's sibling projects, all GPL-2.0-or-later:
+
+    s3ked      Copyright (C) 2026  s3ked contributors
+    eosed      Copyright (C) 2026  eosed contributors
+    k2kremote  Copyright (C) 2026  k2kremote contributors
+    mpc2emu    Copyright (C) 2025-2026  mpc2emu contributors
+
+tools/extract_catalog.py
+  Reads, but does not redistribute, Roland's own files: the XV-2020 Editor
+  for Windows (Roland Corporation, 2006), the XV-2020 Owner's Manual and the
+  XV-2020 Patch Listing. Its output is patch, rhythm-set and performance
+  names, which are Roland's; that output is NOT part of this distribution
+  and is excluded by .gitignore. Each user generates it from their own
+  copies of those files. See README.md.
+
+-------------------------------------------------------------------------------
+Not affiliated with Roland
+-------------------------------------------------------------------------------
+
+Roland, XV-2020, SRX, JV and Fantom are trademarks of Roland Corporation.
+This project is an independent work by its authors, is not endorsed by or
+affiliated with Roland Corporation, and uses those names only to say what
+hardware it talks to.

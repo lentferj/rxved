@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+config.toml
+build/
+dist/
+
+# Claude Code / AI-assistant working files - kept out of the public repo
+CLAUDE.md
+.claude/
+
+# The generated name catalog. Roland's patch names, extracted from Roland's
+# own editor binary and manuals by tools/extract_catalog.py. Each user
+# generates it from their own copies; rxved runs without it, showing bank,
+# number, MSB, LSB and program change (all of which are this project's own
+# arithmetic) and reading names from the synth on request.
+#
+# The sibling eosed and s3ked projects do not commit manufacturer content
+# either. See README.md and CLAUDE.md.
+xv/data/
+
+# editor/tooling backups
+*.backup
+*.bak
+*.orig
+*~

@@ -220,3 +220,43 @@ class TestScanAsksFirst:
             await pilot.press("escape")
             await pilot.pause(0.2)
             assert app.bridge.selected_log == []
+
+
+class TestChannels:
+    """Patches and performances go out on two different channels.
+
+    The real synth this was written against receives patches on channel 1 and
+    performances on channel 15 — so a browser that sends everything on one
+    channel selects no performance at all, silently. The demo bridge answers
+    with the factory defaults (1 and 16) rather than one channel for both,
+    precisely so this cannot pass by accident.
+    """
+
+    async def test_channels_are_read_at_startup(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.3)
+            assert app.bridge.channels is not None
+            assert app.bridge.channels.patch_display == 1
+            assert app.bridge.channels.performance_display == 16
+
+    async def test_a_patch_goes_out_on_the_patch_channel(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("tab")
+            await pilot.press("enter")
+            await pilot.pause(0.2)
+            assert app.bridge.channel_log == [0]
+
+    async def test_a_performance_goes_out_on_the_performance_channel(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.3)
+            index = banks.bank_ids().index("P-USER")
+            for _ in range(index):
+                await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("tab")
+            await pilot.press("enter")
+            await pilot.pause(0.2)
+            assert app.bridge.selected_log[0].kind == banks.Kind.PERFORMANCE
+            # 15, not 0 — the whole point.
+            assert app.bridge.channel_log == [15]

@@ -262,6 +262,7 @@ class RxvedApp(App):
         self._fill_slots(self._current_bank)
 
         bank_table.focus()
+        self._read_channels_worker()
         if not self.catalog:
             self.notify_status(
                 "no name catalog -- numbers only. Build one with "
@@ -272,6 +273,37 @@ class RxvedApp(App):
             self.notify_status(
                 f"{len(self.catalog)} names from {self.catalog.source or 'catalog'}"
             )
+
+    @work(thread=True)
+    def _read_channels_worker(self) -> None:
+        """Learn which channels the synth listens on, at startup.
+
+        One silent round trip. Worth doing eagerly because the alternative
+        is selecting a performance on the patch channel, which the synth
+        ignores without complaint -- see xv.bridge.XvBridge.select.
+        """
+        try:
+            with self._bridge_lock:
+                channels = self.bridge.use_system_channels()
+        except Exception as exc:
+            self.call_from_thread(
+                self.notify_status,
+                f"could not read the synth's receive channels ({exc}); "
+                f"falling back to channel {self.channel + 1} for everything, "
+                f"which is probably wrong for performances",
+                refused=True,
+            )
+            return
+        performance = (
+            f"performances {channels.performance_display}"
+            if channels.performance_display is not None
+            else "performances OFF (they cannot be selected over MIDI)"
+        )
+        self.call_from_thread(
+            self.notify_status,
+            f"synth receives patches on MIDI channel "
+            f"{channels.patch_display}, {performance}",
+        )
 
     # --- filling the tables -------------------------------------------------
 
@@ -424,29 +456,21 @@ class RxvedApp(App):
     def _select_worker(self, slot: banks.Slot) -> None:
         try:
             with self._bridge_lock:
-                self.bridge.select(slot, channel=self.channel)
+                # No channel= here: the bridge picks the patch or performance
+                # channel from what it read off the synth. Forcing
+                # self.channel is what sent performance selects into the void.
+                self.bridge.select(slot)
+                used = self.bridge.channel_for(slot.kind)
         except Exception as exc:
             self.call_from_thread(
                 self.notify_status, f"select: {exc}", refused=True)
             return
         message = (
-            f"selected {slot} on MIDI channel {self.channel + 1} "
+            f"selected {slot} on MIDI channel {used + 1} "
             f"(MSB {slot.msb}, LSB {slot.lsb}, PC {slot.program_change})"
         )
-        if slot.kind == banks.Kind.PERFORMANCE:
-            # Performances are selected on the XV-2020's Performance Control
-            # Channel (OM p. 94), which is a separate setting from the part
-            # channels and defaults to 16. rxved sends everything on one
-            # channel, so unless that happens to match, this select silently
-            # does nothing -- and "nothing happened" is the least
-            # debuggable outcome there is. Say so rather than imply success.
-            # Reading the real value out of the System area would be better;
-            # see TODO.md item 4.
-            message += (
-                "  —  note: performances only respond on the Performance "
-                "Control Channel (16 by default); pass --channel 16 if "
-                "nothing changed"
-            )
+        if getattr(self.bridge, "channels", None) is None:
+            message += "  —  channel not read from the synth; may be wrong"
         self.call_from_thread(self.notify_status, message)
 
     def action_toggle_favorite(self) -> None:

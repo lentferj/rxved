@@ -10,7 +10,7 @@ SPDX-FileCopyrightText: Copyright (C) 2026  rxved contributors
 ## Status, 2026-09-11 (first session)
 
 The browser exists and works, against the demo synth and against real
-hardware. 166 tests, all passing, all synthetic.
+hardware. 172 tests, all passing, all synthetic.
 
 What that means honestly: **the protocol layer is confirmed, the Bank Select
 layer is not.** One hardware session established that the frame layout, the
@@ -84,20 +84,31 @@ named kits per preset group.
 Resolvable in a minute at the machine: select preset rhythm A 003 and 004
 and see whether anything happens.
 
-## 4. Performances probably need their own MIDI channel
+## 4. Performances need their own MIDI channel — FIXED 2026-09-11
 
-**Status:** open, and probably a real bug.
+**Status:** resolved. It was a real bug.
 
-The XV-2020 has a **Performance Control Channel** (OM p. 94), which is 16
-after a factory reset, and performances are selected on that channel — not
-on the patch channel. rxved sends every Bank Select and Program Change on
-one configured channel, so selecting a `P-*` slot very likely does nothing
-unless the user has already set `--channel 16`.
+The XV-2020 receives patches and rhythm sets on the **Patch Receive
+Channel** and performances on the **Performance Control Channel** (OM p. 94)
+— two independent settings. rxved sent everything on one configured channel,
+so a performance select went to the wrong channel and was **ignored without
+complaint**, which looks exactly like rxved having sent nothing.
 
-Fix is probably: read the Performance Control Channel from the System area
-(`02 00 00 00`, offset `00 09`, documented on OM p. 147) and use it for
-performance banks. That read is free and non-audible, so it can happen at
-startup.
+Confirmed by reading System Common off the machine (RESOLUTION_NOTES §8):
+this XV-2020 receives patches on **channel 1** and performances on
+**channel 15** — so the default would have been wrong, and so would the
+"just use 16" guess this item originally suggested, since 16 is only the
+factory default and this machine has been changed.
+
+Fixed: `XvBridge.system_channels()` reads both at
+`02 00 00 09`/`02 00 00 0B`, `use_system_channels()` caches them at startup
+(one silent round trip), and `select()` picks the right one per slot kind.
+With the control channel OFF it refuses rather than sending into the void.
+`rxvcli channels` prints both.
+
+**Still unverified:** that selecting a performance on channel 15 actually
+changes this synth's performance. The channel is now right; whether the rest
+of the triple is remains part of item 1.
 
 ## 5. SRX: nothing has been tested, and one board is fitted
 

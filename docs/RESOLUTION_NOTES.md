@@ -261,3 +261,54 @@ silently-drops-data kind:
 The extractor leaves a bank **out entirely** rather than shipping a partial
 one, on the grounds that a browser showing 60% of a bank's names with no
 indication which 40% are missing is worse than one showing none.
+
+---
+
+## §8 — Two receive channels, not one (2026-09-11)
+
+rxved originally sent every Bank Select and Program Change on one configured
+channel. That is wrong, and wrong in the quietest possible way.
+
+The XV-2020 has **two** independent receive-channel settings in System
+Common (OM p. 147, panel description p. 94):
+
+| Offset | Parameter | Range | Encoding |
+|--------|-----------|-------|----------|
+| `02 00 00 09` | Performance Control Channel | 0–16 | 0–15 = channels 1–16, **16 = OFF** |
+| `02 00 00 0B` | Patch Receive Channel | 0–15 | channels 1–16 |
+
+Patches and rhythm sets arrive on the second; performances on the first. A
+performance select sent to the patch channel is not rejected — it is
+ignored, and the synth carries on playing what it was playing, which is
+indistinguishable from rxved having sent nothing at all.
+
+**Read off the author's machine**, single-byte read at `02 00 00 09` and a
+32-byte block read of System Common, which agree:
+
+```
+System Common 00 00..00 1F:
+00 04 00 00 40 7F 01 00 01 0E 10 00 40 40 40 40 ...
+                           ^^    ^^
+                     09 = 0E     0B = 00
+```
+
+- Performance Control Channel `0E` = 14 → **channel 15**
+- Patch Receive Channel `00` = 0 → **channel 1**
+
+Note that 15 is *not* the factory default of 16, so "just default to 16"
+would also have been wrong on this machine. Reading beats guessing, and the
+read is one round trip and makes no sound.
+
+The block read is worth keeping as a habit: it is what confirms the
+single-byte read landed where the map says rather than somewhere merely
+plausible.
+
+Implemented as `XvBridge.system_channels()` / `use_system_channels()`, with
+`select()` choosing per slot kind and refusing outright when the control
+channel is OFF. The demo bridge answers with the factory defaults (1 and 16)
+rather than one channel for both, so the two-channel behaviour cannot pass a
+test by accident.
+
+**Not resolved by this**: whether a performance select on the right channel
+actually works. The channel is now right; the rest of the triple is still
+part of TODO item 1.

@@ -99,6 +99,9 @@ __all__ = [
     "MultiIn",
     "install_clean_exit",
     "DeviceIdentity",
+    "SystemChannels",
+    "PERFORMANCE_CHANNEL_OFF",
+    "DeviceError",
     "XvBridge",
 ]
 
@@ -136,6 +139,14 @@ AUTODETECT_TIMEOUT = 0.6
 #: Local settings, gitignored. Alongside the sibling projects' convention.
 DEFAULT_CONFIG_PATH = "config.toml"
 
+#: Raw value of Performance Control Channel meaning "OFF" (OM p. 147: the
+#: parameter runs 0-16 and its values read "1 - 16, OFF", so 0-15 are the
+#: channels and 16 is off). With it off, performances cannot be selected over
+#: MIDI at all -- which is a thing rxved should say rather than discover by
+#: sending messages that vanish.
+PERFORMANCE_CHANNEL_OFF = 16
+
+
 #: Substrings that mark a port as probably belonging to an XV-2020. Used to
 #: order the autodetect sweep, never to decide the answer -- the Identity
 #: Reply decides that. A USB-connected XV-2020 enumerates as "Roland
@@ -146,6 +157,10 @@ _XV_PORT_HINTS = ("xv-2020", "xv2020", "xv 2020")
 
 class MidiUnavailable(RuntimeError):
     """No MIDI backend on this host at all."""
+
+
+class DeviceError(RuntimeError):
+    """The device answered, but not with what was asked for."""
 
 
 class DeviceNotFound(RuntimeError):
@@ -491,6 +506,42 @@ def install_clean_exit(signals=None) -> None:
 
 
 @dataclass(frozen=True)
+class SystemChannels:
+    """The two receive channels, as **0-based wire channels**.
+
+    0-based to match every other channel in this codebase and the byte on the
+    wire; :attr:`patch_display` and :attr:`performance_display` give the
+    1-based numbers the synth's own screen shows, and nothing converts
+    silently between them -- the same rule as program numbers in
+    :mod:`xv.banks`.
+    """
+
+    patch_receive: int
+    #: ``None`` when Performance Control Channel is OFF.
+    performance_control: Optional[int]
+
+    @property
+    def patch_display(self) -> int:
+        return self.patch_receive + 1
+
+    @property
+    def performance_display(self) -> Optional[int]:
+        if self.performance_control is None:
+            return None
+        return self.performance_control + 1
+
+    def for_kind(self, kind: str) -> Optional[int]:
+        """The channel a slot of this kind must be selected on.
+
+        ``None`` means "there is no such channel", which today happens only
+        for performances with the control channel off.
+        """
+        if kind == banks.Kind.PERFORMANCE:
+            return self.performance_control
+        return self.patch_receive
+
+
+@dataclass(frozen=True)
 class DeviceIdentity:
     """What an Identity Reply told us, and where it came from."""
 
@@ -549,6 +600,10 @@ class XvBridge:
         self.timeout = timeout
         self.description = description
         self.identity = identity
+        #: The synth's own receive channels, once read. ``None`` until then,
+        #: which is what makes :meth:`channel_for` fall back rather than
+        #: silently claim knowledge it does not have.
+        self.channels: Optional["SystemChannels"] = None
         self._closed = False
 
     # --- construction -------------------------------------------------------
@@ -800,6 +855,42 @@ class XvBridge:
     def is_connected(self, *, timeout: float = AUTODETECT_TIMEOUT) -> bool:
         return self.identify(timeout=timeout) is not None
 
+    def system_channels(self, *, timeout: Optional[float] = None
+                        ) -> "SystemChannels":
+        """Which MIDI channels this synth actually listens on.
+
+        Read from System Common (OM p. 147), and worth reading rather than
+        assuming, because **patches and performances arrive on two different
+        channels** and only one of them is the obvious one:
+
+        * ``00 0B`` Patch Receive Channel, raw 0-15 for channels 1-16.
+        * ``00 09`` Performance Control Channel, raw 0-15 for channels 1-16
+          with **16 meaning OFF** -- the map gives the range as 0-16 and
+          spells the values "1 - 16, OFF" (p. 94). A factory reset sets it to
+          16, i.e. *channel* 16, which is raw 15.
+
+        A Bank Select and Program Change aimed at a performance on the patch
+        channel does not fail. It is simply ignored, and the synth carries on
+        playing what it was playing -- which looks exactly like rxved having
+        sent nothing at all. Reading these two bytes costs one round trip,
+        makes no sound, and removes the guess.
+        """
+        # One request for offsets 09, 0A, 0B: three bytes, one round trip.
+        data = self.request((0x02, 0x00, 0x00, 0x09), 3, timeout=timeout)
+        if len(data) < 3:
+            raise DeviceError(
+                f"System Common read returned {len(data)} bytes, expected 3"
+            )
+        raw_performance = data[0]
+        raw_patch = data[2]          # 0x0A between them is (reserved)
+        return SystemChannels(
+            patch_receive=raw_patch,
+            performance_control=(
+                None if raw_performance >= PERFORMANCE_CHANNEL_OFF
+                else raw_performance
+            ),
+        )
+
     def user_patch_name(self, number: int, *,
                         timeout: Optional[float] = None) -> str:
         """The name stored in User Patch ``number`` (1-128), read live."""
@@ -873,10 +964,52 @@ class XvBridge:
         Bank Select MSB, Bank Select LSB, then Program Change, in that order
         -- the device latches the bank on the program change, so a PC that
         arrives before the LSB selects from the previously latched bank.
+
+        The channel is chosen for you unless you pass one, because **it is
+        not one channel**: patches and rhythm sets arrive on the Patch
+        Receive Channel and performances on the Performance Control Channel,
+        and both are settings on the synth. :meth:`system_channels` reads
+        them; :meth:`use_system_channels` caches the answer. Until then this
+        falls back to ``self.channel``, which is a guess and will be wrong
+        for performances on most machines -- a factory reset puts the
+        performance channel on 16 and the patch channel on 1.
+
+        Sending a performance select to the patch channel does not fail. It
+        is ignored, and the synth keeps playing what it was playing, which
+        is indistinguishable from rxved having sent nothing.
         """
-        target = self.channel if channel is None else channel
-        for message in entry.select_messages(target):
+        if channel is None:
+            channel = self.channel_for(entry.kind)
+        if channel is None:
+            raise DeviceError(
+                f"{entry} cannot be selected over MIDI: this synth has its "
+                f"Performance Control Channel set to OFF (SYSTEM/MIDI on the "
+                f"front panel), so it ignores performance Bank Select and "
+                f"Program Change entirely."
+            )
+        for message in entry.select_messages(channel):
             self._out.send_message(message)
+
+    def channel_for(self, kind: str) -> Optional[int]:
+        """The channel a slot of this kind should be selected on.
+
+        Uses the synth's own setting once :meth:`use_system_channels` has
+        read it, and otherwise falls back to the configured channel.
+        """
+        if self.channels is not None:
+            return self.channels.for_kind(kind)
+        return self.channel
+
+    def use_system_channels(self, *, timeout: Optional[float] = None
+                            ) -> "SystemChannels":
+        """Read the synth's receive channels and use them from now on.
+
+        Free and silent -- one SysEx round trip, nothing selected -- so it is
+        worth doing at startup rather than guessing. Cached in
+        :attr:`channels`.
+        """
+        self.channels = self.system_channels(timeout=timeout)
+        return self.channels
 
     def probe_srx(self, *, lsb_range: Iterable[int] = range(0, 64),
                   settle: float = SELECT_GAP,

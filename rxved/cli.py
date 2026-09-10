@@ -283,17 +283,31 @@ def _cmd_read(bridge, args) -> None:
 def _cmd_select(bridge, args) -> None:
     bank_id, number = _parse_slot(args.slot)
     slot = banks.slot(bank_id, number)
+    # Read the synth's own channels first: patches and performances arrive on
+    # two different ones, and a performance sent to the patch channel is
+    # ignored silently.
+    try:
+        bridge.use_system_channels()
+    except Exception as exc:
+        print(f"note: could not read the synth's receive channels ({exc}); "
+              f"using the configured channel, which may be wrong",
+              file=sys.stderr)
     bridge.select(slot)
+    channel = bridge.channel_for(slot.kind)
     print(f"selected {slot}: MSB {slot.msb}, LSB {slot.lsb}, "
-          f"PC {slot.program_change}")
-    if slot.kind == banks.Kind.PERFORMANCE:
-        # See rxved/app.py and TODO.md item 4: a different channel entirely.
-        print(
-            "note: performances respond on the Performance Control Channel "
-            "(16 after a factory reset), not the part channel. If nothing "
-            "changed, try --channel 16.",
-            file=sys.stderr,
-        )
+          f"PC {slot.program_change}, on MIDI channel {channel + 1}")
+
+
+def _cmd_channels(bridge, _args) -> None:
+    """Which channels the synth listens on. Read-only, makes no sound."""
+    channels = bridge.system_channels()
+    print(f"patch / rhythm receive channel   {channels.patch_display}")
+    if channels.performance_display is None:
+        print("performance control channel      OFF — performances cannot "
+              "be selected over MIDI at all")
+    else:
+        print(f"performance control channel      "
+              f"{channels.performance_display}")
 
 
 def _cmd_scan(bridge, args) -> None:
@@ -368,6 +382,7 @@ _COMMANDS: Dict[str, Callable] = {
     "fav": _cmd_favorites,
     "tags": _cmd_tags,
     "status": _cmd_status,
+    "channels": _cmd_channels,
     "read": _cmd_read,
     "select": _cmd_select,
     "scan": _cmd_scan,
@@ -431,6 +446,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("tags", help="tags in use, with counts")
     sub.add_parser("status", help="ask the synth who it is")
+    sub.add_parser("channels",
+                   help="which MIDI channels the synth listens on")
 
     sp = sub.add_parser("read", help="read a USER bank's names (read-only)")
     sp.add_argument("bank", choices=["USER", "P-USER", "R-USER"])

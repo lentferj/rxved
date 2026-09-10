@@ -123,6 +123,7 @@ rxvcli list PST-B                 # one bank's slots
 rxvcli find "bass" --kind patch   # search names
 rxvcli resolve 87 65 28           # what does this MSB/LSB/PC select?
 rxvcli status                     # ask the synth who it is
+rxvcli channels                   # which MIDI channels it listens on
 rxvcli read USER                  # read USER names (read-only)
 rxvcli select PST-B:29            # select it on the synth
 rxvcli scan PST-A --yes           # learn a preset bank's names (plays it)
@@ -171,7 +172,8 @@ rather than inferred. See `docs/RESOLUTION_NOTES.md` §3.
 - **Verified** against a real XV-2020 on 2026-09-11: port discovery, the
   Identity Request/Reply, the device-ID numbering, the RQ1/DT1 round trip
   (which confirms the frame layout, model ID, base-128 addressing and the
-  checksum rule together), and all 128 User Patch addresses.
+  checksum rule together), all 128 User Patch addresses, and the two System
+  Common receive-channel bytes.
 - **Not verified**: every Bank Select triple, the whole SRX table, the
   performance and rhythm addresses, and both timing constants — which are
   *guesses*, labelled as such in the code.
@@ -188,7 +190,7 @@ against real hardware to find. `DISCLAIMER.md` has the full account.
 ## Development
 
 ```sh
-.venv/bin/python -m pytest      # 166 tests, all synthetic, no hardware
+.venv/bin/python -m pytest      # 172 tests, all synthetic, no hardware
 ```
 
 Project layout follows the author's sibling **eosed** and **s3ked**

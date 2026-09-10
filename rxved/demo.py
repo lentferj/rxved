@@ -83,6 +83,13 @@ class DemoBridge:
         #: thing rather than being no-ops.
         self.selected: Optional[banks.Slot] = None
         self.selected_log: List[banks.Slot] = []
+        self.channel_log: List[Optional[int]] = []
+        #: The demo synth answers with the factory defaults -- patch
+        #: channel 1, performance control channel 16 -- so the two-channel
+        #: behaviour is exercised without hardware. Deliberately *not* the
+        #: same channel: a fake where both are 1 would pass a test that a
+        #: real machine fails.
+        self.channels: Optional[object] = None
         self._closed = False
 
     # --- lifecycle ----------------------------------------------------------
@@ -159,10 +166,31 @@ class DemoBridge:
 
     # --- the operations that would make a sound -----------------------------
 
+    def system_channels(self, *, timeout=None):
+        from xv.bridge import SystemChannels
+
+        self._tick()
+        # Factory defaults: patch on 1 (wire 0), performances on 16 (wire 15).
+        return SystemChannels(patch_receive=0, performance_control=15)
+
+    def use_system_channels(self, *, timeout=None):
+        self.channels = self.system_channels()
+        return self.channels
+
+    def channel_for(self, kind: str) -> Optional[int]:
+        if self.channels is not None:
+            return self.channels.for_kind(kind)
+        return self.channel
+
     def select(self, entry: banks.Slot, *, channel: Optional[int] = None
                ) -> None:
+        if channel is None:
+            channel = self.channel_for(entry.kind)
+        #: Recorded alongside the slot so a test can assert which channel a
+        #: select actually went out on -- the thing the real bug was about.
         self.selected = entry
         self.selected_log.append(entry)
+        self.channel_log.append(channel)
         self._tick()
 
     def scan_bank(self, bank_id: str, *, on_progress=None,

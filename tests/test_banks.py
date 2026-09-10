@@ -227,3 +227,34 @@ class TestIntegrity:
     def test_out_of_range_slot_says_what_the_bank_holds(self):
         with pytest.raises(LookupError, match="128"):
             banks.slot("USER", 200)
+
+
+class TestSystemChannels:
+    """The two receive channels, and the OFF case."""
+
+    def test_performance_and_patch_are_separate(self):
+        from xv.bridge import SystemChannels
+
+        channels = SystemChannels(patch_receive=0, performance_control=14)
+        assert channels.for_kind(banks.Kind.PATCH) == 0
+        assert channels.for_kind(banks.Kind.RHYTHM) == 0
+        assert channels.for_kind(banks.Kind.PERFORMANCE) == 14
+
+    def test_display_numbers_are_one_based(self):
+        from xv.bridge import SystemChannels
+
+        channels = SystemChannels(patch_receive=0, performance_control=14)
+        assert (channels.patch_display, channels.performance_display) == (1, 15)
+
+    def test_performance_off_has_no_channel(self):
+        """With the control channel OFF, performances are unreachable.
+
+        Reported as None so the caller refuses rather than picking a channel
+        and sending messages the synth throws away.
+        """
+        from xv.bridge import SystemChannels
+
+        channels = SystemChannels(patch_receive=0, performance_control=None)
+        assert channels.performance_display is None
+        assert channels.for_kind(banks.Kind.PERFORMANCE) is None
+        assert channels.for_kind(banks.Kind.PATCH) == 0

@@ -43,6 +43,10 @@ client `Roland XV-2020`, device ID 17):
   checksum-over-address-and-data rule are all confirmed together.
 - **The User Patch address map.** All 128 User Patch names read back from
   `30 00 00 00` … `30 7F 00 00`, one per slot, in order.
+- **System Common's two receive-channel bytes** (`02 00 00 09` and
+  `02 00 00 0B`), confirmed both by single-byte reads and by a block read of
+  the surrounding area. This machine receives patches on channel 1 and
+  performances on channel 15 — see RESOLUTION_NOTES §8.
 
 **Not verified.** Everything else, including:
 

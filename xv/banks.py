@@ -267,6 +267,22 @@ class SrxCard:
     #: bank would put a row in the browser that can never hold anything.
     rhythm_lsb: Optional[int]
     rhythm_count: int
+    #: Whether an XV-2020 can use this board at all.
+    #:
+    #: SN 132 is a MIDI-selection guide covering the whole SRX series across
+    #: every host that takes one, so it lists a board's Bank Select whether
+    #: or not any particular machine can play it. The late "Special SRX
+    #: Board" pair are the case where that matters: SRX-98's own manual says
+    #: "The SRX-98 is compatible with following Roland products. **No other
+    #: products can be used.**" and then names Fantom-X, JUNO-G, Fantom-S,
+    #: Fantom (FA-76) and XV-5080/5050 -- the XV-2020 does not appear in that
+    #: list, or anywhere else in the manual.
+    #:
+    #: A board marked False keeps its row here, because the row is correct
+    #: for the hosts that can use it, but contributes no bank to
+    #: :data:`BANKS`: offering a browser slot that this machine can never
+    #: address is worse than leaving it out.
+    xv2020: bool = True
 
     @property
     def patch_lsbs(self) -> range:
@@ -339,8 +355,18 @@ SRX_CARDS: Tuple[SrxCard, ...] = (
     # among the hosts; whether an XV-2020 actually sounds patches 51-105 is
     # untested, and there is no board here to test it with.
     SrxCard("SRX-12", "SRX-12", 26, 105, rhythm_lsb=None, rhythm_count=0),
-    SrxCard("SRX-97", "SRX-97", 97, 12, rhythm_lsb=None, rhythm_count=0),
-    SrxCard("SRX-98", "SRX-98", 98, 78, rhythm_lsb=None, rhythm_count=0),
+    # The two "Special SRX Board" promotional releases, and the only two
+    # rows here an XV-2020 cannot use.
+    #
+    # SRX-98 "Analog Essentials" (2006) is settled by its own manual, quoted
+    # above. SRX-97 "Jon Lord's Rock Organ" (2007) is the same series and no
+    # listing found for it names the XV-2020 either -- but its manual is not
+    # to hand, so that is inference rather than a quotation, and it is
+    # marked as such here rather than presented as established.
+    SrxCard("SRX-97", "SRX-97", 97, 12, rhythm_lsb=None, rhythm_count=0,
+            xv2020=False),
+    SrxCard("SRX-98", "SRX-98", 98, 78, rhythm_lsb=None, rhythm_count=0,
+            xv2020=False),
 )
 
 #: The single source every row above came from, for the README's attribution
@@ -363,7 +389,7 @@ def srx_card(card_id: str) -> SrxCard:
 
 
 SRX_BANKS: Tuple[Bank, ...] = tuple(
-    b for card in SRX_CARDS
+    b for card in SRX_CARDS if card.xv2020
     for b in (*card.patch_banks(), card.rhythm_bank())
     if b is not None
 )

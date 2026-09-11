@@ -110,6 +110,16 @@ With the control channel OFF it refuses rather than sending into the void.
 changes this synth's performance. The channel is now right; whether the rest
 of the triple is remains part of item 1.
 
+## 5b. SRX-97's compatibility is inferred, not established
+
+**Status:** open, minor.
+
+SRX-98 is excluded from the bank table on the authority of its own manual
+("No other products can be used", XV-2020 absent). SRX-97 is excluded on the
+strength of being the same "Special SRX Board" series with no listing naming
+the XV-2020 — its manual has not been read. If it turns up and does name the
+XV-2020, flip `xv2020=True` on that row.
+
 ## 5. SRX: nothing has been tested, and one board is fitted
 
 **Status:** open. Blocked on: hardware.

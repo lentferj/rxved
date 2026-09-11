@@ -169,6 +169,24 @@ class TestSrx:
                         "SRX-97", "SRX-98"):
             assert banks.srx_card(card_id).rhythm_lsb is None
 
+    def test_boards_the_xv2020_cannot_use_are_not_banks(self):
+        """SN 132 lists every SRX board; this machine cannot play them all.
+
+        SRX-98's manual says in as many words that no products other than
+        the ones it names may use it, and the XV-2020 is not among them.
+        Offering a browser slot that can never be addressed is worse than
+        leaving it out -- but the row stays, because it is correct for the
+        hosts that can.
+        """
+        excluded = [c.id for c in banks.SRX_CARDS if not c.xv2020]
+        assert excluded == ["SRX-97", "SRX-98"]
+        for card_id in excluded:
+            assert banks.srx_card(card_id).patch_count > 0
+            with pytest.raises(LookupError):
+                banks.bank(f"{card_id}-1")
+        for bank in banks.SRX_BANKS:
+            assert not bank.id.startswith(("SRX-97", "SRX-98"))
+
     def test_the_series_allocation_does_not_overlap(self):
         """Each card starts where the previous one stopped."""
         used = {}

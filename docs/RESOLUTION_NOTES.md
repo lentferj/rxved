@@ -612,3 +612,34 @@ empty — only on empty, because "whichever yields more" would take SRX-12's
 And SRX-04's manual confirms the XV/RD difference the sheet showed: its
 Patch List (1) and (2) are both for the XV series and run to 128, with the
 RD-700 list separate.
+
+### SN 132 lists boards this machine cannot play
+
+`xv/banks.py` carried SRX-97 and SRX-98 as browsable banks because SN 132
+lists them. That was wrong, and the mistake is worth naming: **SN 132 is a
+MIDI-selection guide for the whole SRX series across every host that takes
+one.** It says what Bank Select reaches a board, not whether a given machine
+can use it. Reading a per-host compatibility claim out of it was reading
+something that is not there.
+
+SRX-98 "Analog Essentials" settles itself. Its manual:
+
+> The SRX-98 is compatible with following Roland products. **No other
+> products can be used.**
+> Fantom-X6/X7/X8/XR/Xa · JUNO-G · Fantom-S/S88 · Fantom (FA-76) ·
+> XV-5080/5050
+
+The XV-2020 is not in that list and does not appear anywhere in the manual.
+Both are late "Special SRX Board" promotional releases -- SRX-98 is marked
+"not for sale" -- and SRX-97 "Jon Lord's Rock Organ" is the same series, with
+no listing found naming the XV-2020 either. Its manual is not to hand, so
+that one is inference and is flagged as such in the code rather than stated.
+
+Both keep their row in `SRX_CARDS`, because the row is right for the hosts
+that *can* use them, and both are excluded from `BANKS`: a browser slot this
+machine can never address is worse than no slot.
+
+The same question is worth asking of the rest, and there the answer is
+recorded: every board from SRX-01 to SRX-12 has a manual whose patch list is
+headed "For ... XV series ...", which is a per-board statement that it works
+here. That is the test 97 and 98 fail.

@@ -339,12 +339,20 @@ class RxvedApp(App):
         self.title = "rxved"
         self.sub_title = getattr(self.bridge, "description", "")
 
+        # Keyed columns, because a favourite toggle changes exactly two
+        # cells and rebuilding a table to change a cell is what caused the
+        # cursor to jump -- see _mark_favorite and on_data_table_row_highlighted.
         bank_table = self.query_one("#bank-table", DataTable)
-        bank_table.add_columns("bank", "kind", "n", "fav")
+        for label, key in (("bank", "bank"), ("kind", "kind"),
+                           ("n", "n"), ("fav", "fav")):
+            bank_table.add_column(label, key=key)
         self._fill_banks()
 
         slot_table = self.query_one("#slot-table", DataTable)
-        slot_table.add_columns("#", "name", "MSB", "LSB", "PC", "cat", "fav")
+        for label, key in (("#", "num"), ("name", "name"), ("MSB", "msb"),
+                           ("LSB", "lsb"), ("PC", "pc"), ("cat", "cat"),
+                           ("fav", "fav")):
+            slot_table.add_column(label, key=key)
         self._fill_slots(self._current_bank)
 
         bank_table.focus()
@@ -414,7 +422,13 @@ class RxvedApp(App):
         finally:
             self._filling = False
 
-    def _fill_slots(self, bank_id: str) -> None:
+    def _fill_slots(self, bank_id: str, *, cursor: int = 0) -> None:
+        """Rebuild the slot table. Only for when every row changes.
+
+        A change to one cell goes through :meth:`DataTable.update_cell`
+        instead: ``clear()`` resets the cursor and *posts* a RowHighlighted,
+        which is delivered after this method has returned.
+        """
         table = self.query_one("#slot-table", DataTable)
         entry = banks.bank(bank_id)
         self._current_bank = bank_id
@@ -447,13 +461,19 @@ class RxvedApp(App):
                 )
         finally:
             self._filling = False
+        if 0 < cursor < len(self._current_slots):
+            table.move_cursor(row=cursor)
+        self._update_subtitle()
+        self._update_detail(table.cursor_row)
+
+    def _update_subtitle(self) -> None:
+        entry = banks.bank(self._current_bank)
         plural = {"patch": "patches", "rhythm": "rhythm sets",
                   "performance": "performances"}[entry.kind]
         self.sub_title = (
-            f"{entry.label} ({bank_id}) — {entry.count} {plural}   ·   "
-            f"ch {self.target_channel + 1}"
+            f"{entry.label} ({self._current_bank}) — {entry.count} {plural}"
+            f"   ·   ch {self.target_channel + 1}"
         )
-        self._update_detail(0)
 
     def _update_detail(self, row: int) -> None:
         if not 0 <= row < len(self._current_slots):
@@ -500,7 +520,13 @@ class RxvedApp(App):
         if event.data_table.id == "bank-table":
             row = event.cursor_row
             if 0 <= row < len(self._bank_ids):
-                self._fill_slots(self._bank_ids[row])
+                bank_id = self._bank_ids[row]
+                # Idempotent on purpose. `_filling` cannot guard this -- the
+                # message is delivered after the flag is cleared -- so the
+                # handler has to be safe to receive for the bank it is
+                # already showing.
+                if bank_id != self._current_bank:
+                    self._fill_slots(bank_id)
         elif event.data_table.id == "slot-table":
             self._update_detail(event.cursor_row)
 
@@ -533,12 +559,35 @@ class RxvedApp(App):
         return self._current_slots[row]
 
     def _refresh_current_bank(self) -> None:
+        """Rebuild the slot table in place, keeping the cursor.
+
+        Deliberately does **not** touch the bank table. Rebuilding that was
+        the bug behind the cursor jumping to slot 001 on every favourite
+        toggle: ``clear()`` snaps the bank cursor to row 0 and posts a
+        RowHighlighted that arrives after ``_filling`` is back to False, so
+        the handler faithfully loaded bank 0's slots. Nothing here changes
+        the bank list's contents anyway.
+        """
         table = self.query_one("#slot-table", DataTable)
-        row = table.cursor_row
-        self._fill_slots(self._current_bank)
-        self._fill_banks()
-        if 0 <= row < len(self._current_slots):
-            table.move_cursor(row=row)
+        self._fill_slots(self._current_bank, cursor=table.cursor_row)
+
+    def _mark_favorite(self, slot: banks.Slot, now: bool) -> None:
+        """Update the two cells a favourite toggle actually changes."""
+        slot_table = self.query_one("#slot-table", DataTable)
+        try:
+            slot_table.update_cell(str(slot.number), "fav",
+                                   "*" if now else "")
+        except Exception:
+            # The row is gone (the bank was switched under us); a full
+            # rebuild is the honest fallback and costs one frame.
+            self._refresh_current_bank()
+        marked = len(self.favorites.keys_for_bank(slot.bank_id))
+        try:
+            self.query_one("#bank-table", DataTable).update_cell(
+                slot.bank_id, "fav", str(marked) if marked else "")
+        except Exception:
+            pass
+        self._update_detail(slot_table.cursor_row)
 
     # --- actions ------------------------------------------------------------
 
@@ -604,7 +653,7 @@ class RxvedApp(App):
             slot.bank_id, slot.number,
             name="" if name == cat.UNNAMED else name,
         )
-        self._refresh_current_bank()
+        self._mark_favorite(slot, now)
         self.notify_status(
             f"{slot} {'added to' if now else 'removed from'} favourites "
             f"({len(self.favorites)} total)"
@@ -921,7 +970,7 @@ class RxvedApp(App):
         """
         self.target_channel = channel
         self.channel_is_from_device = True
-        self._fill_slots(self._current_bank)   # refresh the title's channel
+        self._update_subtitle()
         self._update_detail(
             self.query_one("#slot-table", DataTable).cursor_row)
         if self._busy:

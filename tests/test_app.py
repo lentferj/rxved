@@ -415,3 +415,94 @@ class TestDeviceInfo:
             await pilot.pause(0.5)
             assert "no Identity Reply" in app.last_status
             assert app.last_status_refused
+
+
+class TestCursorStaysPut:
+    """Marking a favourite must not move the cursor.
+
+    It did: `f` rebuilt the bank table, and DataTable.clear() snaps the
+    cursor to row 0 and *posts* a RowHighlighted. The `_filling` guard was
+    already back to False when that arrived, so the handler dutifully loaded
+    bank 0 — and the user's selection jumped to slot 001 of USER on every
+    single toggle.
+    """
+
+    async def test_favouriting_keeps_the_slot_cursor(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            await pilot.press("tab")
+            for _ in range(12):
+                await pilot.press("down")
+            await pilot.pause()
+            before = app.query_one("#slot-table").cursor_row
+            assert before == 12
+            await pilot.press("f")
+            await pilot.pause(0.3)
+            assert app.query_one("#slot-table").cursor_row == before
+
+    async def test_favouriting_keeps_the_bank(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            index = banks.bank_ids().index("PST-B")
+            for _ in range(index):
+                await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("tab")
+            for _ in range(5):
+                await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("f")
+            await pilot.pause(0.3)
+            assert app._current_bank == "PST-B"
+            assert app.query_one("#slot-table").cursor_row == 5
+
+    async def test_the_favourite_actually_lands_on_the_right_slot(self, app):
+        """The jump was only the visible half; the wrong row could be marked."""
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            await pilot.press("tab")
+            for _ in range(7):
+                await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("f")
+            await pilot.pause(0.3)
+            assert ("USER", 8) in app.favorites
+            assert ("USER", 1) not in app.favorites
+
+    async def test_toggling_twice_returns_to_where_it_started(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            await pilot.press("tab")
+            for _ in range(3):
+                await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("f")
+            await pilot.pause(0.2)
+            await pilot.press("f")
+            await pilot.pause(0.2)
+            assert app.query_one("#slot-table").cursor_row == 3
+            assert ("USER", 4) not in app.favorites
+
+    async def test_changing_channel_keeps_the_cursor(self, app):
+        """It refilled the whole table just to redraw the title."""
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            await pilot.press("tab")
+            for _ in range(9):
+                await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("right_square_bracket")
+            await pilot.pause(0.3)
+            assert app.query_one("#slot-table").cursor_row == 9
+
+    async def test_reading_names_keeps_the_cursor(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            await pilot.press("tab")
+            for _ in range(20):
+                await pilot.press("down")
+            await pilot.pause()
+            app.action_read_bank()
+            await pilot.pause(0.5)
+            assert app.query_one("#slot-table").cursor_row == 20
+            assert app._current_bank == "USER"

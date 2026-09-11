@@ -525,5 +525,15 @@ count is still checked against the board's documented total, so a missing or
 duplicated row is caught — but a mistyped *name* on the right number passes
 silently, and nothing in the project can find it.
 
-Coverage after this: SRX-01, 02, 03, 05, 06, 07, 08, 09 and 10 complete
-(2417 patches); SRX-04, 11, 12, 97 and 98 have no source yet.
+### The second-list trap is in the listings too
+
+`read_srx_list` did not scope to the XV section -- only the manual parser
+did -- and it happened to work because every sheet to hand prints the XV
+list first. SRX-04 showed that is luck, not a rule: its sheet carries an
+"RD-700 Patch List:" straight after the XV one, and the two differ from
+patch 98 ("Harp StrPad" against "Spec/Pizz"). Both readers now share
+`_xv_section`, which also learned the sheets' own heading style
+("XV-Series Patch List:" as well as "For Fantom series/XV series/...").
+
+Coverage: SRX-01, 02, 03, 04, 05, 06, 07, 08, 09 and 10 complete
+(2545 patches); SRX-11, 12, 97 and 98 have no source yet.

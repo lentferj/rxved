@@ -321,27 +321,40 @@ _SRX_ROW = re.compile(
 #: Only ever tried for a number the strict pattern missed, and anchored on
 #: that exact number, so the ambiguity it would otherwise introduce cannot
 #: bite.
+#: A heading that introduces a patch list for a particular host family.
+#: Both spellings appear: the owner's manuals write "For Fantom series/XV
+#: series/...", the Faxback sheets write "XV-Series Patch List:".
+_LIST_HEADING = re.compile(r"^\s*(For\s+\S|.*Patch List\s*:)", re.IGNORECASE)
+
+#: The families whose list is the right one for an XV-2020.
+_OURS = re.compile(r"XV|Fantom|JUNO-G|MX-200", re.IGNORECASE)
+
+
 def _xv_section(text: str) -> str:
     """Just the patch list meant for the XV series.
 
-    These manuals carry **more than one** patch list -- one for the
-    Fantom/XV/JUNO-G family and another for the RD series, MC-909 and G-70 --
+    These documents carry **more than one** patch list -- one for the
+    Fantom/XV/JUNO-G family and others for the RD series, MC-909 and G-70 --
     and they are not the same patches. SRX-05 number 298 is "OldSkool FX" in
-    the first and "Noise Cycle" in the second. Taking whichever came first
-    happens to be right for every board here, and would be silently wrong for
-    one that printed them the other way round.
+    the first and "Noise Cycle" in the second, and SRX-04's sheet prints an
+    "RD-700 Patch List" straight after the XV one.
+
+    Taking whichever list came first happens to be right for every document
+    here, and is not a property worth relying on: nothing says Roland always
+    printed the XV list first, and a sheet that did not would be read
+    silently and wrongly.
     """
     lines = text.splitlines()
     start = None
     for index, line in enumerate(lines):
-        if line.strip().startswith("For ") and "XV" in line:
+        if _LIST_HEADING.match(line) and _OURS.search(line):
             start = index
             break
     if start is None:
         return text
     for index in range(start + 1, len(lines)):
-        stripped = lines[index].strip()
-        if stripped.startswith("For ") and "XV" not in stripped:
+        line = lines[index]
+        if _LIST_HEADING.match(line) and not _OURS.search(line):
             return "\n".join(lines[start:index])
     return "\n".join(lines[start:])
 
@@ -350,7 +363,8 @@ def _xv_section(text: str) -> str:
 #: stop, then the name. Same no-double-space rule as the manual parser --
 #: these listings set several tables side by side, and without it a name
 #: would run into the next column.
-_SRX_LIST_ROW = re.compile(r"(?<![\d(.])(\d{1,3})\.?\s+((?:\S| (?! ))+?)(?=\s{2,}|$)")
+_SRX_LIST_ROW = re.compile(
+    r"(?<![\d(.])(\d{1,3})\.?\s+((?:\S| (?! ))+?)(?=\s{2,}|$)")
 
 
 def read_srx_list(card: str, path: str) -> Dict[str, List[dict]]:
@@ -358,8 +372,7 @@ def read_srx_list(card: str, path: str) -> Dict[str, List[dict]]:
 
     The Faxback-style "Patch Listing" sheets carry names and nothing else --
     no voice count, no category, no Bank Select. They are the only source for
-    boards whose owner's manual is not to hand, and worth having for that,
-    but a board read this way cannot be filtered by category.
+    boards whose owner's manual is not to hand.
 
     **First occurrence of a number wins**, which is what makes SRX-01 work:
     its sheet prints the patch table and the rhythm table side by side, both
@@ -371,13 +384,13 @@ def read_srx_list(card: str, path: str) -> Dict[str, List[dict]]:
     sheet alone: SRX-06's numbers a page-break artefact as patch 271, so the
     179 names after it each land on the patch before them, and the sheet
     still parses as a complete 1..449. That was caught only because SRX-06
-    also has a manual to disagree with. A board read from a listing has
-    names that are probably right, no categories, and nothing to check them
+    also has a manual to disagree with. A board read from a listing has names
+    that are probably right, no categories, and nothing to check them
     against -- the tool says so at the end of a run.
     """
     definition = banks.srx_card(card)
     total = definition.patch_count
-    text = _fix_pdf_text(pdf_text(path))
+    text = _xv_section(_fix_pdf_text(pdf_text(path)))
 
     found: Dict[int, str] = {}
     for line in text.splitlines():

@@ -341,15 +341,53 @@ def _cmd_channels(bridge, args) -> None:
     if state.parts:
         print()
         rows = [
-            [str(p.part), str(p.channel_display), str(p.msb), str(p.lsb),
-             str(p.program_change), str(p.slot) if p.slot else "?"]
+            [str(p.part), str(p.channel_display), str(p.program_change),
+             str(p.lsb), str(p.msb), str(p.slot) if p.slot else "?"]
             for p in state.parts
         ]
-        print(_fmt_table(rows, ["part", "ch", "MSB", "LSB", "PC", "slot"]))
+        print(_fmt_table(rows, ["part", "ch", "PC", "LSB", "MSB", "slot"]))
 
     print()
     for channel in range(16):
         print("  " + state.describes(channel))
+
+
+def _cmd_multi(bridge, args) -> None:
+    """Multi-mode setup: the parts, and why a channel makes no sound.
+
+    The CLI twin of the browser's `m` screen. Read-only, makes no sound,
+    eighteen round trips.
+    """
+    state = bridge.read_state(with_parts=True)
+    common = state.common
+    header = f"sound mode  {state.setup.mode_name}"
+    if common is not None and common.name:
+        header += f"   performance  {common.name}"
+    if common is not None and common.solo is not None:
+        header += f"   SOLO on part {common.solo}"
+    print(header)
+    print()
+
+    if state.parts:
+        rows = []
+        for part in state.parts:
+            reason = part.silence_reason()
+            if reason is None and state.soloed_out(part):
+                reason = "not soloed"
+            rows.append([
+                str(part.part), str(part.channel_display),
+                "on" if part.receive_switch else "OFF",
+                str(part.level),
+                str(part.program_change), str(part.lsb), str(part.msb),
+                str(part.slot) if part.slot else "?",
+                reason or "",
+            ])
+        print(_fmt_table(rows, ["part", "ch", "rx", "lvl", "PC", "LSB",
+                                "MSB", "slot", ""]))
+        print()
+
+    for line in state.silence_report():
+        print(f"  {line}")
 
 
 def _cmd_scan(bridge, args) -> None:
@@ -426,6 +464,7 @@ _COMMANDS: Dict[str, Callable] = {
     "tags": _cmd_tags,
     "status": _cmd_status,
     "channels": _cmd_channels,
+    "multi": _cmd_multi,
     "read": _cmd_read,
     "select": _cmd_select,
     "scan": _cmd_scan,
@@ -494,6 +533,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--parts", action="store_true",
                     help="read all 16 Performance Parts even in Patch mode "
                          "(16 extra round trips, still silent)")
+
+    sub.add_parser(
+        "multi", help="multi-mode setup, and why a channel is silent")
 
     sp = sub.add_parser("read", help="read a USER bank's names (read-only)")
     sp.add_argument("bank", choices=["USER", "P-USER", "R-USER"])

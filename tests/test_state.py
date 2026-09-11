@@ -43,15 +43,36 @@ class TestSilenceReport:
                          receive_switch=rx, level=level,
                          msb=87, lsb=64, program_change=0)
 
-    def test_patch_mode_is_the_whole_answer(self):
+    def test_patch_mode_is_reported_first(self):
         """The likeliest cause of "only channel 1 sounds", and not a mute."""
         report = self._state(mode=SoundMode.PATCH).silence_report()
         joined = " ".join(report)
         assert "single-timbral" in joined
         assert "only channel 1 sounds" in joined
-        # Nothing about parts: in this mode they are not in use, and listing
-        # them as healthy would suggest they were being consulted.
+
+    def test_patch_mode_with_unread_parts_says_nothing_about_them(self):
+        """Unread is not the same as healthy, so claim nothing either way."""
+        report = self._state(mode=SoundMode.PATCH).silence_report()
         assert not any("Part " in line for line in report)
+
+    def test_patch_mode_still_reports_switched_off_parts(self):
+        """The real machine's case: Patch mode AND most parts switched off.
+
+        Reporting only the mode would send somebody to the front panel to
+        switch to PERFORM, after which the symptom would not change. Both
+        halves have to be said at once or the first one is misleading.
+        """
+        parts = [self._part(1, 0)] + [
+            self._part(n, n - 1, rx=False) for n in range(2, 17)
+        ]
+        report = self._state(mode=SoundMode.PATCH, parts=parts).silence_report()
+        joined = " ".join(report)
+        assert "single-timbral" in joined
+        assert "would not be enough on its own" in joined
+        assert "Part  2 (ch  2): RX SWITCH is OFF" in joined
+        # And the unreadable cause matters again, now that PERFORM is on the
+        # table.
+        assert "Mute Switch" in joined
 
     def test_solo_is_reported_as_the_cause_it_is(self):
         parts = [self._part(n, n - 1) for n in range(1, 17)]
@@ -79,8 +100,8 @@ class TestSilenceReport:
         parts = [self._part(1, 0), self._part(2, 1)]
         report = " ".join(
             self._state(mode=SoundMode.PERFORM, parts=parts).silence_report())
-        assert "No part listens on channel" in report
-        assert "nothing is muted there" in report
+        assert "Nothing audible is assigned to channel" in report
+        assert "not muted, just unused" in report
 
     def test_level_zero_and_rx_off_are_told_apart(self):
         parts = [self._part(1, 0, rx=False), self._part(2, 1, level=0)]
@@ -100,7 +121,33 @@ class TestSilenceReport:
         ):
             assert "Mute Switch" in " ".join(state.silence_report())
 
-    def test_patch_mode_report_does_not_mention_the_mute_switch(self):
-        """There is nothing to check on the panel: the parts are not in use."""
+    def test_patch_mode_with_unread_parts_does_not_mention_the_mute_switch(self):
+        """Nothing to check on the panel yet: the parts are not in use."""
         report = " ".join(self._state(mode=SoundMode.PATCH).silence_report())
         assert "Mute Switch" not in report
+
+    def test_it_never_sends_you_to_a_panel_the_module_does_not_have(self):
+        """The XV-2020 is a half-rack module with a three-digit LED.
+
+        Its four controls reach a short list of parameters (OM p. 116), and
+        Receive Switch, Mute Switch and Solo are not on it. Telling somebody
+        to change those "on the front panel" is advice that cannot be
+        followed on this instrument.
+        """
+        parts = [self._part(1, 0, rx=False)]
+        for state in (
+            self._state(mode=SoundMode.PERFORM, parts=parts),
+            self._state(mode=SoundMode.PATCH, parts=parts),
+        ):
+            report = " ".join(state.silence_report())
+            assert "front panel" not in report
+            assert "XV-2020 Editor" in report
+
+    def test_it_says_which_settings_the_module_itself_can_reach(self):
+        parts = [self._part(1, 0, rx=False)]
+        report = " ".join(
+            self._state(mode=SoundMode.PERFORM, parts=parts).silence_report())
+        # Reachable on the module...
+        assert "[VALUE]" in report and "[PATCH RX CH]" in report
+        # ...and the ones that are not, said as such.
+        assert "NOT in the module's own parameter list" in report

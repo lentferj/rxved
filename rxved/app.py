@@ -359,12 +359,6 @@ class MultiScreen(ModalScreen[None]):
     def _report_text(self) -> str:
         lines = list(self._state.silence_report())
         lines.append("")
-        lines.append(
-            "On the panel: RX SWITCH and LEVEL are on PERFORM PART ALL; "
-            "SOLO is on Performance Common; the sound mode is the "
-            "PATCH/PERFORM button. rxved reads these and does not write "
-            "them."
-        )
         return "\n".join(f"· {line}" if line else "" for line in lines)
 
     def action_close(self) -> None:

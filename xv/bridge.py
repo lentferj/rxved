@@ -644,6 +644,35 @@ def _describe_selection(slot, msb: int, lsb: int, program: int) -> str:
     return f"MSB {msb} / LSB {lsb} / PC {program} — no bank claims this"
 
 
+#: Appended wherever the parts are being discussed, so the report can never
+#: be read as exhaustive. It cannot be: the Mute Switch is on the editor's
+#: PERFORM PART ALL page but not in the parameter address map, so a muted
+#: part reads back as audible over MIDI.
+_MUTE_CAVEAT = (
+    "Not readable over MIDI: the Mute Switch (PERFORM PART ALL) is absent "
+    "from the parameter address map, so a part muted there looks audible "
+    "here. It is also not one of the parameters the XV-2020 can edit on its "
+    "own (OM p. 116), so it can only have been set from the editor -- which "
+    "is where to look if a channel is quiet and nothing above explains it."
+)
+
+#: Where a setting can actually be changed on an XV-2020. The module has a
+#: three-digit LED and four controls, and OM p. 116 lists exactly which
+#: parameters those can reach. Most of what silences a part is not on that
+#: list, so "change it on the front panel" is advice that cannot be
+#: followed -- it takes the XV-2020 Editor, or SysEx.
+_WHERE_TO_CHANGE = (
+    "Where these live: sound mode is on the module (press [VALUE] until the "
+    "PATCH or PERFORM indicator lights, OM p. 38) and so are Part Level "
+    "(hold [VOLUME], press [VALUE], then [CATEGORY/BANK] to the parameter, "
+    "OM p. 72) and a part's Receive Channel ([PATCH RX CH]/[PART], OM p. "
+    "94). Receive Switch, Mute Switch and Solo Part Select are NOT in the "
+    "module's own parameter list (OM p. 116) -- those can only be changed "
+    "from the XV-2020 Editor, or over SysEx. rxved reads them and does not "
+    "write them."
+)
+
+
 @dataclass(frozen=True)
 class PerformanceCommon:
     """Temporary Performance Common, ``10 00 00 00`` (OM p. 149).
@@ -718,8 +747,23 @@ class DeviceState:
                 f"single-timbral: only channel {channel} sounds, and the "
                 f"Performance Parts are not in use. This alone explains a "
                 f"synth that answers on one channel and ignores the other "
-                f"15. Switch to PERFORM on the front panel for multitimbral."
+                f"15. For multitimbral, press [VALUE] on the module until "
+                f"the PERFORM indicator lights (OM p. 38)."
             )
+            # ...but if the parts were read anyway, say what switching to
+            # PERFORM would actually get. Stopping here is what turns one
+            # cause into the cause: a machine can be in Patch mode *and*
+            # have most of its parts switched off, and someone who fixes
+            # only the mode then finds the symptom unchanged.
+            forward = self._part_findings(
+                lead="Switching to PERFORM would not be enough on its own. "
+                     "In the performance currently loaded:")
+            lines.extend(forward)
+            if forward:
+                # Relevant again the moment we are talking about what
+                # PERFORM mode would do, and not before.
+                lines.append(_MUTE_CAVEAT)
+                lines.append(_WHERE_TO_CHANGE)
             return lines
 
         if self.common is not None and self.common.solo is not None:
@@ -729,35 +773,42 @@ class DeviceState:
                 f"from the parts themselves."
             )
 
-        quiet = [(p, p.silence_reason()) for p in self.parts
-                 if p.silence_reason() is not None]
-        for part, reason in quiet:
-            lines.append(
-                f"Part {part.part:>2} (ch {part.channel_display:>2}): "
-                f"{reason}")
-
-        listening = {p.receive_channel for p in self.parts}
-        unused = [c + 1 for c in range(16) if c not in listening]
-        if unused:
-            lines.append(
-                "No part listens on channel "
-                + ", ".join(str(c) for c in unused)
-                + " -- nothing is muted there, there is simply nothing "
-                  "assigned to it."
-            )
+        lines.extend(self._part_findings())
 
         if not lines:
             lines.append(
                 "Nothing readable is silencing any part: every part has its "
                 "Receive Switch on, a non-zero level, and Solo is off."
             )
-        lines.append(
-            "Not readable over MIDI: the Mute Switch on the PERFORM PART ALL "
-            "page is absent from the parameter address map, so a part muted "
-            "there looks audible here. If a channel is quiet and nothing "
-            "above explains it, check MUTE on the panel."
-        )
+        lines.append(_MUTE_CAVEAT)
+        lines.append(_WHERE_TO_CHANGE)
         return lines
+
+    def _part_findings(self, *, lead: str = "") -> List[str]:
+        """Per-part reasons a channel is quiet. Empty when the parts are
+        unread, which is not the same as "nothing wrong with them"."""
+        if not self.parts:
+            return []
+        found: List[str] = []
+        for part in self.parts:
+            reason = part.silence_reason()
+            if reason is not None:
+                found.append(
+                    f"Part {part.part:>2} (ch {part.channel_display:>2}): "
+                    f"{reason}")
+
+        listening = {p.receive_channel for p in self.parts
+                     if not p.silent}
+        unused = [c + 1 for c in range(16) if c not in listening]
+        if unused:
+            found.append(
+                "Nothing audible is assigned to channel "
+                + ", ".join(str(c) for c in unused)
+                + " -- not muted, just unused by any part that can sound."
+            )
+        if found and lead:
+            found.insert(0, lead)
+        return found
 
     def describes(self, channel: int) -> str:
         """One line saying what a Bank Select / PC on this channel would hit.

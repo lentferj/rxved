@@ -22,6 +22,7 @@ one you cannot.
 """
 
 import pytest
+from textual.widgets import DataTable
 
 from rxved.app import CategoryScreen, ReportScreen, RxvedApp
 from rxved.demo import DemoBridge
@@ -340,7 +341,7 @@ class TestKeyLegend:
     """The legend wraps; it never truncates. See tests/test_legend.py."""
 
     async def test_the_app_renders_the_legend_not_a_footer(self, app):
-        from textual.widgets import Footer
+        from textual.widgets import DataTable, Footer
 
         from rxved.app import KeyHints
 
@@ -735,16 +736,46 @@ class TestCategoryFilter:
             assert "SBS" in app.screen._counts
             assert "BEL" in app.screen._counts
 
-    async def test_selecting_everything_is_stored_as_no_filter(self, app):
+    async def test_enter_applies_the_choice(self, app):
+        """Pressing enter must both close the picker and set the filter.
+
+        It did neither: the focused DataTable ate Enter for row selection,
+        so the picker could only be left with escape, which discards. The
+        earlier version of this test pressed enter, then asserted the filter
+        was empty -- which is its starting value, so it passed whether the
+        key worked or not.
+        """
         app.catalog = self._catalog()
         async with app.run_test() as pilot:
             await pilot.pause(0.4)
             app.action_pick_categories()
             await pilot.pause(0.2)
+            table = app.screen.query_one("#cats", DataTable)
+            row = list(app.screen._counts).index("SPD")
+            table.move_cursor(row=row)
+            await pilot.press("space")
+            await pilot.press("enter")
+            await pilot.pause(0.4)
+            assert not isinstance(app.screen, CategoryScreen), \
+                "enter did not close the picker"
+            assert app.categories == {"SPD"}
+            assert [s.number for s in app._current_slots] == [2, 3]
+
+    async def test_selecting_everything_is_stored_as_no_filter(self, app):
+        app.catalog = self._catalog()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.categories = {"SPD"}       # start from a real filter, so
+            app._fill_slots("USER")        # clearing it is an observable change
+            await pilot.pause()
+            app.action_pick_categories()
+            await pilot.pause(0.2)
             await pilot.press("a")
             await pilot.press("enter")
-            await pilot.pause(0.3)
+            await pilot.pause(0.4)
+            assert not isinstance(app.screen, CategoryScreen)
             assert app.categories == set()
+            assert len(app._current_slots) == 128
 
     async def test_escape_leaves_the_filter_alone(self, app):
         app.catalog = self._catalog()

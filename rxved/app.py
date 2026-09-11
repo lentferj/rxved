@@ -296,7 +296,11 @@ class CategoryScreen(ModalScreen[Optional[set]]):
 
     BINDINGS = [
         Binding("space", "toggle", "Toggle"),
-        Binding("enter", "accept", "Apply"),
+        # `priority`, for the same reason the browser's Enter needs it: the
+        # focused DataTable consumes Enter for its own row selection, so
+        # without this the key does nothing at all and the only way out of
+        # the picker is escape -- which discards the choice.
+        Binding("enter", "accept", "Apply", priority=True),
         Binding("a", "all", "All"),
         Binding("x", "none", "Clear"),
         Binding("escape", "cancel", "Cancel"),
@@ -392,7 +396,12 @@ class RxvedApp(App):
     # why that matters. `priority` on enter is still load-bearing: a focused
     # DataTable consumes Enter for its own row selection.
     BINDINGS = [
-        Binding("enter", "select_slot", "Select on synth", priority=True),
+        # Deliberately NOT a priority binding, and not a binding at all for
+        # the key itself -- see on_data_table_row_selected. A priority Enter
+        # here fires over modal screens too, which silently broke the
+        # category picker: its own Enter binding never ran, so the only way
+        # out was escape, which discards the choice.
+        Binding("enter", "select_slot", "Select on synth", show=False),
         Binding("left_square_bracket", "channel_down", "Channel -"),
         Binding("right_square_bracket", "channel_up", "Channel +"),
         Binding("c", "pick_channel", "Set channel"),
@@ -695,6 +704,17 @@ class RxvedApp(App):
         self.query_one("#detail", Static).update("\n".join(lines))
 
     # --- events -------------------------------------------------------------
+
+    def on_data_table_row_selected(self, event) -> None:
+        """Enter on a slot row selects it on the synth.
+
+        Handled as the table's own event rather than as an App-level Enter
+        binding. A focused DataTable consumes Enter for row selection, so a
+        plain binding never fires; a `priority` binding does fire, but also
+        fires over any modal screen that is open, which is worse.
+        """
+        if event.data_table.id == "slot-table":
+            self.action_select_slot()
 
     def on_data_table_row_highlighted(self, event) -> None:
         if self._filling:

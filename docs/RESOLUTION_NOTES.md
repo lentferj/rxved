@@ -643,3 +643,25 @@ The same question is worth asking of the rest, and there the answer is
 recorded: every board from SRX-01 to SRX-12 has a manual whose patch list is
 headed "For ... XV series ...", which is a per-board statement that it works
 here. That is the test 97 and 98 fail.
+
+### Rhythm sets
+
+174 kits across the seven boards that have them, read from the same manuals
+as their patches — no extra argument, since a board's Rhythm Set List is in
+its own owner's manual.
+
+Rows are the same shape as a names-only patch listing, a number and a name.
+What identifies the table is its Bank Select line: **rhythm sets are MSB 92
+where patches are 93**, which is what separates the two in a manual printing
+both.
+
+The section has to be bounded at the far end as well, and that is the part
+worth stating. What follows a Rhythm Set List is the Rhythm Set Key Assign
+chart — page after page of small numbers beside short names, which would
+have supplied as many convincing "kits" as the count demanded, and every one
+of them wrong. `_AFTER_RHYTHM` stops the read there.
+
+Counts came out exactly right for all seven (79, 12, 34, 5, 11, 21, 12), and
+SRX-01 is the one worth having checked: its 79 kits are printed as four
+sub-groups (Drum Kit, Kick, Snare, Hi Hat) numbered straight through, and
+the readings at every group boundary — 1, 25, 36, 62 — match the manual.

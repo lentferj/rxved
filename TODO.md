@@ -157,8 +157,8 @@ parser should mostly work; what they lack is Bank Select data, which is
 already in `xv/banks.py` from SN 132, so the two only need joining on the
 patch number.
 
-Until then, SRX slots browse with correct numbers and no names — which is
-exactly what the "scan the bank" and "read from device" paths are for.
+Done: all twelve usable boards are read from their own owner's manuals, with
+categories, plus 174 rhythm-set names from the same files. 2637 patches.
 
 ## 7. The editor's parameter XML is untouched
 

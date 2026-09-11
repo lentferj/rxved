@@ -444,6 +444,64 @@ def read_srx_list(card: str, path: str) -> Dict[str, List[dict]]:
     return out
 
 
+#: The Bank Select line that opens a board's Rhythm Set List. Patches are
+#: MSB 93, rhythm sets MSB 92, so this is what tells the two tables apart in
+#: a manual that prints both.
+_RHYTHM_BANK_LINE = re.compile(r"BANK SELECT\s+MSB\s*:\s*92", re.IGNORECASE)
+
+#: What follows a Rhythm Set List and must not be read as part of it. The
+#: key-assign charts are the dangerous one: they are full of small numbers
+#: beside short names and would happily supply 79 plausible "kits".
+_AFTER_RHYTHM = re.compile(
+    r"Key Assign|Wave List|Patch List|^\s*For\s+[A-Z]", re.IGNORECASE)
+
+
+def read_srx_rhythm(card: str, path: str) -> Dict[str, List[dict]]:
+    """One board's rhythm-set names, from the Rhythm Set List in its manual.
+
+    Same row shape as a names-only patch listing -- a number and a name, no
+    voice count, no category -- but found by its own Bank Select line: rhythm
+    sets are MSB 92 where patches are 93, which is what separates the two
+    tables in a manual that prints both.
+
+    The section has to be bounded at the far end as well. What follows a
+    Rhythm Set List is the Rhythm Set Key Assign chart, which is nothing but
+    small numbers beside short names and would supply as many convincing
+    "kits" as the count demanded.
+    """
+    definition = banks.srx_card(card)
+    total = definition.rhythm_count
+    if not total or definition.rhythm_lsb is None:
+        return {}
+
+    lines = _fix_pdf_text(pdf_text(path)).splitlines()
+    start = next((i for i, line in enumerate(lines)
+                  if _RHYTHM_BANK_LINE.search(line)), None)
+    if start is None:
+        print(f"warning: {card}: no Rhythm Set List found in "
+              f"{os.path.basename(path)}; its {total} kits stay unnamed.",
+              file=sys.stderr)
+        return {}
+    end = next((i for i in range(start + 1, len(lines))
+                if _AFTER_RHYTHM.search(lines[i])), len(lines))
+
+    found: Dict[int, str] = {}
+    for line in lines[start:end]:
+        for match in _SRX_LIST_ROW.finditer(line):
+            number = int(match.group(1))
+            name = match.group(2).strip()
+            if 1 <= number <= total and number not in found and _ok(name):
+                found[number] = name
+
+    missing = [n for n in range(1, total + 1) if n not in found]
+    if missing:
+        print(f"warning: {card}: {len(missing)} of {total} rhythm sets were "
+              f"not parsed ({missing[:8]}...).", file=sys.stderr)
+    if not found:
+        return {}
+    return {f"{card}-R": [{"n": n, "name": found[n]} for n in sorted(found)]}
+
+
 def read_srx_names(card: str, path: str) -> Dict[str, List[dict]]:
     """One board's patches from a hand-written table.
 
@@ -886,6 +944,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         if not os.path.exists(path):
             raise SystemExit(f"error: no such file: {path}")
         banks_out.update(read_srx(card, path))
+        # The same manual carries the board's Rhythm Set List when it has
+        # one, so there is nothing extra for the caller to pass.
+        banks_out.update(read_srx_rhythm(card, path))
         sources.append(f"{card} Owner's Manual ({os.path.basename(path)})")
 
     for item in args.srx_list:

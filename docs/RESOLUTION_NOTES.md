@@ -535,5 +535,12 @@ patch 98 ("Harp StrPad" against "Spec/Pizz"). Both readers now share
 `_xv_section`, which also learned the sheets' own heading style
 ("XV-Series Patch List:" as well as "For Fantom series/XV series/...").
 
-Coverage: SRX-01, 02, 03, 04, 05, 06, 07, 08, 09 and 10 complete
-(2545 patches); SRX-11, 12, 97 and 98 have no source yet.
+And a limit worth knowing: SRX-11's manual prints its two lists **side by
+side**, both headings on one line and both tables sharing every line after
+it. No line-based split separates those, and what keeps the XV reading is
+only that its column is the left-hand one. For SRX-11 the two lists are
+identical so nothing turns on it — but a board that differed *and* was set
+side by side would need column-aware parsing, not line-aware.
+
+Coverage: SRX-01 through SRX-11 complete (2587 patches); SRX-12, 97 and 98
+have no source yet.

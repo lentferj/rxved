@@ -343,6 +343,14 @@ def _xv_section(text: str) -> str:
     here, and is not a property worth relying on: nothing says Roland always
     printed the XV list first, and a sheet that did not would be read
     silently and wrongly.
+
+    **This cannot help when the lists are printed side by side**, as SRX-11's
+    manual prints them -- both headings land on one line and both tables
+    share every line after it, so no line-based split separates them. There
+    the only thing keeping the XV reading is that its column is the
+    left-hand one and the row parser reads left to right. For SRX-11 the two
+    lists are identical anyway, so nothing turns on it; for a board where
+    they differ and are set side by side, this would need columns, not lines.
     """
     lines = text.splitlines()
     start = None

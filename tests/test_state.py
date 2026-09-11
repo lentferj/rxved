@@ -163,13 +163,20 @@ class TestWritableOffsetsAgree:
     that accepts a different set lets that drift ship untested.
     """
 
-    def test_the_screen_and_the_bridge_agree(self):
+    def test_the_screen_offers_nothing_the_bridge_refuses(self):
+        """One-directional on purpose.
+
+        A cell the screen offers and the bridge refuses is a dialog that
+        fails after the user has committed to it. The reverse is fine: the
+        bridge allows velocity sensitivity, which has no column because the
+        row was already wide enough.
+        """
         from rxved.app import EDITABLE_PART_COLUMNS
         from xv.bridge import XvBridge
 
         offered = {offset for offset, _, _, _
                    in EDITABLE_PART_COLUMNS.values()}
-        assert offered == set(XvBridge.WRITABLE_PART_OFFSETS)
+        assert offered <= set(XvBridge.WRITABLE_PART_OFFSETS)
 
     def test_the_demo_accepts_exactly_what_the_bridge_does(self):
         from rxved.demo import DemoBridge
@@ -190,8 +197,12 @@ class TestWritableOffsetsAgree:
 
         assert set(XvBridge.WRITABLE_PART_OFFSETS) == {
             0x00, 0x01, 0x04, 0x05, 0x06, 0x07,          # MIDI settings
+            0x08, 0x09, 0x0A, 0x0B, 0x0D,                # pan, tune, poly
+            0x15, 0x16, 0x17, 0x18,                      # octave, vel, range
             0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20,          # mute, sends, routing
         }
+        # Every one is inside the Performance Part block, which is 49 bytes.
+        assert max(XvBridge.WRITABLE_PART_OFFSETS) < 49
         for offset, (label, low, high) in (
                 XvBridge.WRITABLE_PART_OFFSETS.items()):
             assert 0 <= low <= high <= 127, label
@@ -387,3 +398,56 @@ class TestChannelReceiveSwitches:
         from xv.bridge import XvBridge
 
         assert set(XvBridge.WRITABLE_CHANNEL_OFFSETS) == set(range(0x0C))
+
+
+class TestDisplayVersusWire:
+    """Every column where the number shown is not the byte sent.
+
+    This is the project's central hazard applied to the tone columns: pan,
+    octave and the tunes are stored biased by 64, so a screen that forgot
+    the bias would show plausible numbers and write wrong ones.
+    """
+
+    def test_every_biased_column_round_trips(self):
+        from rxved.app import _BIAS
+
+        for column, bias in _BIAS.items():
+            for display in (-64, -1, 0, 1, 63):
+                wire = display + bias
+                assert wire - bias == display, column
+
+    def test_the_channel_column_is_the_one_that_goes_the_other_way(self):
+        """ch is 1-16 shown and 0-15 sent; the rest are signed round 64."""
+        from rxved.app import _BIAS
+
+        assert _BIAS["ch"] == -1
+        assert 1 + _BIAS["ch"] == 0          # display 1 -> wire 0
+        assert 16 + _BIAS["ch"] == 15
+
+    def test_pan_spans_the_whole_byte(self):
+        from rxved.app import _BIAS, EDITABLE_PART_COLUMNS
+
+        _o, _label, low, high = EDITABLE_PART_COLUMNS["pan"]
+        assert low + _BIAS["pan"] == 0
+        assert high + _BIAS["pan"] == 127
+
+    def test_each_display_range_lands_inside_the_wire_range(self):
+        """The two allowlists are independent, and must not disagree."""
+        from rxved.app import _BIAS, EDITABLE_PART_COLUMNS
+        from xv.bridge import XvBridge
+
+        for column, (offset, _label, low, high) in (
+                EDITABLE_PART_COLUMNS.items()):
+            bias = _BIAS.get(column, 0)
+            _wire_label, wire_low, wire_high = (
+                XvBridge.WRITABLE_PART_OFFSETS[offset])
+            assert low + bias >= wire_low, column
+            assert high + bias <= wire_high, column
+
+    def test_note_names_match_the_manuals_numbering(self):
+        """The XV-2020 counts C-1 as note 0, so 60 is C4 (OM p. 73)."""
+        from xv.params import note_name
+
+        assert note_name(0) == "C-1"
+        assert note_name(60) == "C4"
+        assert note_name(127) == "G9"

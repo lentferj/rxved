@@ -1095,7 +1095,7 @@ class TestMultiEditing:
             assert "CHORUS ON" in summary
             assert "REVERB ON" in summary
 
-    async def test_tab_cycles_three_views(self, app):
+    async def test_tab_cycles_four_views(self, app):
         async with app.run_test() as pilot:
             screen = await self._open(app, pilot)
             table = screen.query_one("#part-table", DataTable)
@@ -1110,6 +1110,9 @@ class TestMultiEditing:
             await pilot.press("tab")
             await pilot.pause()
             assert "rx_pc" in keys() and "rx_bs" in keys()
+            await pilot.press("tab")
+            await pilot.pause()
+            assert "pan" in keys() and "lo" in keys()
             await pilot.press("tab")
             await pilot.pause()
             assert "rx" in keys() and "lvl" in keys()   # back to the start
@@ -1152,6 +1155,55 @@ class TestMultiEditing:
             first = str(table.get_row("1")[keys.index("rx_pc")])
             second = str(table.get_row("2")[keys.index("rx_pc")])
             assert first == second == "[b]OFF[/b]"
+
+    async def _tone_view(self, app, pilot):
+        screen = await self._open(app, pilot)
+        await pilot.press("tab", "tab", "tab")
+        await pilot.pause()
+        return screen
+
+    async def test_pan_is_written_through_the_bias(self, app):
+        """Display -64..63, wire 0..127. Off by 64 would still look sane."""
+        async with app.run_test() as pilot:
+            screen = await self._tone_view(app, pilot)
+            await self._cell(screen, pilot, 1, "pan")
+            # Enter, not a digit: `-` steps down, so a negative value is
+            # typed over the pre-selected current one.
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("-", "2", "0")
+            await pilot.pause()
+            await pilot.press("enter")
+            for _ in range(10):
+                await pilot.pause()
+            assert app.bridge.read_part(1).pan == 44      # -20 + 64
+
+    async def test_key_ranges_show_note_names(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._tone_view(app, pilot)
+            table = screen.query_one("#part-table", DataTable)
+            keys = [c.key.value for c in table.columns.values()]
+            # Demo part 2 starts at note 60.
+            assert str(table.get_row("2")[keys.index("lo")]) == "C4"
+
+    async def test_mono_poly_shows_its_name(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._tone_view(app, pilot)
+            table = screen.query_one("#part-table", DataTable)
+            keys = [c.key.value for c in table.columns.values()]
+            assert str(table.get_row("1")[keys.index("mono")]) == "PATCH"
+
+    async def test_an_out_of_range_tone_value_is_refused(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._tone_view(app, pilot)
+            await self._cell(screen, pilot, 1, "oct")
+            before = app.bridge.read_part(1).octave
+            await pilot.press("9")
+            await pilot.pause()
+            await pilot.press("enter")
+            for _ in range(8):
+                await pilot.pause()
+            assert app.bridge.read_part(1).octave == before
 
 
 class TestStoreIsHardToFireByAccident:
@@ -1239,3 +1291,45 @@ class TestStoreIsHardToFireByAccident:
             saved = bk.list_backups(bk.default_dir(str(tmp_path)))
             assert len(saved) == 1
             assert saved[0]["slot"] == 1
+
+
+class TestEnterReplacesAndDigitsAppend:
+    """Two ways into the prompt, deliberately different.
+
+    Enter means "change this value", so the current one is pre-selected and
+    the first keystroke replaces it -- which is the only way to type a
+    negative number on a screen where `-` steps down. A digit means "the
+    value starts with this", so it appends.
+    """
+
+    async def _cell(self, app, pilot, column):
+        await pilot.pause()
+        await pilot.press("m")
+        await pilot.pause()
+        await pilot.pause()
+        table = app.screen.query_one("#part-table", DataTable)
+        keys = [c.key.value for c in table.columns.values()]
+        table.cursor_coordinate = Coordinate(0, keys.index(column))
+        await pilot.pause()
+
+    async def test_enter_preselects_so_typing_replaces(self, app):
+        async with app.run_test() as pilot:
+            await self._cell(app, pilot, "lvl")
+            await pilot.press("enter")
+            await pilot.pause()
+            field = app.screen.query_one("#value", Input)
+            assert field.value == "100"
+            await pilot.press("7")
+            await pilot.pause()
+            assert field.value == "7"
+
+    async def test_a_digit_appends_rather_than_replacing(self, app):
+        async with app.run_test() as pilot:
+            await self._cell(app, pilot, "lvl")
+            await pilot.press("1")
+            await pilot.pause()
+            field = app.screen.query_one("#value", Input)
+            assert field.value == "1"
+            await pilot.press("2")
+            await pilot.pause()
+            assert field.value == "12"

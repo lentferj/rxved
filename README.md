@@ -152,10 +152,18 @@ three-digit LED, and OM p. 116 lists what its four controls can reach.
 Receive Switch, Mute Switch and Solo Part Select are **not** on that list —
 without the editor or SysEx there is no way to see or change them at all.
 
-`tab` cycles the middle columns through three sets — **MIDI** (ch, rx, lvl,
-PC, LSB, MSB), **FX / routing** (mute, dry, cho, rev, out, mfx) and
-**receive switches** (rxPC, rxBS, bend, mod, vol, hold). The patch name and
-the silence verdict stay in all three. Above the table, the performance's
+`tab` cycles the middle columns through four sets — **MIDI** (ch, rx, lvl,
+PC, LSB, MSB), **FX / routing** (mute, dry, cho, rev, out, mfx), **receive
+switches** (rxPC, rxBS, bend, mod, vol, hold) and **tone** (pan, oct, crs,
+fin, bend, mono, lo, hi). The patch name and the silence verdict stay in all
+four.
+
+Pan, octave and the two tunes are stored **biased by 64** — the wire byte is
+not the number the manual prints — so they are shown as the manual prints
+them and converted in one place. Key ranges show note names (`C4`), not the
+raw note number. Because `-` steps down, a negative value is typed by
+pressing `⏎` first: that pre-selects the current value so the first
+keystroke replaces it. Above the table, the performance's
 MFX type and routing, chorus and reverb.
 
 The receive switches are the ones that matter most to rxved, and they are

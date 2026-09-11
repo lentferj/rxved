@@ -76,6 +76,12 @@ import rtmidi  # noqa: E402
 
 from xv import banks
 from xv import messages as m
+from xv.params import (MONO_POLY, OUTPUT_ASSIGN,  # noqa: F401
+                       OUTPUT_ASSIGN_ON_XV2020, OUTPUT_MFX,
+                       PERFORMANCE_BLOCKS, SIGNED_PART_FIELDS,
+                       TEMPORARY_PERFORMANCE,
+                       USER_PERFORMANCE_SLOTS, note_name,
+                       user_performance_base)
 
 __all__ = [
     "SEND_GAP",
@@ -580,6 +586,19 @@ class PartState:
     output_assign: int = 0
     #: Offset ``00 20``, Part Output MFX Select. See :data:`OUTPUT_MFX`.
     output_mfx: int = 0
+    #: Musical settings, all stored **biased by 64** where they are signed --
+    #: the wire byte is not the number the manual prints. Kept as the wire
+    #: value here and converted once, visibly, at the edge; see
+    #: :data:`SIGNED_PART_FIELDS`.
+    pan: int = 64             #: ``00 08``, 0-127, displayed L64-63R.
+    coarse: int = 64          #: ``00 09``, 16-112, displayed -48-+48.
+    fine: int = 64            #: ``00 0A``, 14-114, displayed -50-+50.
+    mono_poly: int = 2        #: ``00 0B``: MONO, POLY, PATCH.
+    bend_range: int = 25      #: ``00 0D``, 0-24 semitones or 25 = PATCH.
+    octave: int = 64          #: ``00 15``, 61-67, displayed -3-+3.
+    velocity_sens: int = 64   #: ``00 16``, 1-127, displayed -63-+63.
+    key_lower: int = 0        #: ``00 17``, note number.
+    key_upper: int = 127      #: ``00 18``, note number.
 
     @property
     def channel_display(self) -> int:
@@ -687,75 +706,6 @@ _WHERE_TO_CHANGE = (
     "Switch and Solo Part Select are NOT in the module's own parameter list "
     "(OM p. 116) -- those take the XV-2020 Editor, or this screen."
 )
-
-
-#: Part Output Assign (offset ``00 1F``), 0-13. The manual prints the whole
-#: XV-series list; entries it marks ``<*>`` are **ignored when the XV-2020
-#: receives them** (OM p. 146), because this box has one stereo output pair
-#: and one MFX where its bigger siblings have eight and three. They are
-#: named here rather than omitted: a performance written on an XV-5080 can
-#: arrive carrying one, and "output 6" explains a silent part where a blank
-#: does not.
-OUTPUT_ASSIGN = {
-    0: "MFX", 1: "A",
-    2: "B*", 3: "C*", 4: "D*",
-    5: "1", 6: "2",
-    7: "3*", 8: "4*", 9: "5*", 10: "6*", 11: "7*", 12: "8*",
-    13: "PATCH",
-}
-
-#: Values of Part Output Assign that this model actually honours.
-OUTPUT_ASSIGN_ON_XV2020 = frozenset({0, 1, 5, 6, 13})
-
-#: Part Output MFX Select (offset ``00 20``). The XV-2020 has one MFX, so
-#: only MFXA is real; the other two are ``<*>`` entries.
-OUTPUT_MFX = {0: "MFXA", 1: "MFXB*", 2: "MFXC*"}
-
-
-#: A performance, block by block: ``(name, (sub_hi, sub_lo), size)``.
-#:
-#: Sizes are the "Total Size" each section of the parameter address map
-#: prints (OM pp. 147-149), and every one was checked against its own last
-#: offset -- ``size - 1`` in each case, which is the arithmetic that catches
-#: a mis-paired heading. They were read by cropping the PDF's two columns
-#: apart rather than from a ``-layout`` dump, after that dump's interleaving
-#: produced a confidently wrong claim about the Mute Switch; see
-#: RESOLUTION_NOTES §12b.
-#:
-#: 36 blocks, 1309 bytes. This is the whole of a performance as the machine
-#: stores it -- and note what that does *not* include: the manual is
-#: explicit that saving a performance saves "only the Performance settings",
-#: not the patches its parts point at (OM p. 92).
-PERFORMANCE_BLOCKS: Tuple[Tuple[str, Tuple[int, int], int], ...] = (
-    ("common", (0x00, 0x00), 53),
-    ("mfx", (0x02, 0x00), 145),
-    ("chorus", (0x04, 0x00), 52),
-    ("reverb", (0x06, 0x00), 83),
-) + tuple(
-    (f"midi{channel + 1}", (0x10 + channel, 0x00), 12) for channel in range(16)
-) + tuple(
-    (f"part{part + 1}", (0x20 + part, 0x00), 49) for part in range(16)
-)
-
-#: Address prefix of the temporary performance -- the edit buffer.
-TEMPORARY_PERFORMANCE = (0x10, 0x00)
-
-#: How many user performance slots the XV-2020 has.
-USER_PERFORMANCE_SLOTS = 64
-
-
-def user_performance_base(slot: int) -> Tuple[int, int]:
-    """Address prefix of User Performance ``slot`` (1-64).
-
-    ``20 00 00 00`` is User Performance 01 and ``20 3F 00 00`` is 64 (OM
-    p. 146), so the second byte is the slot **minus one** -- the same
-    off-by-one this project keeps visible everywhere else.
-    """
-    if not 1 <= slot <= USER_PERFORMANCE_SLOTS:
-        raise ValueError(
-            f"user performance slot {slot} is outside "
-            f"1-{USER_PERFORMANCE_SLOTS}")
-    return (0x20, slot - 1)
 
 
 def _ranges(numbers: Iterable[int]) -> str:
@@ -1453,6 +1403,15 @@ class XvBridge:
         0x05: ("bank select LSB", 0, 127),
         0x06: ("program change", 0, 127),
         0x07: ("part level", 0, 127),
+        0x08: ("part pan", 0, 127),
+        0x09: ("part coarse tune", 16, 112),
+        0x0A: ("part fine tune", 14, 114),
+        0x0B: ("part mono/poly", 0, 2),
+        0x0D: ("part pitch bend range", 0, 25),
+        0x15: ("part octave shift", 61, 67),
+        0x16: ("part velocity sensitivity", 1, 127),
+        0x17: ("keyboard range lower", 0, 127),
+        0x18: ("keyboard range upper", 0, 127),
         0x1B: ("mute switch", 0, 1),
         0x1C: ("dry send level", 0, 127),
         0x1D: ("chorus send level", 0, 127),
@@ -1760,6 +1719,10 @@ class XvBridge:
             receive_switch=bool(data[1]),
             msb=data[4], lsb=data[5], program_change=data[6],
             level=data[7],
+            pan=data[0x08], coarse=data[0x09], fine=data[0x0A],
+            mono_poly=data[0x0B], bend_range=data[0x0D],
+            octave=data[0x15], velocity_sens=data[0x16],
+            key_lower=data[0x17], key_upper=data[0x18],
             mute=bool(data[0x1B]),
             dry=data[0x1C], chorus=data[0x1D], reverb=data[0x1E],
             output_assign=data[0x1F], output_mfx=data[0x20],

@@ -233,7 +233,13 @@ class DemoBridge:
                           # ignores, as a performance from a bigger sibling
                           # would.
                           output_assign=10 if part == 9 else 0,
-                          output_mfx=0)
+                          output_mfx=0,
+                          # A split across two parts on channel 1, so the
+                          # keyboard-range columns have something real in
+                          # them and the note-name rendering is exercised.
+                          key_lower=0 if part != 2 else 60,
+                          key_upper=59 if part == 1 else 127,
+                          pan=64 + (part - 8) * 4)
         return replace(state, **self._part_edits.get(part, {}))
 
     #: Offsets this fake accepts, mapped to the PartState field they set.
@@ -245,6 +251,9 @@ class DemoBridge:
         0x05: "lsb",
         0x06: "program_change",
         0x07: "level",
+        0x08: "pan", 0x09: "coarse", 0x0A: "fine", 0x0B: "mono_poly",
+        0x0D: "bend_range", 0x15: "octave", 0x16: "velocity_sens",
+        0x17: "key_lower", 0x18: "key_upper",
         0x1B: "mute",
         0x1C: "dry",
         0x1D: "chorus",

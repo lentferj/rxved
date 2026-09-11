@@ -67,6 +67,7 @@ from textual.screen import ModalScreen
 from textual.widgets import DataTable, Header, Input, Label, Static
 
 from xv import banks
+from xv import params
 from xv import catalog as cat
 
 __all__ = ["RxvedApp", "main"]
@@ -123,10 +124,16 @@ class TextPromptScreen(ModalScreen[Optional[str]]):
 
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
 
-    def __init__(self, prompt: str, current: str = "") -> None:
+    def __init__(self, prompt: str, current: str = "",
+                 select_all: bool = False) -> None:
         super().__init__()
         self._prompt = prompt
         self._current = current
+        #: Pre-select the seeded text, so the first keystroke replaces it.
+        #: Wanted when the seed is "the value you are changing" and not when
+        #: it is "the digit you just typed" -- and it is the only way to
+        #: enter a negative number on a screen where `-` steps down.
+        self._select_all = select_all
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -136,9 +143,12 @@ class TextPromptScreen(ModalScreen[Optional[str]]):
     def on_mount(self) -> None:
         field = self.query_one("#value", Input)
         field.focus()
-        # Cursor at the end, so a prompt opened by typing a digit continues
-        # that number rather than inserting in front of it.
-        field.cursor_position = len(field.value)
+        if self._select_all:
+            field.select_all()
+        else:
+            # Cursor at the end, so a prompt opened by typing a digit
+            # continues that number rather than inserting in front of it.
+            field.cursor_position = len(field.value)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self.dismiss(event.value)
@@ -302,6 +312,17 @@ EDITABLE_PART_COLUMNS = {
     "msb": (0x04, "bank select MSB", 0, 127),
     "lvl": (0x07, "part level", 0, 127),
     "mute": (0x1B, "mute switch", 0, 1),
+    # Ranges here are in DISPLAY units, which for the biased ones are not
+    # the wire ranges; XvBridge.WRITABLE_PART_OFFSETS validates the wire
+    # side independently, so a bias mistake is caught rather than written.
+    "pan": (0x08, "pan (L64-63R)", -64, 63),
+    "oct": (0x15, "octave shift", -3, 3),
+    "crs": (0x09, "coarse tune (semitones)", -48, 48),
+    "fin": (0x0A, "fine tune (cents)", -50, 50),
+    "bend": (0x0D, "pitch bend range (25 = PATCH)", 0, 25),
+    "mono": (0x0B, "mono/poly (0 MONO, 1 POLY, 2 PATCH)", 0, 2),
+    "lo": (0x17, "keyboard range lower (note number)", 0, 127),
+    "hi": (0x18, "keyboard range upper (note number)", 0, 127),
     "dry": (0x1C, "dry send level", 0, 127),
     "cho": (0x1D, "chorus send level", 0, 127),
     "rev": (0x1E, "reverb send level", 0, 127),
@@ -325,9 +346,21 @@ RX_COLUMNS = (("ch", "ch"), ("rxPC", "rx_pc"), ("rxBS", "rx_bs"),
               ("bend", "rx_bend"), ("mod", "rx_mod"), ("vol", "rx_vol"),
               ("hold", "rx_hold"))
 
-#: The three column sets `tab` cycles through.
+#: Per-part musical settings. Most of these are stored biased by 64 and are
+#: shown here as the manual prints them -- see _BIAS.
+TONE_COLUMNS = (("pan", "pan"), ("oct", "oct"), ("crs", "crs"),
+                ("fin", "fin"), ("bend", "bend"), ("mono", "mono"),
+                ("lo", "lo"), ("hi", "hi"))
+
+#: The four column sets `tab` cycles through.
 COLUMN_VIEWS = (("MIDI", MIDI_COLUMNS), ("FX / routing", FX_COLUMNS),
-                ("receive switches", RX_COLUMNS))
+                ("receive switches", RX_COLUMNS), ("tone", TONE_COLUMNS))
+
+#: display = wire - bias, wire = display + bias. Every entry is a place the
+#: synth's byte and the manual's number differ, collected in one dict so
+#: that the conversion is one line of code in one direction and one in the
+#: other -- see xv/banks.py on why this project never lets those two drift.
+_BIAS = {"ch": -1, "pan": 64, "crs": 64, "fin": 64, "oct": 64}
 
 #: Column key -> the ChannelMidi attribute it shows.
 _CHANNEL_FIELDS = {
@@ -636,6 +669,21 @@ class MultiScreen(ModalScreen[None]):
         if column == "mfx":
             name = part.output_mfx_name
             return f"[b]{name}[/b]" if name.endswith("*") else name
+        if column in ("pan", "oct", "crs", "fin"):
+            value = self._current_value(part, column)
+            return f"+{value}" if value > 0 else str(value)
+        if column == "bend":
+            return "PAT" if part.bend_range == 25 else str(part.bend_range)
+        if column == "mono":
+            return params.MONO_POLY.get(part.mono_poly,
+                                            str(part.mono_poly))
+        if column in ("lo", "hi"):
+            low, high = part.key_lower, part.key_upper
+            value = low if column == "lo" else high
+            text = params.note_name(value)
+            # A range that excludes the whole keyboard is a silent part for
+            # a reason no switch explains, so make it visible.
+            return f"[b]{text}[/b]" if low > high else text
         if column in EDITABLE_CHANNEL_COLUMNS:
             entry = self._state.channel_midi(part.receive_channel)
             if entry is None:
@@ -688,6 +736,10 @@ class MultiScreen(ModalScreen[None]):
 
     def _current_value(self, part, column: str) -> int:
         """The value as this column displays it -- 1-based for ch."""
+        if column in _BIAS and column != "ch":
+            wire = {"pan": part.pan, "crs": part.coarse, "fin": part.fine,
+                    "oct": part.octave}[column]
+            return wire - _BIAS[column]
         return {
             "ch": part.channel_display,
             "rx": 1 if part.receive_switch else 0,
@@ -701,6 +753,10 @@ class MultiScreen(ModalScreen[None]):
             "rev": part.reverb,
             "out": part.output_assign,
             "mfx": part.output_mfx,
+            "bend": part.bend_range,
+            "mono": part.mono_poly,
+            "lo": part.key_lower,
+            "hi": part.key_upper,
         }.get(column) if column not in EDITABLE_CHANNEL_COLUMNS else (
             self._channel_value(part, column))
 
@@ -747,10 +803,15 @@ class MultiScreen(ModalScreen[None]):
         # Seeded with the current value, because Enter means "change this
         # one" and the old value is usually the starting point. Typing a
         # digit instead replaces outright -- see action_type_digit.
+        # Selected, not just seeded: `-` steps down on this screen, so the
+        # only way to type a negative pan or tune is to replace the whole
+        # value. Enter is the path that has to allow it.
         self._prompt_for_value(
-            part, column, seed=str(self._current_value(part, column)))
+            part, column, seed=str(self._current_value(part, column)),
+            select_all=True)
 
-    def _prompt_for_value(self, part, column: str, *, seed: str) -> None:
+    def _prompt_for_value(self, part, column: str, *, seed: str,
+                          select_all: bool = False) -> None:
         _offset, label, low, high = self._spec(column)
 
         def done(text) -> None:
@@ -766,7 +827,8 @@ class MultiScreen(ModalScreen[None]):
 
         self.app.push_screen(
             TextPromptScreen(
-                f"Part {part.part} — {label} ({low}-{high})", seed),
+                f"Part {part.part} — {label} ({low}-{high})", seed,
+                select_all=select_all),
             done,
         )
 
@@ -820,9 +882,9 @@ class MultiScreen(ModalScreen[None]):
             # one row patched.
             self._on_write_channel(part.receive_channel, offset, value)
             return
-        # 1-16 on screen, 0-15 on the wire. Converted here, once, in the
-        # open -- see xv/banks.py on why this project never does it quietly.
-        wire = value - 1 if column == "ch" else value
+        # The one place a displayed number becomes a wire byte. Every
+        # column that differs is in _BIAS; everything else passes through.
+        wire = value + _BIAS.get(column, 0)
         self._on_write(part.part, offset, wire, self._adopt_part)
 
     def _on_write_channel(self, channel: int, offset: int,

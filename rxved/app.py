@@ -54,6 +54,8 @@ import sys
 import threading
 from typing import Dict, List, Optional, Tuple
 
+from rich.text import Text
+
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -238,10 +240,30 @@ class KeyHints(Static):
 KEY_HINTS = (
     "↑↓ move", "tab pane", "⏎ select on synth",
     "[ ] channel", "c set channel", "R re-read",
-    "f favourite", "F list", "t tags", "n note", "/ search",
+    "f favourite", "F favourites view", "t tags", "n note", "/ search",
     "r read names", "s scan bank", "x probe SRX",
     "i device", "? help", "q quit",
 )
+
+
+#: What the right-hand pane is showing. Cycled by `F`.
+#:
+#: ``BANK`` and ``FAVOURITES`` are filters over the same table rather than a
+#: separate read-only screen, because the point of a favourites list is to
+#: play the things on it -- everything that works in the full list (Enter to
+#: select, `f` to un-favourite, tags, notes) has to keep working here.
+VIEW_ALL = "all"
+VIEW_BANK_FAVOURITES = "bank-favourites"
+VIEW_ALL_FAVOURITES = "all-favourites"
+
+#: The order `F` steps through.
+VIEW_CYCLE = (VIEW_ALL, VIEW_BANK_FAVOURITES, VIEW_ALL_FAVOURITES)
+
+VIEW_LABEL = {
+    VIEW_ALL: "all slots",
+    VIEW_BANK_FAVOURITES: "favourites in this bank",
+    VIEW_ALL_FAVOURITES: "all favourites",
+}
 
 
 #: Short labels for the bank list's "kind" column. Spelled out rather than
@@ -282,7 +304,7 @@ class RxvedApp(App):
         Binding("c", "pick_channel", "Set channel"),
         Binding("R", "refresh_state", "Re-read the synth"),
         Binding("f", "toggle_favorite", "Favourite"),
-        Binding("F", "show_favorites", "List favourites"),
+        Binding("F", "cycle_favorites", "Favourites view"),
         Binding("t", "edit_tags", "Tags"),
         Binding("n", "edit_note", "Note"),
         Binding("slash", "search", "Search"),
@@ -316,6 +338,8 @@ class RxvedApp(App):
         self._busy = False
         self.last_status = ""
         self.last_status_refused = False
+        #: Which of VIEW_CYCLE the slot pane is showing.
+        self.view_mode = VIEW_ALL
         #: The MIDI channel the browser sends on, 0-based. Set from the
         #: synth's own Patch Receive Channel once that has been read --
         #: until then it is whatever was configured, and the UI says so.
@@ -422,6 +446,30 @@ class RxvedApp(App):
         finally:
             self._filling = False
 
+    def _visible_slots(self, bank_id: str) -> List[banks.Slot]:
+        """The rows the right-hand pane should show, for the current view.
+
+        In the all-favourites view this spans banks, so the caller cannot
+        assume every slot belongs to ``bank_id`` -- which is why row keys are
+        ``slot.key`` (``PST-B:029``) rather than the slot number. Two banks
+        can both hold a slot 29, and a duplicate row key is a silent
+        corruption in a DataTable.
+        """
+        if self.view_mode == VIEW_ALL:
+            return banks.slots(bank_id)
+        if self.view_mode == VIEW_BANK_FAVOURITES:
+            marked = self.favorites.keys_for_bank(bank_id)
+            return [s for s in banks.slots(bank_id) if s.number in marked]
+        out: List[banks.Slot] = []
+        for favourite in self.favorites.all(order="bank"):
+            try:
+                out.append(banks.slot(favourite.bank_id, favourite.number))
+            except LookupError:
+                # A favourite for a bank this build no longer defines. Skipped
+                # rather than crashing the view; `F` lists it with a note.
+                continue
+        return out
+
     def _fill_slots(self, bank_id: str, *, cursor: int = 0) -> None:
         """Rebuild the slot table. Only for when every row changes.
 
@@ -432,35 +480,41 @@ class RxvedApp(App):
         table = self.query_one("#slot-table", DataTable)
         entry = banks.bank(bank_id)
         self._current_bank = bank_id
-        self._current_slots = banks.slots(bank_id)
-        favorited = self.favorites.keys_for_bank(bank_id)
+        self._current_slots = self._visible_slots(bank_id)
+        across_banks = self.view_mode == VIEW_ALL_FAVOURITES
+        favorited = self.favorites.keys()
         self._filling = True
         try:
             table.clear()
             for slot in self._current_slots:
-                name = self.catalog.display_name(bank_id, slot.number)
-                if self.catalog.differs(bank_id, slot.number):
+                name = self.catalog.display_name(slot.bank_id, slot.number)
+                if self.catalog.differs(slot.bank_id, slot.number):
                     # The machine and the book disagree. For a USER slot this
                     # is the normal state of a synth somebody uses, and it is
                     # the single most useful thing this screen can point out.
                     shown = f"[b]{name}[/b] [dim]*[/dim]"
-                elif self.catalog.is_live(bank_id, slot.number):
+                elif self.catalog.is_live(slot.bank_id, slot.number):
                     shown = f"[b]{name}[/b]"
                 else:
                     shown = name
-                catalog_entry = self.catalog.entry(bank_id, slot.number)
+                catalog_entry = self.catalog.entry(slot.bank_id, slot.number)
                 table.add_row(
-                    f"{slot.number:03d}",
+                    (f"{slot.bank_id} {slot.number:03d}" if across_banks
+                     else f"{slot.number:03d}"),
                     shown,
                     str(slot.msb),
                     str(slot.lsb),
                     str(slot.program_change),
                     (catalog_entry.category or "") if catalog_entry else "",
-                    "*" if slot.number in favorited else "",
-                    key=str(slot.number),
+                    "*" if slot.key in favorited else "",
+                    key=slot.key,
                 )
         finally:
             self._filling = False
+        column = table.columns.get("num")
+        if column is not None:
+            column.label = Text("bank / #" if across_banks else "#")
+        table.refresh()
         if 0 < cursor < len(self._current_slots):
             table.move_cursor(row=cursor)
         self._update_subtitle()
@@ -468,16 +522,32 @@ class RxvedApp(App):
 
     def _update_subtitle(self) -> None:
         entry = banks.bank(self._current_bank)
-        plural = {"patch": "patches", "rhythm": "rhythm sets",
-                  "performance": "performances"}[entry.kind]
-        self.sub_title = (
-            f"{entry.label} ({self._current_bank}) — {entry.count} {plural}"
-            f"   ·   ch {self.target_channel + 1}"
-        )
+        shown = len(self._current_slots)
+        if self.view_mode == VIEW_ALL:
+            plural = {"patch": "patches", "rhythm": "rhythm sets",
+                      "performance": "performances"}[entry.kind]
+            what = f"{entry.label} ({self._current_bank}) — {shown} {plural}"
+        elif self.view_mode == VIEW_BANK_FAVOURITES:
+            what = (f"{entry.label} ({self._current_bank}) — {shown} "
+                    f"favourite{'' if shown == 1 else 's'}")
+        else:
+            what = (f"all favourites — {shown} "
+                    f"across {len({s.bank_id for s in self._current_slots})} "
+                    f"bank(s)")
+        self.sub_title = f"{what}   ·   ch {self.target_channel + 1}"
 
     def _update_detail(self, row: int) -> None:
         if not 0 <= row < len(self._current_slots):
-            self.query_one("#detail", Static).update("")
+            if self.view_mode != VIEW_ALL:
+                where = ("this bank" if self.view_mode == VIEW_BANK_FAVOURITES
+                         else "any bank")
+                self.query_one("#detail", Static).update(
+                    f"[b]No favourites in {where}.[/b]\n"
+                    f"Press [b]F[/b] for the next view, or go back to the "
+                    f"full list and press [b]f[/b] on a slot."
+                )
+            else:
+                self.query_one("#detail", Static).update("")
             return
         slot = self._current_slots[row]
         name = self.catalog.display_name(slot.bank_id, slot.number)
@@ -525,6 +595,12 @@ class RxvedApp(App):
                 # message is delivered after the flag is cleared -- so the
                 # handler has to be safe to receive for the bank it is
                 # already showing.
+                if self.view_mode == VIEW_ALL_FAVOURITES:
+                    # The right pane is the union across banks; letting the
+                    # bank cursor silently replace it would make the view
+                    # impossible to hold still while scrolling the left pane.
+                    self._current_bank = bank_id
+                    return
                 if bank_id != self._current_bank:
                     self._fill_slots(bank_id)
         elif event.data_table.id == "slot-table":
@@ -572,21 +648,34 @@ class RxvedApp(App):
         self._fill_slots(self._current_bank, cursor=table.cursor_row)
 
     def _mark_favorite(self, slot: banks.Slot, now: bool) -> None:
-        """Update the two cells a favourite toggle actually changes."""
+        """Reflect a favourite toggle, without moving the cursor."""
         slot_table = self.query_one("#slot-table", DataTable)
-        try:
-            slot_table.update_cell(str(slot.number), "fav",
-                                   "*" if now else "")
-        except Exception:
-            # The row is gone (the bank was switched under us); a full
-            # rebuild is the honest fallback and costs one frame.
-            self._refresh_current_bank()
         marked = len(self.favorites.keys_for_bank(slot.bank_id))
         try:
             self.query_one("#bank-table", DataTable).update_cell(
                 slot.bank_id, "fav", str(marked) if marked else "")
         except Exception:
             pass
+
+        if not now and self.view_mode != VIEW_ALL:
+            # The row no longer matches the filter, so it has to go. Rebuild
+            # and hold the cursor at the same position, which is now the row
+            # that took its place -- the same thing a mail client does when
+            # you delete out of a filtered list.
+            row = slot_table.cursor_row
+            self._fill_slots(self._current_bank)
+            remaining = len(self._current_slots)
+            if remaining:
+                slot_table.move_cursor(row=min(row, remaining - 1))
+            self._update_detail(slot_table.cursor_row)
+            return
+
+        try:
+            slot_table.update_cell(slot.key, "fav", "*" if now else "")
+        except Exception:
+            # The row is gone (the bank changed under us); a full rebuild is
+            # the honest fallback and costs one frame.
+            self._refresh_current_bank()
         self._update_detail(slot_table.cursor_row)
 
     # --- actions ------------------------------------------------------------
@@ -706,36 +795,35 @@ class RxvedApp(App):
         self.push_screen(
             TextPromptScreen(f"Note for {slot}", existing.note), apply)
 
-    def action_show_favorites(self) -> None:
-        rows = self.favorites.all(order="bank")
-        if not rows:
-            self.notify_status("no favourites yet -- press f on a slot")
-            return
-        lines = [f"{len(rows)} favourite(s)", ""]
-        for fav in rows:
-            label = fav.name or self.catalog.display_name(fav.bank_id,
-                                                          fav.number)
-            try:
-                slot = banks.slot(fav.bank_id, fav.number)
-                wire = f"MSB {slot.msb:>3}  LSB {slot.lsb:>3}  PC {slot.program_change:>3}"
-            except LookupError:
-                # A favourite whose bank rxved no longer defines -- an SRX
-                # card removed from the table, say. Shown rather than hidden:
-                # the row is the user's, and silently dropping it from the
-                # list is how a favourites file quietly rots.
-                wire = "[dim]bank not in this build[/dim]"
-            extra = []
-            if fav.rating:
-                extra.append("*" * fav.rating)
-            if fav.tags:
-                extra.append(fav.tags)
-            if fav.note:
-                extra.append(fav.note)
-            suffix = ("   " + " | ".join(extra)) if extra else ""
-            lines.append(
-                f"{fav.bank_id:<10} {fav.number:03d}  {label:<14} {wire}{suffix}"
-            )
-        self.push_screen(ReportScreen("Favourites", "\n".join(lines)))
+    def action_cycle_favorites(self) -> None:
+        """Step: all slots -> this bank's favourites -> every favourite.
+
+        A filter over the real table rather than a read-only list, so a
+        favourite can be played, re-tagged or un-favourited straight from it.
+
+        **Always exactly three steps**, even when a view would come up empty.
+        An earlier version skipped empty views to be helpful, which made one
+        keypress land somewhere different depending on what happened to be
+        favourited -- a key whose behaviour you cannot predict is worse than
+        an empty list that explains itself.
+        """
+        index = VIEW_CYCLE.index(self.view_mode)
+        self.view_mode = VIEW_CYCLE[(index + 1) % len(VIEW_CYCLE)]
+        self._fill_slots(self._current_bank)
+        self.query_one("#slot-table", DataTable).focus()
+        shown = len(self._current_slots)
+        if self.view_mode == VIEW_ALL:
+            self.notify_status("showing all slots")
+        elif not shown:
+            where = ("this bank" if self.view_mode == VIEW_BANK_FAVOURITES
+                     else "any bank")
+            self.notify_status(
+                f"no favourites in {where} yet — press f on a slot to add "
+                f"one, or F again for the next view")
+        else:
+            self.notify_status(
+                f"showing {VIEW_LABEL[self.view_mode]} — {shown} row(s); "
+                f"enter still selects, f un-favourites")
 
     def action_search(self) -> None:
         def run(needle: Optional[str]) -> None:
@@ -1132,7 +1220,10 @@ Keys
   [ / ]          previous / next send channel      c  type a channel
   R              re-read everything, including each part's receive channel
   enter          select this slot ON THE SYNTH -- it will sound
-  f              favourite / un-favourite      F  list favourites
+  f              favourite / un-favourite
+  F              cycle the right pane: all slots → this bank's favourites →
+                 every favourite. The filtered views are the real table, so
+                 enter still selects and f still un-favourites.
   t / n          tags / note (favourites only)
   /              search names
   r              read this bank's names from the synth (USER banks only,

@@ -506,3 +506,138 @@ class TestCursorStaysPut:
             await pilot.pause(0.5)
             assert app.query_one("#slot-table").cursor_row == 20
             assert app._current_bank == "USER"
+
+
+class TestFavouritesView:
+    """`F` filters the real table, in two steps, and stays playable.
+
+    The point of a favourites list is to play the things on it, so these
+    views are the same DataTable with fewer rows — not a read-only report.
+    Everything that works in the full list has to keep working.
+    """
+
+    @staticmethod
+    async def _mark(app, pilot, rows):
+        """Favourite the given cursor offsets in the current bank."""
+        await pilot.press("tab")
+        previous = 0
+        for row in rows:
+            for _ in range(row - previous):
+                await pilot.press("down")
+            previous = row
+            await pilot.press("f")
+            await pilot.pause(0.1)
+
+    async def test_first_step_shows_only_this_banks_favourites(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            await self._mark(app, pilot, [2, 5, 9])
+            await pilot.press("F")
+            await pilot.pause(0.3)
+            assert app.view_mode == "bank-favourites"
+            assert app.query_one("#slot-table").row_count == 3
+            assert [s.number for s in app._current_slots] == [3, 6, 10]
+
+    async def test_second_step_shows_favourites_from_every_bank(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.favorites.add("USER", 1)
+            app.favorites.add("PST-B", 29)
+            app.favorites.add("GM", 7)
+            app._fill_slots(app._current_bank)
+            await pilot.press("F")
+            await pilot.pause(0.2)
+            await pilot.press("F")
+            await pilot.pause(0.3)
+            assert app.view_mode == "all-favourites"
+            assert {s.bank_id for s in app._current_slots} == {
+                "USER", "PST-B", "GM"}
+
+    async def test_a_third_press_returns_to_the_full_bank(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.favorites.add("USER", 1)
+            for _ in range(3):
+                await pilot.press("F")
+                await pilot.pause(0.2)
+            assert app.view_mode == "all"
+            assert app.query_one("#slot-table").row_count == 128
+
+    async def test_a_slot_can_be_selected_from_the_filtered_list(self, app):
+        """The whole reason this is a filter and not a report."""
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.favorites.add("PST-B", 29)
+            await pilot.press("F")
+            await pilot.pause(0.2)
+            await pilot.press("F")
+            await pilot.pause(0.3)
+            assert app.view_mode == "all-favourites"
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            assert app.bridge.selected_log[-1].bank_id == "PST-B"
+            assert app.bridge.selected_log[-1].number == 29
+
+    async def test_the_bank_column_appears_only_across_banks(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.favorites.add("PST-B", 29)
+            table = app.query_one("#slot-table")
+            assert str(table.columns["num"].label) == "#"
+            await pilot.press("F")
+            await pilot.pause(0.2)
+            await pilot.press("F")
+            await pilot.pause(0.3)
+            assert str(table.columns["num"].label) == "bank / #"
+
+    async def test_un_favouriting_removes_the_row_from_a_filtered_view(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            await self._mark(app, pilot, [1, 4])
+            await pilot.press("F")
+            await pilot.pause(0.3)
+            assert app.query_one("#slot-table").row_count == 2
+            await pilot.press("f")
+            await pilot.pause(0.3)
+            assert app.query_one("#slot-table").row_count == 1
+
+    async def test_two_banks_may_hold_the_same_slot_number(self, app):
+        """Row keys are slot.key, not the number — duplicates would collide."""
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.favorites.add("USER", 29)
+            app.favorites.add("PST-B", 29)
+            await pilot.press("F")
+            await pilot.pause(0.2)
+            await pilot.press("F")
+            await pilot.pause(0.3)
+            assert app.query_one("#slot-table").row_count == 2
+
+    async def test_an_empty_view_explains_itself(self, app):
+        """F is always three steps; an empty one says so rather than jumping."""
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            await pilot.press("F")
+            await pilot.pause(0.3)
+            assert app.view_mode == "bank-favourites"
+            assert app.query_one("#slot-table").row_count == 0
+            assert "no favourites in this bank" in app.last_status
+
+    async def test_the_step_is_the_same_whatever_is_favourited(self, app):
+        """One keypress must land in the same view regardless of data."""
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.favorites.add("PST-B", 29)     # nothing in the current bank
+            await pilot.press("F")
+            await pilot.pause(0.3)
+            assert app.view_mode == "bank-favourites"
+
+    async def test_a_favourite_for_an_unknown_bank_is_skipped(self, app):
+        """A favourites file can outlive a bank table entry."""
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.favorites.add("USER", 1)
+            app.favorites.add("SRX-99-1", 7)
+            app.view_mode = "all-favourites"
+            rows = app._visible_slots(app._current_bank)
+            assert [s.bank_id for s in rows] == ["USER"]

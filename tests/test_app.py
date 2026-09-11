@@ -260,3 +260,77 @@ class TestChannels:
             assert app.bridge.selected_log[0].kind == banks.Kind.PERFORMANCE
             # 15, not 0 — the whole point.
             assert app.bridge.channel_log == [15]
+
+
+class TestChannelSelector:
+    """Bank Select and PC are per channel, so the channel is part of the act.
+
+    The demo synth is in PERFORM mode with parts 1 and 2 sharing channel 1,
+    which is the shape the real machine has and the shape that a naive
+    one-part-per-channel model gets wrong.
+    """
+
+    async def test_the_send_channel_starts_where_the_synth_listens(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.5)
+            assert app.channel_is_from_device
+            assert app.target_channel == app.bridge.channels.patch_receive
+
+    async def test_brackets_step_the_channel(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.5)
+            start = app.target_channel
+            await pilot.press("right_square_bracket")
+            await pilot.pause(0.2)
+            assert app.target_channel == (start + 1) % 16
+            await pilot.press("left_square_bracket")
+            await pilot.pause(0.2)
+            assert app.target_channel == start
+
+    async def test_the_channel_wraps_rather_than_going_out_of_range(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.5)
+            app.target_channel = 15
+            await pilot.press("right_square_bracket")
+            await pilot.pause(0.2)
+            assert app.target_channel == 0
+
+    async def test_changing_channel_reads_back_from_the_synth(self, app):
+        """The read-back is the whole point of the selector."""
+        async with app.run_test() as pilot:
+            await pilot.pause(0.5)
+            app.bridge.state = None
+            await pilot.press("right_square_bracket")
+            await pilot.pause(0.4)
+            assert app.bridge.state is not None
+
+    async def test_changing_channel_sends_no_midi(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.5)
+            for _ in range(6):
+                await pilot.press("right_square_bracket")
+            await pilot.pause(0.3)
+            assert app.bridge.selected_log == []
+
+    async def test_a_patch_goes_out_on_the_chosen_channel(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.5)
+            app.target_channel = 6
+            await pilot.press("tab")
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            assert app.bridge.channel_log[0] == 6
+
+    async def test_a_performance_ignores_the_chosen_channel(self, app):
+        """It only responds on the Performance Control Channel."""
+        async with app.run_test() as pilot:
+            await pilot.pause(0.5)
+            app.target_channel = 6
+            index = banks.bank_ids().index("P-USER")
+            for _ in range(index):
+                await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("tab")
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            assert app.bridge.channel_log[0] == 15

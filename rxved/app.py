@@ -188,7 +188,7 @@ class RxvedApp(App):
     #slots { width: 1fr; }
     DataTable { height: 1fr; }
     #status { height: 1; background: $panel; color: $text; padding: 0 1; }
-    #detail { height: 3; padding: 0 1; border-top: solid $panel; }
+    #detail { height: 4; padding: 0 1; border-top: solid $panel; }
     .refused { background: $error; color: $text; }
     """
 
@@ -210,6 +210,10 @@ class RxvedApp(App):
         Binding("s", "scan_bank", "Scan bank"),
         Binding("x", "probe_srx", "Probe SRX"),
         Binding("/", "search", "Search"),
+        Binding("left_square_bracket", "channel_down", "Ch -"),
+        Binding("right_square_bracket", "channel_up", "Ch +"),
+        Binding("c", "pick_channel", "Channel"),
+        Binding("R", "refresh_state", "Refresh"),
         Binding("i", "device_info", "Device"),
         Binding("?", "help", "Help"),
     ]
@@ -235,6 +239,11 @@ class RxvedApp(App):
         self._busy = False
         self.last_status = ""
         self.last_status_refused = False
+        #: The MIDI channel the browser sends on, 0-based. Set from the
+        #: synth's own Patch Receive Channel once that has been read --
+        #: until then it is whatever was configured, and the UI says so.
+        self.target_channel = channel
+        self.channel_is_from_device = False
 
     # --- layout -------------------------------------------------------------
 
@@ -276,34 +285,37 @@ class RxvedApp(App):
 
     @work(thread=True)
     def _read_channels_worker(self) -> None:
-        """Learn which channels the synth listens on, at startup.
+        """Learn the synth's mode, channels and per-part state, at startup.
 
-        One silent round trip. Worth doing eagerly because the alternative
-        is selecting a performance on the patch channel, which the synth
-        ignores without complaint -- see xv.bridge.XvBridge.select.
+        Silent -- nothing is selected. Worth doing eagerly because until it
+        is known, rxved cannot say what a Bank Select on any given channel
+        would even hit: in Patch mode only one channel selects anything, and
+        in Performance mode it depends which part listens where.
         """
         try:
             with self._bridge_lock:
-                channels = self.bridge.use_system_channels()
+                state = self.bridge.read_state()
         except Exception as exc:
             self.call_from_thread(
                 self.notify_status,
-                f"could not read the synth's receive channels ({exc}); "
-                f"falling back to channel {self.channel + 1} for everything, "
-                f"which is probably wrong for performances",
+                f"could not read the synth's state ({exc}); sending on "
+                f"channel {self.target_channel + 1}, which may hit nothing",
                 refused=True,
             )
             return
-        performance = (
-            f"performances {channels.performance_display}"
-            if channels.performance_display is not None
-            else "performances OFF (they cannot be selected over MIDI)"
-        )
-        self.call_from_thread(
-            self.notify_status,
-            f"synth receives patches on MIDI channel "
-            f"{channels.patch_display}, {performance}",
-        )
+        self.call_from_thread(self._adopt_state, state, True)
+
+    def _adopt_state(self, state, move_cursor: bool = False) -> None:
+        """Take a freshly read DeviceState and redraw what depends on it."""
+        if move_cursor and not self.channel_is_from_device:
+            # Start where the synth is actually listening rather than on
+            # channel 1 by assumption.
+            self.target_channel = state.channels.patch_receive
+            self.channel_is_from_device = True
+        self._update_detail(
+            self.query_one("#slot-table", DataTable).cursor_row)
+        self.notify_status(f"read back from the synth — "
+                           f"{state.setup.mode_name} mode")
 
     # --- filling the tables -------------------------------------------------
 
@@ -378,6 +390,17 @@ class RxvedApp(App):
             f"[dim](wire, 0-based; the display shows "
             f"{slot.number})[/dim]",
         ]
+        state = getattr(self.bridge, "state", None)
+        if state is not None:
+            lines.append(
+                f"[b]{state.setup.mode_name}[/b] mode  ·  sending on ch "
+                f"[b]{self.target_channel + 1}[/b]  ·  "
+                f"{state.describes_short(self.target_channel)}"
+            )
+        else:
+            lines.append(
+                f"send on ch [b]{self.target_channel + 1}[/b] "
+                f"[dim](synth state not read)[/dim]")
         if fav is not None:
             bits = ["favourite"]
             if fav.rating:
@@ -456,11 +479,17 @@ class RxvedApp(App):
     def _select_worker(self, slot: banks.Slot) -> None:
         try:
             with self._bridge_lock:
-                # No channel= here: the bridge picks the patch or performance
-                # channel from what it read off the synth. Forcing
-                # self.channel is what sent performance selects into the void.
-                self.bridge.select(slot)
-                used = self.bridge.channel_for(slot.kind)
+                # A performance is selected on the Performance Control
+                # Channel and nowhere else, so that one is not the user's to
+                # choose. Everything else goes out on the channel they
+                # picked, because in a multitimbral mode that is precisely
+                # which part they are aiming at.
+                used = self._channel_for(slot)
+                if used is None:
+                    raise RuntimeError(
+                        "this synth has its Performance Control Channel set "
+                        "to OFF, so performances cannot be selected over MIDI")
+                self.bridge.select(slot, channel=used)
         except Exception as exc:
             self.call_from_thread(
                 self.notify_status, f"select: {exc}", refused=True)
@@ -469,9 +498,22 @@ class RxvedApp(App):
             f"selected {slot} on MIDI channel {used + 1} "
             f"(MSB {slot.msb}, LSB {slot.lsb}, PC {slot.program_change})"
         )
-        if getattr(self.bridge, "channels", None) is None:
-            message += "  —  channel not read from the synth; may be wrong"
+        state = getattr(self.bridge, "state", None)
+        if state is None:
+            message += "  —  synth state not read; this may have hit nothing"
         self.call_from_thread(self.notify_status, message)
+        # Read back what the synth now says it is on, rather than assuming
+        # the send landed: a Bank/PC aimed at a channel nothing listens on is
+        # ignored in silence.
+        self._refresh_channel_worker(used)
+
+    def _channel_for(self, slot: banks.Slot):
+        """Which channel this slot must go out on."""
+        if slot.kind == banks.Kind.PERFORMANCE:
+            channels = getattr(self.bridge, "channels", None)
+            if channels is not None:
+                return channels.performance_control
+        return self.target_channel
 
     def action_toggle_favorite(self) -> None:
         slot = self._current_slot()
@@ -758,6 +800,91 @@ class RxvedApp(App):
         ]
         self.push_screen(ReportScreen("SRX probe", "\n".join(lines)))
 
+    def action_channel_down(self) -> None:
+        self._set_channel((self.target_channel - 1) % 16)
+
+    def action_channel_up(self) -> None:
+        self._set_channel((self.target_channel + 1) % 16)
+
+    def action_pick_channel(self) -> None:
+        def apply(value):
+            if value is None:
+                return
+            try:
+                number = int(value.strip())
+            except ValueError:
+                self.notify_status(f"{value!r} is not a channel number",
+                                   refused=True)
+                return
+            if not 1 <= number <= 16:
+                self.notify_status("MIDI channels are 1-16", refused=True)
+                return
+            self._set_channel(number - 1)
+
+        self.push_screen(
+            TextPromptScreen("Send on MIDI channel (1-16)",
+                             str(self.target_channel + 1)),
+            apply,
+        )
+
+    def _set_channel(self, channel: int) -> None:
+        """Change the send channel and read back what is on the new one.
+
+        The read-back is the point. Bank Select and Program Change are
+        per-channel, so "which channel" decides whether a select lands on a
+        patch, on one part of a performance, on several layered parts at
+        once, or on nothing at all -- and the synth reports none of that
+        back on its own.
+        """
+        self.target_channel = channel
+        self.channel_is_from_device = True
+        self._update_detail(
+            self.query_one("#slot-table", DataTable).cursor_row)
+        if self._busy:
+            self.notify_status(
+                f"send channel {channel + 1} (synth busy; not re-read)")
+            return
+        self._refresh_channel_worker(channel)
+
+    @work(thread=True)
+    def _refresh_channel_worker(self, channel: int) -> None:
+        try:
+            with self._bridge_lock:
+                state = self.bridge.refresh_channel(channel)
+        except Exception as exc:
+            self.call_from_thread(
+                self.notify_status,
+                f"channel {channel + 1}: could not read back ({exc})",
+                refused=True)
+            return
+        self.call_from_thread(self._adopt_state, state)
+
+    def action_refresh_state(self) -> None:
+        """Full re-read, including every part's receive channel."""
+        if self._busy:
+            self.notify_status("already talking to the synth", refused=True)
+            return
+        self._refresh_state_worker()
+
+    @work(thread=True)
+    def _refresh_state_worker(self) -> None:
+        self._busy = True
+        try:
+            def progress(done, total):
+                self.call_from_thread(
+                    self.notify_status, f"reading part {done}/{total}")
+
+            with self._bridge_lock:
+                state = self.bridge.read_state(with_parts=True,
+                                               on_progress=progress)
+        except Exception as exc:
+            self.call_from_thread(
+                self.notify_status, f"refresh: {exc}", refused=True)
+            return
+        finally:
+            self._busy = False
+        self.call_from_thread(self._adopt_state, state)
+
     def action_device_info(self) -> None:
         self._device_info_worker()
 
@@ -816,8 +943,26 @@ The "#" column is what the synth's own display shows, and it is one more
 than PC. Both are given because both are right, in different places: the
 manual's tables number patches 001-128 and the MIDI byte runs 0-127.
 
+Bank Select and Program Change are PER MIDI CHANNEL, so which channel you
+send on decides what a select actually hits:
+
+  PATCH mode     only the Patch Receive Channel selects anything. Every
+                 other channel is ignored in silence.
+  PERFORM mode   each of the 16 parts has its own receive channel and its
+                 own patch. Several parts may share one channel, and then a
+                 Program Change there changes all of them. The whole
+                 performance is selected on the Performance Control Channel,
+                 which is a separate setting again.
+
+The line under the table says which mode the synth is in, which channel
+rxved will send on, and what is currently on that channel -- read back from
+the synth, not assumed. It re-reads whenever you change channel or select
+something.
+
 Keys
   arrows / tab   move; tab switches pane
+  [ / ]          previous / next send channel      c  type a channel
+  R              re-read everything, including each part's receive channel
   enter          select this slot ON THE SYNTH -- it will sound
   f              favourite / un-favourite      F  list favourites
   t / n          tags / note (favourites only)

@@ -10,10 +10,10 @@ SPDX-FileCopyrightText: Copyright (C) 2026  rxved contributors
 ## Status, 2026-09-11 (first session)
 
 The browser exists and works, against the demo synth and against real
-hardware. 172 tests, all passing, all synthetic.
+hardware. 187 tests, all passing, all synthetic.
 
-What that means honestly: **the protocol layer is confirmed, the Bank Select
-layer is not.** One hardware session established that the frame layout, the
+What that means honestly: **the protocol layer and the patch Bank Select
+map are confirmed; rhythm sets, performances and SRX are not.** One hardware session established that the frame layout, the
 model ID, the base-128 addressing, the checksum rule and the User Patch
 address map are all right — they were confirmed together by a single
 successful read, and then by 128 of them. It established nothing at all
@@ -31,26 +31,26 @@ on it again.
 
 ---
 
-## 1. No Bank Select triple has been confirmed on hardware
+## 1. Bank Select triples — patches CONFIRMED, the rest still open
 
-**Status:** open. Blocked on: nothing but a session at the machine.
+**Status:** partly resolved 2026-09-11. See RESOLUTION_NOTES §10.
 
-Every MSB/LSB/PC in `xv/banks.py` is transcribed from Roland's tables and is
-internally consistent, but no patch has been selected by rxved and confirmed
-by the synth's own display.
+Confirmed on hardware by sending each triple and reading the Setup block
+back: USER, PST-A, PST-B, PST-D and GM all land exactly where `xv/banks.py`
+says, **and the 0-based/1-based split is right** — PST-B 029 goes out as
+program change 28 and the synth reports itself on 029.
 
-The check is cheap and should be the first thing done at the machine: press
-Enter on a slot in each bank and read the display. `PST-B 029` is the one to
-start with — it is the manual's own worked example (OM p. 40) and it is the
-case where the manual is loosest about 0-based versus 1-based.
+The read-back makes the remaining checks cheap, since they no longer need
+anybody watching the front panel. Still unconfirmed:
 
-Worth checking specifically:
-- That the display shows the **number** rxved shows, not one either side.
-- The three GM2 rhythm sets around the non-contiguous gap (program changes
-  25 and 26, which are adjacent where the rest are eight apart).
-- One performance, since those go out on the Performance Control channel
-  (default 16), not the patch channel — rxved currently sends everything on
-  one channel and this may well be wrong for `P-*` banks. See item 4.
+- **Rhythm sets** (MSB 86 / 120). Includes item 3's open question about
+  whether the preset rhythm banks hold 4 or 2.
+- **The GM2 rhythm program numbers** around the non-contiguous gap — 25 and
+  26 are adjacent where the rest are eight apart.
+- **Performances.** These need the synth put into PERFORM mode and a select
+  on the Performance Control Channel; the channel is now read rather than
+  guessed (item 4) but the triple itself is untested.
+- **The whole SRX table** — item 5.
 
 ## 2. `SELECT_GAP` and `SEND_GAP` are guesses
 

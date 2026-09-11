@@ -90,6 +90,7 @@ class DemoBridge:
         #: same channel: a fake where both are 1 would pass a test that a
         #: real machine fails.
         self.channels: Optional[object] = None
+        self.state: Optional[object] = None
         self._closed = False
 
     # --- lifecycle ----------------------------------------------------------
@@ -181,6 +182,53 @@ class DemoBridge:
         if self.channels is not None:
             return self.channels.for_kind(kind)
         return self.channel
+
+    def read_setup(self, *, timeout=None):
+        from xv.bridge import SetupState, SoundMode
+
+        self._tick()
+        # A demo synth in PERFORM mode, so the multitimbral paths -- which
+        # are the ones with anything to get wrong -- are the ones exercised.
+        return SetupState(
+            mode=SoundMode.PERFORM,
+            performance_msb=85, performance_lsb=0, performance_program=4,
+            patch_msb=87, patch_lsb=0, patch_program=0,
+        )
+
+    def read_part(self, part: int, *, timeout=None):
+        from xv.bridge import PartState
+
+        if not 1 <= part <= 16:
+            raise ValueError(f"part {part} is outside 1-16")
+        self._tick()
+        # Parts 1 and 2 deliberately share channel 1, as a layer -- the real
+        # machine does this and a fake where every part had its own channel
+        # would let the layered case go untested.
+        channel = 0 if part in (1, 2) else part - 1
+        return PartState(part=part, receive_channel=channel,
+                         msb=87, lsb=64, program_change=part - 1)
+
+    def read_parts(self, *, on_progress=None, timeout=None):
+        out = []
+        for part in range(1, 17):
+            out.append(self.read_part(part))
+            if on_progress is not None:
+                on_progress(part, 16)
+        return tuple(out)
+
+    def read_state(self, *, with_parts=None, on_progress=None, timeout=None):
+        from xv.bridge import DeviceState
+
+        setup = self.read_setup()
+        channels = self.system_channels()
+        self.channels = channels
+        want = setup.multitimbral if with_parts is None else with_parts
+        parts = self.read_parts(on_progress=on_progress) if want else ()
+        self.state = DeviceState(setup=setup, channels=channels, parts=parts)
+        return self.state
+
+    def refresh_channel(self, channel: int, *, timeout=None):
+        return self.read_state()
 
     def select(self, entry: banks.Slot, *, channel: Optional[int] = None
                ) -> None:

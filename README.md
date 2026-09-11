@@ -39,6 +39,15 @@ the synth's memory.
 
 ## What it does
 
+- **A send channel, because Bank Select and Program Change are per
+  channel.** Which channel you send on decides what a select actually hits,
+  and the synth never volunteers that: in Patch mode only the Patch Receive
+  Channel selects anything, and in Performance mode each of the 16 parts has
+  its own channel and its own patch — several parts may share one, in which
+  case a Program Change there moves all of them. rxved reads the synth's
+  mode, its two receive channels and every part's state, shows what is
+  currently on the channel you are aiming at, and re-reads it whenever you
+  change channel or select something.
 - **Every bank the XV-2020 addresses**: USER, Preset A–D, GM2 and its nine
   variation banks, the internal and GM2 rhythm sets, all three performance
   banks, and every SRX expansion board from SRX-01 to SRX-98 — 57 banks and
@@ -108,6 +117,8 @@ XV-3080 on the same chain. The port that answered is remembered in
 | `r` | read this bank's names from the synth (USER banks; read-only) |
 | `s` | scan this bank by selecting every slot (**plays the synth**) |
 | `x` | probe for a fitted SRX board (**plays the synth**) |
+| `[` / `]` / `c` | previous / next send channel, or type one |
+| `R` | re-read the synth's mode, channels and all 16 parts |
 | `i` / `?` / `q` | device identity / help / quit |
 
 **Moving the cursor never sends anything.** That is enforced by a test, not
@@ -123,7 +134,7 @@ rxvcli list PST-B                 # one bank's slots
 rxvcli find "bass" --kind patch   # search names
 rxvcli resolve 87 65 28           # what does this MSB/LSB/PC select?
 rxvcli status                     # ask the synth who it is
-rxvcli channels                   # which MIDI channels it listens on
+rxvcli channels                   # what each MIDI channel currently selects
 rxvcli read USER                  # read USER names (read-only)
 rxvcli select PST-B:29            # select it on the synth
 rxvcli scan PST-A --yes           # learn a preset bank's names (plays it)
@@ -172,11 +183,13 @@ rather than inferred. See `docs/RESOLUTION_NOTES.md` §3.
 - **Verified** against a real XV-2020 on 2026-09-11: port discovery, the
   Identity Request/Reply, the device-ID numbering, the RQ1/DT1 round trip
   (which confirms the frame layout, model ID, base-128 addressing and the
-  checksum rule together), all 128 User Patch addresses, and the two System
-  Common receive-channel bytes.
-- **Not verified**: every Bank Select triple, the whole SRX table, the
-  performance and rhythm addresses, and both timing constants — which are
-  *guesses*, labelled as such in the code.
+  checksum rule together), all 128 User Patch addresses, the two System
+  Common receive-channel bytes, the Setup block, all 16 Performance Parts,
+  and — sent and read back — the Bank Select triples for USER, PST-A, PST-B,
+  PST-D and GM, **including the 0-based/1-based split**.
+- **Not verified**: rhythm-set and performance triples, the whole SRX
+  table, and both timing constants — which are *guesses*, labelled as such
+  in the code.
 
 One bug is worth knowing about because of how it hid: `device_id_byte()`
 originally accepted "either" a panel number (17–32) or a wire byte
@@ -190,7 +203,7 @@ against real hardware to find. `DISCLAIMER.md` has the full account.
 ## Development
 
 ```sh
-.venv/bin/python -m pytest      # 172 tests, all synthetic, no hardware
+.venv/bin/python -m pytest      # 187 tests, all synthetic, no hardware
 ```
 
 Project layout follows the author's sibling **eosed** and **s3ked**

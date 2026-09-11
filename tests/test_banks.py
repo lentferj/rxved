@@ -258,3 +258,103 @@ class TestSystemChannels:
         assert channels.performance_display is None
         assert channels.for_kind(banks.Kind.PERFORMANCE) is None
         assert channels.for_kind(banks.Kind.PATCH) == 0
+
+
+class TestDeviceState:
+    """What a Bank Select on a given channel would actually hit."""
+
+    @staticmethod
+    def _state(mode, *, patch_rx=0, perf_ctrl=15, parts=()):
+        from xv.bridge import DeviceState, PartState, SetupState, SystemChannels
+
+        return DeviceState(
+            setup=SetupState(mode=mode, patch_msb=87, patch_lsb=0,
+                             patch_program=0, performance_msb=85,
+                             performance_lsb=0, performance_program=4),
+            channels=SystemChannels(patch_receive=patch_rx,
+                                    performance_control=perf_ctrl),
+            parts=parts,
+        )
+
+    @staticmethod
+    def _part(part, channel, pc):
+        from xv.bridge import PartState
+
+        return PartState(part=part, receive_channel=channel, msb=87, lsb=64,
+                         program_change=pc)
+
+    def test_patch_mode_is_single_channel(self):
+        from xv.bridge import SoundMode
+
+        state = self._state(SoundMode.PATCH, patch_rx=0)
+        assert "the patch" in state.describes(0)
+        # Every other channel selects nothing at all, and saying so is more
+        # use than showing a blank.
+        assert "nothing" in state.describes(5)
+
+    def test_perform_mode_maps_channels_to_parts(self):
+        from xv.bridge import SoundMode
+
+        state = self._state(SoundMode.PERFORM,
+                            parts=(self._part(1, 0, 0), self._part(2, 3, 1)))
+        assert "part 1" in state.describes(0)
+        assert "part 2" in state.describes(3)
+        assert "no part listens" in state.describes(7)
+
+    def test_layered_parts_on_one_channel_are_all_reported(self):
+        """Parts freely share a channel; the real machine had three on one."""
+        from xv.bridge import SoundMode
+
+        state = self._state(
+            SoundMode.PERFORM,
+            parts=(self._part(1, 0, 0), self._part(2, 0, 1),
+                   self._part(3, 0, 2)),
+        )
+        assert len(state.parts_on(0)) == 3
+        described = state.describes(0)
+        assert described.startswith("ch 1: ")
+        # Every layered part named, and the consequence spelled out -- a
+        # Program Change on a shared channel moves all of them at once.
+        for part in (1, 2, 3):
+            assert f"{part}=" in described
+        assert "moves all 3" in described
+
+    def test_describes_short_omits_the_channel_prefix(self):
+        """For callers that have already said which channel they mean."""
+        from xv.bridge import SoundMode
+
+        state = self._state(SoundMode.PERFORM, parts=(self._part(1, 0, 0),))
+        assert state.describes(0) == "ch 1: " + state.describes_short(0)
+
+    def test_the_performance_control_channel_selects_the_performance(self):
+        from xv.bridge import SoundMode
+
+        state = self._state(SoundMode.PERFORM, perf_ctrl=14,
+                            parts=(self._part(1, 0, 0),))
+        assert "whole performance" in state.describes(14)
+
+    def test_gm_modes_count_as_multitimbral(self):
+        from xv.bridge import SoundMode
+
+        for mode in (SoundMode.PERFORM, SoundMode.GM1, SoundMode.GM2,
+                     SoundMode.GS):
+            assert self._state(mode).setup.multitimbral
+        assert not self._state(SoundMode.PATCH).setup.multitimbral
+
+    def test_setup_decodes_the_current_selection_as_a_slot(self):
+        from xv.bridge import SoundMode
+
+        setup = self._state(SoundMode.PATCH).setup
+        assert setup.patch_slot is not None
+        assert setup.patch_slot.bank_id == "USER"
+        assert setup.performance_slot.bank_id == "P-USER"
+
+    def test_an_unrecognised_bank_is_none_not_a_crash(self):
+        """An SRX board rxved has no row for, or a mode it did not expect."""
+        from xv.bridge import SetupState
+
+        setup = SetupState(mode=1, patch_msb=99, patch_lsb=99,
+                           patch_program=0, performance_msb=99,
+                           performance_lsb=99, performance_program=0)
+        assert setup.patch_slot is None
+        assert setup.performance_slot is None

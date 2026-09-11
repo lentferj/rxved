@@ -43,6 +43,12 @@ client `Roland XV-2020`, device ID 17):
   checksum-over-address-and-data rule are all confirmed together.
 - **The User Patch address map.** All 128 User Patch names read back from
   `30 00 00 00` … `30 7F 00 00`, one per slot, in order.
+- **The Setup block** (`01 00 00 00`): sound mode, and the Bank Select and
+  Program Number of both the current patch and the current performance.
+- **All 16 Performance Parts** (`10 00 <20+n-1> 00`): each one's receive
+  channel and patch selection. Three parts were found sharing channel 1.
+- **The Bank Select triples for USER, PST-A, PST-B, PST-D and GM**, sent and
+  read back, confirming the MSB/LSB map and the 0-based/1-based split.
 - **System Common's two receive-channel bytes** (`02 00 00 09` and
   `02 00 00 0B`), confirmed both by single-byte reads and by a block read of
   the surrounding area. This machine receives patches on channel 1 and
@@ -53,9 +59,9 @@ client `Roland XV-2020`, device ID 17):
 - The User Performance (`20 nn 00 00`) and User Rhythm (`40 n0 00 00`)
   addresses. Transcribed from the same table that got User Patch right,
   which is encouraging and is not evidence.
-- Every Bank Select MSB/LSB/PC triple. They are transcribed from Roland's
-  own tables and are self-consistent, but no patch has been selected on the
-  hardware by rxved and confirmed by ear or by display.
+- Rhythm-set and performance Bank Select triples. The patch ones are now
+  confirmed (above); these are not, and performances additionally need the
+  synth put into PERFORM mode to test.
 - The whole SRX allocation. **No SRX board was fitted to test against**, and
   the one in the author's machine has not been probed.
 - Both timing constants in `xv/bridge.py` (`SEND_GAP`, `SELECT_GAP`). These

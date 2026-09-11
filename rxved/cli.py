@@ -292,22 +292,60 @@ def _cmd_select(bridge, args) -> None:
         print(f"note: could not read the synth's receive channels ({exc}); "
               f"using the configured channel, which may be wrong",
               file=sys.stderr)
-    bridge.select(slot)
-    channel = bridge.channel_for(slot.kind)
+    channel = (args.channel - 1) if args.channel is not None else None
+    if channel is None:
+        channel = bridge.channel_for(slot.kind)
+    if channel is None:
+        raise SystemExit(
+            "error: this synth has its Performance Control Channel set to "
+            "OFF, so performances cannot be selected over MIDI.")
+    bridge.select(slot, channel=channel)
     print(f"selected {slot}: MSB {slot.msb}, LSB {slot.lsb}, "
           f"PC {slot.program_change}, on MIDI channel {channel + 1}")
+    # Read back rather than assume: a select aimed at a channel nothing
+    # listens on is ignored in silence.
+    try:
+        state = bridge.refresh_channel(channel)
+        print("now: " + state.describes(channel), file=sys.stderr)
+    except Exception as exc:
+        print(f"note: could not read back ({exc})", file=sys.stderr)
 
 
-def _cmd_channels(bridge, _args) -> None:
-    """Which channels the synth listens on. Read-only, makes no sound."""
-    channels = bridge.system_channels()
-    print(f"patch / rhythm receive channel   {channels.patch_display}")
-    if channels.performance_display is None:
+def _cmd_channels(bridge, args) -> None:
+    """What each MIDI channel currently selects. Read-only, makes no sound.
+
+    The question this answers is the one the synth will not answer on its
+    own: Bank Select and Program Change are per channel, so a select only
+    does anything if something is listening on the channel it went out on.
+    """
+    state = bridge.read_state(with_parts=args.parts or None)
+    setup = state.setup
+    print(f"sound mode                       {setup.mode_name}")
+    print(f"patch / rhythm receive channel   "
+          f"{state.channels.patch_display}")
+    if state.channels.performance_display is None:
         print("performance control channel      OFF — performances cannot "
               "be selected over MIDI at all")
     else:
         print(f"performance control channel      "
-              f"{channels.performance_display}")
+              f"{state.channels.performance_display}")
+    print(f"current patch                    "
+          f"{setup.patch_slot or 'unrecognised bank/PC'}")
+    print(f"current performance              "
+          f"{setup.performance_slot or 'unrecognised bank/PC'}")
+
+    if state.parts:
+        print()
+        rows = [
+            [str(p.part), str(p.channel_display), str(p.msb), str(p.lsb),
+             str(p.program_change), str(p.slot) if p.slot else "?"]
+            for p in state.parts
+        ]
+        print(_fmt_table(rows, ["part", "ch", "MSB", "LSB", "PC", "slot"]))
+
+    print()
+    for channel in range(16):
+        print("  " + state.describes(channel))
 
 
 def _cmd_scan(bridge, args) -> None:
@@ -446,8 +484,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("tags", help="tags in use, with counts")
     sub.add_parser("status", help="ask the synth who it is")
-    sub.add_parser("channels",
-                   help="which MIDI channels the synth listens on")
+    sp = sub.add_parser(
+        "channels", help="what each MIDI channel currently selects")
+    sp.add_argument("--parts", action="store_true",
+                    help="read all 16 Performance Parts even in Patch mode "
+                         "(16 extra round trips, still silent)")
 
     sp = sub.add_parser("read", help="read a USER bank's names (read-only)")
     sp.add_argument("bank", choices=["USER", "P-USER", "R-USER"])

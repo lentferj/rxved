@@ -312,3 +312,99 @@ test by accident.
 **Not resolved by this**: whether a performance select on the right channel
 actually works. The channel is now right; the rest of the triple is still
 part of TODO item 1.
+
+---
+
+## §9 — Bank Select is per channel, and the mode decides what that means
+
+rxved's first version had one send channel and one idea of "the current
+patch". Both are wrong, and the correction came from a user observation
+("MIDI PC/LSB is per MIDI channel") that the manual, the web and the
+hardware all confirm.
+
+### What the mode changes
+
+Setup `01 00 00 00` offset `00 00` is **Sound Mode**: PATCH, PERFORM, GM1,
+GM2, GS. It decides what a Bank Select and Program Change on a given
+channel do:
+
+* **PATCH** — single-timbral. Only the Patch Receive Channel selects
+  anything; a Bank/PC on any other channel is ignored in silence.
+* **PERFORM** — 16 parts, each with its own Receive Channel *and* its own
+  patch. A Bank/PC on a part's channel selects that part's patch. The whole
+  performance is selected on the Performance Control Channel, a third
+  setting again (§8).
+* **GM1 / GM2 / GS** — multitimbral under the respective standard.
+
+Sound On Sound and Roland's own documentation agree: Performance mode is
+what makes it a 16-part module, and Patch mode is one sound on one channel.
+
+### The read-back
+
+The Setup block is 15 bytes (`00 00 00 0F`) and is exactly the read-back
+this project needed, in rxved's own terms:
+
+| Offset | Parameter |
+|--------|-----------|
+| `00 00` | Sound Mode (1–5) |
+| `00 04`–`00 06` | Performance Bank Select MSB / LSB / Program Number |
+| `00 07`–`00 09` | Patch Bank Select MSB / LSB / Program Number |
+
+Per-part state is in Temporary Performance, `10 00 <20+n-1> 00` — offset
+`00 00` Receive Channel, `00 04`–`00 06` that part's Bank MSB / LSB / PC.
+
+### Parts share channels
+
+Read off the machine, in the performance it had loaded:
+
+```
+part  rxCh  MSB  LSB   PC
+   1     1   87   65   83
+   2     1   87   67  124
+   3     1   87   65   60
+   4     4   87   64    0     ... parts 4-16 each on their own channel
+```
+
+**Parts 1, 2 and 3 all listen on channel 1.** That is a layer, and it is
+normal. So "what is on channel N" is a *list*, and a Program Change sent
+there moves every part on it at once. `DeviceState.parts_on()` returns a
+list for this reason, and the UI says "layered, so a Program Change here
+moves all 3" rather than naming one part and being quietly wrong about the
+other two.
+
+### Also read: the machine was in PATCH mode
+
+Sound Mode came back as 1 = PATCH, with the Patch Receive Channel on 1 and
+the Performance Control Channel on 15. So the original assumption — one
+channel, one patch — happened to be *harmless* on this machine in this mode,
+and would have broken the moment it was switched to PERFORM. Worth recording
+as the kind of bug that hides behind a lucky configuration.
+
+---
+
+## §10 — Every Bank Select triple confirmed on hardware (2026-09-11)
+
+TODO item 1 is closed for patches. Each triple was sent on the Patch Receive
+Channel and the Setup block read back immediately:
+
+| Sent | MSB | LSB | PC | Synth reported |
+|------|-----|-----|----|----------------|
+| PST-B 029 | 87 | 65 | 28 | PST-B 029 |
+| PST-A 001 | 87 | 64 | 0 | PST-A 001 |
+| GM 001 | 121 | 0 | 0 | GM 001 |
+| PST-D 128 | 87 | 67 | 127 | PST-D 128 |
+| USER 064 | 87 | 0 | 63 | USER 064 |
+
+This settles three things at once:
+
+1. **The MSB/LSB map is right** for USER, all four preset banks and GM.
+2. **The 0-based/1-based split is right.** PST-B 029 goes out as program
+   change 28 and the synth reports itself on 029. That is the single
+   numbering trap this project was built around, and it now has evidence
+   rather than an argument.
+3. **The read-back works**, which is what makes the rest of the verification
+   cheap — any triple can now be checked without a human reading the front
+   panel.
+
+Still not confirmed: performances (they need a mode switch and the control
+channel), rhythm sets, and the whole SRX table.

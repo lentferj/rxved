@@ -100,6 +100,10 @@ __all__ = [
     "install_clean_exit",
     "DeviceIdentity",
     "SystemChannels",
+    "SoundMode",
+    "SetupState",
+    "PartState",
+    "DeviceState",
     "PERFORMANCE_CHANNEL_OFF",
     "DeviceError",
     "XvBridge",
@@ -505,6 +509,156 @@ def install_clean_exit(signals=None) -> None:
 # --- the bridge -------------------------------------------------------------
 
 
+class SoundMode:
+    """What the synth is currently doing, from Setup ``01 00 00 00`` offset 0.
+
+    This is the setting that decides what a Bank Select and Program Change
+    on a given channel *mean*, so nothing that sends one should proceed
+    without knowing it:
+
+    * **PATCH** -- one patch, on the Patch Receive Channel. Single-timbral.
+      Bank/PC on any other channel does nothing at all.
+    * **PERFORM** -- 16 parts, each with its own Receive Channel and its own
+      patch. Bank/PC on a part's channel selects that part's patch; Bank/PC
+      on the Performance Control Channel selects the whole performance.
+    * **GM1 / GM2 / GS** -- multitimbral under the respective standard.
+    """
+
+    PATCH = 1
+    PERFORM = 2
+    GM1 = 3
+    GM2 = 4
+    GS = 5
+
+    NAMES = {PATCH: "PATCH", PERFORM: "PERFORM", GM1: "GM1", GM2: "GM2",
+             GS: "GS"}
+
+    #: Modes in which more than one MIDI channel selects anything.
+    MULTITIMBRAL = frozenset({PERFORM, GM1, GM2, GS})
+
+    @classmethod
+    def name(cls, value: int) -> str:
+        return cls.NAMES.get(value, f"unknown ({value})")
+
+
+@dataclass(frozen=True)
+class PartState:
+    """One Performance Part: which channel it listens on, and what it holds.
+
+    Read from Temporary Performance, ``10 00 <20+n-1> 00`` (OM p. 146, 149):
+    offset ``00 00`` is Receive Channel and ``00 04``-``00 06`` are the
+    part's own Patch Bank Select MSB / LSB / Program Number.
+    """
+
+    part: int                 #: 1-16, as the front panel numbers them.
+    receive_channel: int      #: 0-based wire channel.
+    msb: int
+    lsb: int
+    program_change: int
+
+    @property
+    def channel_display(self) -> int:
+        return self.receive_channel + 1
+
+    @property
+    def slot(self) -> Optional[banks.Slot]:
+        """The bank/slot this part is set to, if rxved's table claims it."""
+        return banks.lookup(self.msb, self.lsb, self.program_change)
+
+
+@dataclass(frozen=True)
+class SetupState:
+    """The Setup block: what is selected right now.
+
+    ``01 00 00 00``, 15 bytes (the map gives Total Size ``00 00 00 0F``).
+    Carries the sound mode plus the Bank Select and Program Change of both
+    the current patch and the current performance -- which is to say, the
+    read-back of exactly what rxved's browser sends.
+    """
+
+    mode: int
+    patch_msb: int
+    patch_lsb: int
+    patch_program: int
+    performance_msb: int
+    performance_lsb: int
+    performance_program: int
+
+    @property
+    def mode_name(self) -> str:
+        return SoundMode.name(self.mode)
+
+    @property
+    def multitimbral(self) -> bool:
+        return self.mode in SoundMode.MULTITIMBRAL
+
+    @property
+    def patch_slot(self) -> Optional[banks.Slot]:
+        return banks.lookup(self.patch_msb, self.patch_lsb,
+                            self.patch_program)
+
+    @property
+    def performance_slot(self) -> Optional[banks.Slot]:
+        return banks.lookup(self.performance_msb, self.performance_lsb,
+                            self.performance_program)
+
+
+@dataclass(frozen=True)
+class DeviceState:
+    """Everything needed to answer "what does channel N do right now?"."""
+
+    setup: SetupState
+    channels: "SystemChannels"
+    #: Empty unless the parts were read; they are only meaningful in a
+    #: multitimbral mode.
+    parts: Tuple[PartState, ...] = ()
+
+    def parts_on(self, channel: int) -> List[PartState]:
+        """Every part listening on this 0-based channel.
+
+        A **list**, not one part, and that is not defensive programming:
+        parts freely share a receive channel to make a layer. The machine
+        this was written against has parts 1, 2 and 3 all on channel 1.
+        """
+        return [p for p in self.parts if p.receive_channel == channel]
+
+    def describes(self, channel: int) -> str:
+        """One line saying what a Bank Select / PC on this channel would hit.
+
+        Prefixed with the channel, for places that show it on its own.
+        :meth:`describes_short` omits the prefix for callers that have
+        already said which channel they mean.
+        """
+        return f"ch {channel + 1}: {self.describes_short(channel)}"
+
+    def describes_short(self, channel: int) -> str:
+        """As :meth:`describes`, without the leading channel number."""
+        if not self.setup.multitimbral:
+            if channel == self.channels.patch_receive:
+                slot = self.setup.patch_slot
+                return (f"the patch — currently "
+                        f"{slot if slot else 'an unrecognised bank/PC'}")
+            return (f"nothing — in {self.setup.mode_name} mode only the Patch "
+                    f"Receive Channel ({self.channels.patch_display}) "
+                    f"selects anything")
+        if channel == self.channels.performance_control:
+            slot = self.setup.performance_slot
+            return (f"the whole performance — currently "
+                    f"{slot if slot else 'an unrecognised bank/PC'}")
+        here = self.parts_on(channel)
+        if not here:
+            return "no part listens on this channel"
+        if len(here) == 1:
+            part = here[0]
+            slot = part.slot
+            return (f"part {part.part} — currently "
+                    f"{slot if slot else 'an unrecognised bank/PC'}")
+        names = ", ".join(
+            f"{p.part}={p.slot if p.slot else '?'}" for p in here)
+        return (f"parts {names} — layered, so a Program Change here "
+                f"moves all {len(here)}")
+
+
 @dataclass(frozen=True)
 class SystemChannels:
     """The two receive channels, as **0-based wire channels**.
@@ -604,6 +758,10 @@ class XvBridge:
         #: which is what makes :meth:`channel_for` fall back rather than
         #: silently claim knowledge it does not have.
         self.channels: Optional["SystemChannels"] = None
+        #: The last :meth:`read_state` result, if any. What the UI shows for
+        #: "what is on this channel"; ``None`` until read, so nothing claims
+        #: knowledge it has not fetched.
+        self.state: Optional["DeviceState"] = None
         self._closed = False
 
     # --- construction -------------------------------------------------------
@@ -890,6 +1048,113 @@ class XvBridge:
                 else raw_performance
             ),
         )
+
+    def read_setup(self, *, timeout: Optional[float] = None) -> SetupState:
+        """Read the Setup block: sound mode, and what is selected now.
+
+        One round trip, 15 bytes, no sound. This is the read-back for
+        everything the browser sends -- the synth reports the Bank Select
+        MSB/LSB and Program Number it is currently on, in exactly the terms
+        rxved displays them.
+        """
+        data = self.request((0x01, 0x00, 0x00, 0x00), 0x0F, timeout=timeout)
+        if len(data) < 10:
+            raise DeviceError(
+                f"Setup read returned {len(data)} bytes, expected 15")
+        return SetupState(
+            mode=data[0],
+            performance_msb=data[4], performance_lsb=data[5],
+            performance_program=data[6],
+            patch_msb=data[7], patch_lsb=data[8], patch_program=data[9],
+        )
+
+    def read_part(self, part: int, *, timeout: Optional[float] = None
+                  ) -> PartState:
+        """Read one Performance Part's channel and patch selection.
+
+        ``10 00 <20+part-1> 00``: the Performance Part blocks sit at
+        Performance offsets ``00 20 00`` (Part 1) through ``00 2F 00``
+        (Part 16), one step of the third address byte each.
+        """
+        if not 1 <= part <= 16:
+            raise ValueError(f"part {part} is outside 1-16")
+        data = self.request((0x10, 0x00, 0x20 + part - 1, 0x00), 8,
+                            timeout=timeout)
+        if len(data) < 7:
+            raise DeviceError(
+                f"part {part} read returned {len(data)} bytes, expected 8")
+        return PartState(
+            part=part, receive_channel=data[0],
+            msb=data[4], lsb=data[5], program_change=data[6],
+        )
+
+    def read_parts(self, *, on_progress: Optional[Callable[[int, int], None]] = None,
+                   timeout: Optional[float] = None) -> Tuple[PartState, ...]:
+        """All 16 Performance Parts. Sixteen round trips, no sound."""
+        out = []
+        for part in range(1, 17):
+            out.append(self.read_part(part, timeout=timeout))
+            if on_progress is not None:
+                on_progress(part, 16)
+        return tuple(out)
+
+    def read_state(self, *, with_parts: Optional[bool] = None,
+                   on_progress: Optional[Callable[[int, int], None]] = None,
+                   timeout: Optional[float] = None) -> DeviceState:
+        """Everything needed to say what each MIDI channel currently does.
+
+        ``with_parts`` defaults to "only if the mode makes them matter" --
+        sixteen extra round trips are worth skipping when the synth is in
+        Patch mode and only one channel selects anything.
+        """
+        setup = self.read_setup(timeout=timeout)
+        channels = self.system_channels(timeout=timeout)
+        self.channels = channels
+        want_parts = setup.multitimbral if with_parts is None else with_parts
+        parts = (
+            self.read_parts(on_progress=on_progress, timeout=timeout)
+            if want_parts else ()
+        )
+        state = DeviceState(setup=setup, channels=channels, parts=parts)
+        self.state = state
+        return state
+
+    def refresh_channel(self, channel: int, *,
+                        timeout: Optional[float] = None) -> DeviceState:
+        """Re-read just enough to say what is on one channel. Cheap, silent.
+
+        The full :meth:`read_state` costs eighteen round trips in a
+        multitimbral mode, which is too much to spend every time the user
+        nudges the channel selector. This re-reads the Setup block always
+        (one trip, and it is what changes when a patch is selected) and, in
+        a multitimbral mode, only the parts already known to listen on this
+        channel.
+
+        The cached part list is used to decide *which* parts to re-read, not
+        for their contents. That is a deliberate trade: a part's receive
+        channel changes only when a different performance is loaded, and
+        :meth:`read_state` or the browser's refresh key covers that, whereas
+        a part's *patch* changes every time anybody sends a program change.
+        """
+        setup = self.read_setup(timeout=timeout)
+        previous = self.state
+        channels = (previous.channels if previous is not None
+                    else self.system_channels(timeout=timeout))
+        parts: Tuple[PartState, ...] = (
+            previous.parts if previous is not None else ())
+        if setup.multitimbral:
+            if not parts:
+                parts = self.read_parts(timeout=timeout)
+            else:
+                fresh = {
+                    p.part: self.read_part(p.part, timeout=timeout)
+                    for p in parts if p.receive_channel == channel
+                }
+                parts = tuple(fresh.get(p.part, p) for p in parts)
+        state = DeviceState(setup=setup, channels=channels, parts=parts)
+        self.state = state
+        self.channels = channels
+        return state
 
     def user_patch_name(self, number: int, *,
                         timeout: Optional[float] = None) -> str:

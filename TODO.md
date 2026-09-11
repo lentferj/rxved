@@ -160,20 +160,25 @@ patch number.
 Done: all twelve usable boards are read from their own owner's manuals, with
 categories, plus 174 rhythm-set names from the same files. 2637 patches.
 
-## 7. The editor's parameter XML is untouched
+## 7. The editor's parameter XML — DONE 2026-09-11
 
-**Status:** open. A future phase, not a defect.
+**Status:** done as a cross-check. `tools/check_editor_map.py` reads
+`XVEditor/Script/XV-2020EditorScript.xml` — Roland's own parameter map, 2075
+addresses with sizes, ranges and defaults — and compares it against every
+offset rxved uses.
 
-`XVEditor/Script/XV-2020EditorScript.xml` is 1.7 MB of Roland's own panel
-and parameter definitions for this synth. rxved does not read it and does
-not need to as a browser. It is the obvious source if this ever grows an
-editor — and it would spare transcribing the parameter address map by hand,
-which is where the sibling projects spent most of their effort.
+**rxved agrees with it on all of them:** 42 offsets across five blocks, 33
+write ranges, four block sizes. See RESOLUTION_NOTES §13.
 
-If that happens, the hardware rule in CLAUDE.md applies with force: rxved
-currently cannot write to the synth's memory, and every destructive
-operation added must go behind a modal arm-then-fire screen and must never
-be key-bound.
+It is a *cross-check, not a source*: disagreements are reported and never
+applied, because the right response to one is to read the manual's own block
+carefully rather than believe whichever file was opened last.
+
+Still open from this file, if an editor ever grows further: the whole Patch
+and Rhythm parameter set is in there, along with the per-part temporary
+patch addresses. What is **not** in it is any address outside the temporary
+areas — no `20 nn` anywhere — so it says nothing about how the editor's
+WRITE stores into user memory. That is item 11.
 
 ## 8. Soundset files (`.syx`, `.xvl`) are not read
 

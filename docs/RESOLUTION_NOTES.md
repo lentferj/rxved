@@ -852,3 +852,49 @@ aimed at it.
 All 16 channels accept both, so this diagnoses nothing there today. It was
 still worth reading: "nothing is in the way" is only useful as a statement
 if the alternative was detectable.
+
+---
+
+## §13 — The editor script is a second source, and rxved agrees with it
+
+**Done 2026-09-11.** Closes TODO 7.
+
+`Script/XV-2020EditorScript.xml`, which ships with the XV-2020 Editor for
+Windows, is Roland's own parameter map in machine-readable form: 50
+`<structType>` definitions giving every parameter's offset within its block,
+its size, its range and its default, plus `<struct>` instances binding those
+types to base addresses. 2075 addresses in all.
+
+This is exactly the second source §12b said was missing. Every offset in
+`xv/bridge.py` was transcribed by hand from a PDF whose parameter map is set
+in two columns, and reading that PDF one line at a time produced a
+confidently wrong claim about the Mute Switch. `tools/check_editor_map.py`
+compares the two.
+
+**The result: rxved agrees with Roland on all of it** — 42 offsets across
+Performance Part, Performance MIDI, Performance Common, Setup and System
+Common; all 33 write ranges in both allowlists; and all four block sizes.
+Including offset `00 1B`, the Mute Switch, which this tool would have found
+in seconds.
+
+### Notation traps in the script, both of which give plausible wrong numbers
+
+- **Sizes are hex, in two notations.** Most blocks write `31`, which is
+  0x31 = 49; Setup writes `00 0F`, address-shaped, which is 15. Read as
+  decimal the first gives 31 — a believable number, an 18-byte short read,
+  and a corrupted performance if that block is later written back.
+- **Offsets are two-byte addresses**, `00 1B`, not the decimal 27 they
+  resemble once a naive parser has joined them.
+
+### What else is in there, unused
+
+The script also carries the per-part temporary patch and rhythm addresses
+(`11 00 00 00` for part 1 through `14 60 00 00` for part 16), the whole
+Patch and Rhythm parameter set, defaults for everything, and string tables.
+
+**What is *not* in it: any address outside the temporary areas.** There is
+no `20 nn` anywhere in the file. The editor's map covers Setup, System, the
+temporary performance, the temporary patches and rhythms, and nothing else —
+so the script cannot tell us how its WRITE button stores into user memory.
+That remains the open question of §12/TODO 11, and `rxvcli perf-verify` is
+still the way to settle it.

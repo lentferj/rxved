@@ -403,6 +403,77 @@ def read_srx_list(card: str, path: str) -> Dict[str, List[dict]]:
     return out
 
 
+def read_srx_names(card: str, path: str) -> Dict[str, List[dict]]:
+    """One board's patches from a hand-written table.
+
+    For a board with no document to parse -- only a screen capture, or a page
+    somebody typed up. Lines are ``number, name, category`` separated by tabs
+    or two or more spaces; the category is optional and given as the full
+    name the lists print ("AC.BRASS"), not the three-letter code.
+
+    Worth being clear about what this is: everything else in the catalog is
+    read out of a file Roland shipped, and most of it is cross-checked
+    against a second one. A board added this way has been through a human
+    eye, which is the least reliable step in the whole pipeline. The count
+    still has to come to the board's documented patch total -- that much is
+    checked -- but a wrong *name* on the right number will pass silently.
+    """
+    definition = banks.srx_card(card)
+    total = definition.patch_count
+    found: Dict[int, Tuple[str, Optional[str]]] = {}
+    with open(path, "r", encoding="utf-8") as handle:
+        for lineno, raw in enumerate(handle, start=1):
+            line = raw.split("#", 1)[0].rstrip()
+            if not line.strip():
+                continue
+            fields = [f.strip() for f in re.split(r"\t|\s{2,}", line.strip())]
+            if len(fields) < 2:
+                raise SystemExit(
+                    f"error: {path}:{lineno}: expected 'number<tab>name"
+                    f"[<tab>CATEGORY]', got {line.strip()!r}")
+            try:
+                number = int(fields[0])
+            except ValueError:
+                raise SystemExit(
+                    f"error: {path}:{lineno}: {fields[0]!r} is not a number"
+                ) from None
+            if not 1 <= number <= total:
+                raise SystemExit(
+                    f"error: {path}:{lineno}: {card} has {total} patches, so "
+                    f"{number} is out of range")
+            if number in found:
+                raise SystemExit(
+                    f"error: {path}:{lineno}: patch {number} appears twice")
+            name = fields[1]
+            if not _ok(name):
+                raise SystemExit(
+                    f"error: {path}:{lineno}: {name!r} is not a usable name "
+                    f"(the device stores {NAME_WIDTH} characters)")
+            category = fields[2] if len(fields) > 2 else None
+            if category and category not in _CATEGORY_CODES:
+                raise SystemExit(
+                    f"error: {path}:{lineno}: {category!r} is not an XV-2020 "
+                    f"category. Use a full name such as 'AC.BRASS'.")
+            found[number] = (name, category)
+
+    missing = [n for n in range(1, total + 1) if n not in found]
+    if missing:
+        print(f"warning: {card}: {len(missing)} of {total} patches are absent "
+              f"from {os.path.basename(path)} ({missing[:8]}...). Those slots "
+              f"stay unnamed.", file=sys.stderr)
+
+    out: Dict[str, List[dict]] = {}
+    for number, (name, category) in sorted(found.items()):
+        page, slot = divmod(number - 1, 128)
+        row: Dict[str, object] = {"n": slot + 1, "name": name}
+        if category:
+            row["category"] = _CATEGORY_CODES[category]
+        out.setdefault(f"{card}-{page + 1}", []).append(row)
+    for rows in out.values():
+        rows.sort(key=lambda r: r["n"])
+    return out
+
+
 def read_srx(card: str, path: str) -> Dict[str, List[dict]]:
     """One expansion board's patches, split across its Bank Select LSBs.
 
@@ -685,6 +756,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--srx-list", action="append", default=[], metavar="CARD=PDF",
         help="a names-only Patch Listing for a board whose owner's manual "
              "you do not have. No categories come from these.")
+    parser.add_argument(
+        "--srx-names", action="append", default=[], metavar="CARD=FILE",
+        help="a hand-written 'number<tab>name<tab>CATEGORY' table, for a "
+             "board with no document to parse")
     parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT)
     parser.add_argument("--no-crosscheck", action="store_true")
     return parser
@@ -753,6 +828,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         for bank_id, entries in rows.items():
             banks_out.setdefault(bank_id, entries)
         sources.append(f"{card} Patch Listing ({os.path.basename(path)})")
+
+    for item in args.srx_names:
+        card, _, path = item.partition("=")
+        if not path:
+            raise SystemExit(f"error: --srx-names wants CARD=FILE, got "
+                             f"{item!r}")
+        banks.srx_card(card)
+        if not os.path.exists(path):
+            raise SystemExit(f"error: no such file: {path}")
+        for bank_id, entries in read_srx_names(card, path).items():
+            banks_out.setdefault(bank_id, entries)
+        sources.append(f"{card} ({os.path.basename(path)}, transcribed)")
 
     payload = {
         "source": "; ".join(sources),

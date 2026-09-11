@@ -491,3 +491,39 @@ Read from owner's manuals, with categories: SRX-02 (50), SRX-05 (312),
 SRX-06 (449), SRX-07 (475), SRX-08 (448). Read from listings, names only:
 SRX-01 (41), SRX-03 (128), SRX-09 (414). No source yet: SRX-04, 10, 11, 12,
 97, 98.
+
+### The XV-2020 has two expansion slots, not one
+
+Recorded because an earlier note in `xv/banks.py` said one, and reasoned
+from it. The manual is explicit: "You can install **up to two** SRX Series
+Wave Expansion Boards" (OM p. 7), and it calls them Wave Expansion Board A
+and B throughout — which is what the "EXP-A"/"EXP-B" in its Bank Select
+table means. Roland's own compatibility guide lists the XV-2020 as 2 SRX
+slots alongside the XV-3080 and XV-88.
+
+This changes nothing in the bank table, and the reason is worth keeping:
+**the LSB identifies the board, not the slot**. SN 132 says so outright —
+"Expansion-board sounds are properly found and selected no matter where your
+expansion boards are installed" — so an SRX-07 answers on LSB 11-14 in
+either slot, and rxved never needs to know which slot holds what. EXP-A and
+EXP-B are front-panel labels only.
+
+### SRX-10, and a third class of source
+
+SRX-10 had no document at all — only a screen capture of its Patch List
+page. `--srx-names` reads a hand-written `number, name, category` table for
+exactly this case, and `SRX-10-names.txt` holds the transcription.
+
+Its header reads "(BANK SELECT MSB:93; LSB:23)" and it runs to 100 patches,
+which is a third independent confirmation of SN 132's row for that board and
+of rxved's table.
+
+**This is the least trustworthy route in the pipeline and is marked as
+such.** Everything else is read out of a file Roland shipped and most of it
+is checked against a second one; this has been through a human eye. The
+count is still checked against the board's documented total, so a missing or
+duplicated row is caught — but a mistyped *name* on the right number passes
+silently, and nothing in the project can find it.
+
+Coverage after this: SRX-01, 02, 03, 05, 06, 07, 08, 09 and 10 complete
+(2417 patches); SRX-04, 11, 12, 97 and 98 have no source yet.

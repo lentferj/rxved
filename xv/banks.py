@@ -138,8 +138,9 @@ class Bank:
     #: gate writes on.
     writable: bool = False
     #: Set for banks whose contents depend on a fitted SRX expansion board.
-    #: The XV-2020 takes one SRX card, so these exist in the MIDI map whether
-    #: or not anything is in the slot.
+    #: The XV-2020 takes up to two SRX boards (OM p. 7, "you can install up
+    #: to two SRX Series Wave Expansion Boards"), and these exist in the MIDI
+    #: map whether or not anything is in either slot.
     expansion: bool = False
 
     def numbers(self) -> range:
@@ -232,8 +233,18 @@ PERFORMANCE_BANKS: Tuple[Bank, ...] = (
 # SRX-12 wrong, and a wrong LSB here does not fail loudly -- it selects a
 # different board's patch, or nothing at all.
 #
-# "EXP-A"/"EXP-B" in the XV-2020's own table are how that machine labels the
-# halves of one card's range, not two cards: it has a single SRX slot.
+# "EXP-A"/"EXP-B" in the XV-2020's own table are its two expansion *slots* --
+# the machine takes up to two boards (OM p. 7) and calls them Wave Expansion
+# Board A and B (OM p. 46, p. 94). An earlier note here claimed it had one
+# slot and that A/B were halves of a single board's range; that was wrong on
+# both counts.
+#
+# It changes nothing about the table below, and it is worth being clear why.
+# The LSB identifies the **board**, not the slot it sits in -- SN 132 is
+# explicit: "Expansion-board sounds are properly found and selected no matter
+# where your expansion boards are installed." So an SRX-07 answers on LSB
+# 11-14 in either slot, and rxved never needs to know which slot holds what.
+# EXP-A/EXP-B matter only at the front panel.
 #
 # rxved can still find an unlisted board by probing, which stays useful for
 # anything Roland added after SN 132 -- see

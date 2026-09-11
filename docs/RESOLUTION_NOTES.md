@@ -467,3 +467,27 @@ of 448 for SRX-08. The disagreements are all explained:
   became "Touch EP SRX", "Cool Rhodes" became "Cool EP 2". The owner's manual
   is the later document and the one whose names the device displays, so it
   wins.
+
+### Names-only listings are a fallback, and a lossy one
+
+Roland also published a one-page "Patch Listing" per board: names, no voice
+count, no category, no Bank Select. `--srx-list` reads them, and they are
+the only source for boards whose owner's manual is not to hand.
+
+They are less reliable than they look, and **the failure is not detectable
+from the sheet alone**. SRX-06's listing numbers a page-break artefact as
+patch 271 ("271. No."), so the 179 names after it each land on the patch
+before them -- and the sheet still parses as a complete, gapless 1..449,
+ending at 450 for a 449-patch board. That was caught only because SRX-06
+also has a manual to disagree with.
+
+An automatic check on "numbers past the documented count" was tried and
+removed: SRX-01's sheet prints its 79 rhythm sets in the right-hand columns,
+so it legitimately numbers far past its 41 patches, and no threshold
+separates that from a genuine off-by-one. The tool now simply reports which
+boards came from a listing, and says they are unverified.
+
+Read from owner's manuals, with categories: SRX-02 (50), SRX-05 (312),
+SRX-06 (449), SRX-07 (475), SRX-08 (448). Read from listings, names only:
+SRX-01 (41), SRX-03 (128), SRX-09 (414). No source yet: SRX-04, 10, 11, 12,
+97, 98.

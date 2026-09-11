@@ -262,8 +262,21 @@ def read_gm_rhythm(data: bytes) -> Dict[str, List[dict]]:
 NAME_WIDTH = 12
 
 
+#: Table furniture that a number can sit next to on a page break, and which
+#: would otherwise be taken for a patch name -- and worse, occupy that
+#: number, pushing every later entry one place along. SRX-06's listing did
+#: exactly that: its page-two header became patch 271, so 271 onwards all
+#: named the patch before them. Caught only because that board has a second
+#: source to disagree with.
+_NOT_NAMES = frozenset({
+    "no. name", "no.", "name", "voices", "category", "patch", "rhythm",
+    "patch list", "patch listing", "kit", "no. patch name",
+})
+
+
 def _ok(name: str) -> bool:
-    return 0 < len(name) <= NAME_WIDTH
+    return (0 < len(name) <= NAME_WIDTH
+            and name.strip().lower() not in _NOT_NAMES)
 
 
 #: One row of an SRX patch list: number, name, voices, CATEGORY.
@@ -331,6 +344,63 @@ def _xv_section(text: str) -> str:
         if stripped.startswith("For ") and "XV" not in stripped:
             return "\n".join(lines[start:index])
     return "\n".join(lines[start:])
+
+
+#: One row of a names-only "Patch Listing": a number, optionally a full
+#: stop, then the name. Same no-double-space rule as the manual parser --
+#: these listings set several tables side by side, and without it a name
+#: would run into the next column.
+_SRX_LIST_ROW = re.compile(r"(?<![\d(.])(\d{1,3})\.?\s+((?:\S| (?! ))+?)(?=\s{2,}|$)")
+
+
+def read_srx_list(card: str, path: str) -> Dict[str, List[dict]]:
+    """One board's patches from a names-only listing. No categories.
+
+    The Faxback-style "Patch Listing" sheets carry names and nothing else --
+    no voice count, no category, no Bank Select. They are the only source for
+    boards whose owner's manual is not to hand, and worth having for that,
+    but a board read this way cannot be filtered by category.
+
+    **First occurrence of a number wins**, which is what makes SRX-01 work:
+    its sheet prints the patch table and the rhythm table side by side, both
+    numbered from 1, and the patch table is the left-hand one. Rhythm numbers
+    beyond the board's patch count fall outside the range check.
+
+    **Prefer the owner's manual wherever there is one.** These sheets are
+    less reliable than they look, and the failure is not detectable from the
+    sheet alone: SRX-06's numbers a page-break artefact as patch 271, so the
+    179 names after it each land on the patch before them, and the sheet
+    still parses as a complete 1..449. That was caught only because SRX-06
+    also has a manual to disagree with. A board read from a listing has
+    names that are probably right, no categories, and nothing to check them
+    against -- the tool says so at the end of a run.
+    """
+    definition = banks.srx_card(card)
+    total = definition.patch_count
+    text = _fix_pdf_text(pdf_text(path))
+
+    found: Dict[int, str] = {}
+    for line in text.splitlines():
+        for match in _SRX_LIST_ROW.finditer(line):
+            number = int(match.group(1))
+            name = match.group(2).strip()
+            if 1 <= number <= total and number not in found and _ok(name):
+                found[number] = name
+
+    missing = [n for n in range(1, total + 1) if n not in found]
+    if missing:
+        print(f"warning: {card}: {len(missing)} of {total} patches were not "
+              f"parsed ({missing[:8]}...). Those slots stay unnamed.",
+              file=sys.stderr)
+
+    out: Dict[str, List[dict]] = {}
+    for number, name in sorted(found.items()):
+        page, slot = divmod(number - 1, 128)
+        out.setdefault(f"{card}-{page + 1}", []).append(
+            {"n": slot + 1, "name": name})
+    for rows in out.values():
+        rows.sort(key=lambda r: r["n"])
+    return out
 
 
 def read_srx(card: str, path: str) -> Dict[str, List[dict]]:
@@ -611,6 +681,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--srx", action="append", default=[], metavar="CARD=PDF",
         help="an expansion board's owner's manual, e.g. "
              "--srx SRX-07=SRX-07_OM.pdf (repeatable)")
+    parser.add_argument(
+        "--srx-list", action="append", default=[], metavar="CARD=PDF",
+        help="a names-only Patch Listing for a board whose owner's manual "
+             "you do not have. No categories come from these.")
     parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT)
     parser.add_argument("--no-crosscheck", action="store_true")
     return parser
@@ -667,6 +741,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         banks_out.update(read_srx(card, path))
         sources.append(f"{card} Owner's Manual ({os.path.basename(path)})")
 
+    for item in args.srx_list:
+        card, _, path = item.partition("=")
+        if not path:
+            raise SystemExit(f"error: --srx-list wants CARD=PDF, got {item!r}")
+        banks.srx_card(card)
+        if not os.path.exists(path):
+            raise SystemExit(f"error: no such file: {path}")
+        rows = read_srx_list(card, path)
+        # A manual, if one was also given, wins: it carries categories.
+        for bank_id, entries in rows.items():
+            banks_out.setdefault(bank_id, entries)
+        sources.append(f"{card} Patch Listing ({os.path.basename(path)})")
+
     payload = {
         "source": "; ".join(sources),
         "generated": datetime.date.today().isoformat(),
@@ -683,6 +770,17 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     total = sum(len(rows) for rows in banks_out.values())
     print(f"wrote {args.output}: {total} names across {len(banks_out)} banks")
+    if args.srx_list:
+        from_listing = sorted(
+            item.partition("=")[0] for item in args.srx_list
+            if item.partition("=")[0] not in
+            {i.partition("=")[0] for i in args.srx}
+        )
+        if from_listing:
+            print(f"\nnote: {', '.join(from_listing)} came from a names-only "
+                  f"Patch Listing. Those boards have no categories, and "
+                  f"nothing cross-checks their numbering -- see read_srx_list. "
+                  f"Use the owner's manual instead if you can get it.")
     for bank_id in sorted(banks_out):
         print(f"  {bank_id:<8} {len(banks_out[bank_id]):>4}")
     return 0

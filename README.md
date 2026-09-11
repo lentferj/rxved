@@ -117,6 +117,8 @@ XV-3080 on the same chain. The port that answered is remembered in
 | `r` | read this bank's names from the synth (USER banks; read-only) |
 | `s` | scan this bank by selecting every slot (**plays the synth**) |
 | `x` | probe for a fitted SRX board (**plays the synth**) |
+| `F` | cycle: all slots → this bank's favourites → every favourite |
+| `C` | filter by category (multi-select), on top of whichever view is showing |
 | `[` / `]` / `c` | previous / next send channel, or type one |
 | `R` | re-read the synth's mode, channels and all 16 parts |
 | `i` / `?` / `q` | device identity / help / quit |

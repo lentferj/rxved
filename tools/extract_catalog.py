@@ -82,17 +82,10 @@ GM_PATCH_MSB = 121
 GM_RHYTHM_MSB = 120
 
 #: Patch categories, in the order the category byte indexes them (1-based).
-#: Transcribed from the "Choosing Patches by Category" table, OM p. 37, in the
-#: order that table prints -- which is the order the byte counts in, verified
-#: against the printed Category column for all 512 preset patches.
-CATEGORIES = (
-    "PNO", "EP", "KEY", "BEL", "MLT", "ORG", "ACD", "HRM",
-    "AGT", "EGT", "DGT", "BS", "SBS",
-    "STR", "OCH", "HIT", "WND", "FLT", "BRS", "SBR", "SAX",
-    "HLD", "SLD", "TEK", "PLS", "FX", "SYN", "BPD", "SPD", "VOX",
-    "PLK", "ETH", "FRT",
-    "PRC", "SFX", "BTS", "DRM", "CMB",
-)
+#: The canonical list lives in xv/catalog.py, because the browser needs it
+#: too -- keeping a second copy here is how the two would drift and every
+#: preset patch would end up relabelled by one.
+CATEGORIES = tuple(code for code, _name in cat.CATEGORIES)
 
 DEFAULT_EDITOR = (
     "/home/lentferj/.wine64_roland/drive_c/Program Files (x86)/Roland/"

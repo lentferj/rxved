@@ -61,6 +61,10 @@ __all__ = [
     "Entry",
     "Catalog",
     "DEFAULT_CATALOG_PATH",
+    "CATEGORIES",
+    "CATEGORY_NAMES",
+    "UNCATEGORISED",
+    "UNNAMED",
     "load",
     "empty",
 ]
@@ -68,6 +72,37 @@ __all__ = [
 #: Where ``tools/extract_patchlist.py`` writes, and where :func:`load` looks.
 DEFAULT_CATALOG_PATH = os.path.join(os.path.dirname(__file__), "data",
                                     "catalog.json")
+
+#: The patch categories, in the order the XV-2020's own category byte
+#: indexes them (1-based), as code -> what the machine's display calls it.
+#: Transcribed from the "Choosing Patches by Category" table, OM p. 37.
+#:
+#: The order is load-bearing: ``tools/extract_catalog.py`` indexes this to
+#: turn the editor binary's category byte into a code, so reordering it
+#: would silently relabel every preset patch.
+CATEGORIES = (
+    ("PNO", "AC.PIANO"), ("EP", "EL.PIANO"), ("KEY", "KEYBOARDS"),
+    ("BEL", "BELL"), ("MLT", "MALLET"), ("ORG", "ORGAN"),
+    ("ACD", "ACCORDION"), ("HRM", "HARMONICA"),
+    ("AGT", "AC.GUITAR"), ("EGT", "EL.GUITAR"), ("DGT", "DIST.GUITAR"),
+    ("BS", "BASS"), ("SBS", "SYNTH BASS"),
+    ("STR", "STRINGS"), ("OCH", "ORCHESTRA"), ("HIT", "HIT&STAB"),
+    ("WND", "WIND"), ("FLT", "FLUTE"), ("BRS", "AC.BRASS"),
+    ("SBR", "SYNTH BRASS"), ("SAX", "SAX"),
+    ("HLD", "HARD LEAD"), ("SLD", "SOFT LEAD"), ("TEK", "TECHNO SYNTH"),
+    ("PLS", "PULSATING"), ("FX", "SYNTH FX"), ("SYN", "OTHER SYNTH"),
+    ("BPD", "BRIGHT PAD"), ("SPD", "SOFT PAD"), ("VOX", "VOX"),
+    ("PLK", "PLUCKED"), ("ETH", "ETHNIC"), ("FRT", "FRETTED"),
+    ("PRC", "PERCUSSION"), ("SFX", "SOUND FX"), ("BTS", "BEAT&GROOVE"),
+    ("DRM", "DRUMS"), ("CMB", "COMBINATION"),
+)
+
+#: Code -> display name, for anything that has to show one.
+CATEGORY_NAMES = dict(CATEGORIES)
+
+#: Shown in a category filter for slots the catalog has no category for --
+#: every SRX slot today, since the expansion lists have not been extracted.
+UNCATEGORISED = "(none)"
 
 #: What a slot is called when nothing knows its name. Not an empty string:
 #: an empty cell in the browser reads as a rendering fault, and this reads as
@@ -176,6 +211,29 @@ class Catalog:
         live = self.live_name(bank_id, number)
         printed = self.name(bank_id, number)
         return live is not None and printed is not None and live != printed
+
+    def category(self, bank_id: str, number: int) -> str:
+        """This slot's category code, or :data:`UNCATEGORISED`."""
+        entry = self.entry(bank_id, number)
+        if entry is None or not entry.category:
+            return UNCATEGORISED
+        return entry.category
+
+    def categories_in(self, slots) -> Dict[str, int]:
+        """``{category: count}`` over the given ``(bank_id, number)`` pairs.
+
+        Counted over what the user is actually looking at rather than over
+        the whole catalog, so a filter never offers a category that would
+        select nothing -- and so the counts tell you what you are about to
+        narrow to.
+        """
+        counts: Dict[str, int] = {}
+        for bank_id, number in slots:
+            code = self.category(bank_id, number)
+            counts[code] = counts.get(code, 0) + 1
+        order = {code: i for i, (code, _) in enumerate(CATEGORIES)}
+        return dict(sorted(counts.items(),
+                           key=lambda kv: order.get(kv[0], len(order))))
 
     # --- searching ----------------------------------------------------------
 

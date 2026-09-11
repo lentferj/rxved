@@ -23,7 +23,7 @@ one you cannot.
 
 import pytest
 
-from rxved.app import ReportScreen, RxvedApp
+from rxved.app import CategoryScreen, ReportScreen, RxvedApp
 from rxved.demo import DemoBridge
 from rxved.favorites import Favorites
 from xv import banks
@@ -641,3 +641,129 @@ class TestFavouritesView:
             app.view_mode = "all-favourites"
             rows = app._visible_slots(app._current_bank)
             assert [s.bank_id for s in rows] == ["USER"]
+
+
+class TestCategoryFilter:
+    """`C` narrows by category, on top of whatever view is showing."""
+
+    @staticmethod
+    def _catalog():
+        return cat.Catalog([
+            cat.Entry("USER", 1, "Velvet Bell", category="BEL"),
+            cat.Entry("USER", 2, "Rusty Pad", category="SPD"),
+            cat.Entry("USER", 3, "Glass Pad", category="SPD"),
+            cat.Entry("USER", 4, "Iron Bass", category="SBS"),
+        ])
+
+    async def test_it_narrows_the_full_bank(self, app):
+        app.catalog = self._catalog()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.categories = {"SPD"}
+            app._fill_slots("USER")
+            await pilot.pause()
+            assert [s.number for s in app._current_slots] == [2, 3]
+
+    async def test_several_categories_at_once(self, app):
+        app.catalog = self._catalog()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.categories = {"SPD", "SBS"}
+            app._fill_slots("USER")
+            await pilot.pause()
+            assert [s.number for s in app._current_slots] == [2, 3, 4]
+
+    async def test_it_stacks_on_the_favourites_view(self, app):
+        """The point: 'soft pads I have favourited', not one or the other."""
+        app.catalog = self._catalog()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            for number in (1, 2, 4):
+                app.favorites.add("USER", number)
+            app.view_mode = "bank-favourites"
+            app.categories = {"SPD"}
+            app._fill_slots("USER")
+            await pilot.pause()
+            # favourited AND a soft pad: 2 only. 3 is a pad but not a
+            # favourite; 1 and 4 are favourites but not pads.
+            assert [s.number for s in app._current_slots] == [2]
+
+    async def test_an_empty_set_means_no_filter(self, app):
+        app.catalog = self._catalog()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.categories = set()
+            app._fill_slots("USER")
+            await pilot.pause()
+            assert len(app._current_slots) == 128
+
+    async def test_slots_with_no_category_are_selectable_as_such(self, app):
+        """Every SRX slot today — the expansion lists are not extracted."""
+        app.catalog = self._catalog()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.categories = {cat.UNCATEGORISED}
+            app._fill_slots("USER")
+            await pilot.pause()
+            # 1-4 are catalogued, the rest are not.
+            assert len(app._current_slots) == 124
+
+    async def test_the_picker_offers_only_what_is_present(self, app):
+        app.catalog = self._catalog()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.favorites.add("USER", 2)
+            app.favorites.add("USER", 4)
+            app.view_mode = "bank-favourites"
+            app._fill_slots("USER")
+            await pilot.pause()
+            app.action_pick_categories()
+            await pilot.pause(0.2)
+            assert isinstance(app.screen, CategoryScreen)
+            assert set(app.screen._counts) == {"SPD", "SBS"}
+
+    async def test_the_picker_still_lists_a_filtered_away_category(self, app):
+        """Otherwise the only way back would be to clear the filter blind."""
+        app.catalog = self._catalog()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.categories = {"SPD"}
+            app._fill_slots("USER")
+            await pilot.pause()
+            app.action_pick_categories()
+            await pilot.pause(0.2)
+            assert "SBS" in app.screen._counts
+            assert "BEL" in app.screen._counts
+
+    async def test_selecting_everything_is_stored_as_no_filter(self, app):
+        app.catalog = self._catalog()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.action_pick_categories()
+            await pilot.pause(0.2)
+            await pilot.press("a")
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            assert app.categories == set()
+
+    async def test_escape_leaves_the_filter_alone(self, app):
+        app.catalog = self._catalog()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.categories = {"SPD"}
+            app._fill_slots("USER")
+            await pilot.pause()
+            app.action_pick_categories()
+            await pilot.pause(0.2)
+            await pilot.press("escape")
+            await pilot.pause(0.3)
+            assert app.categories == {"SPD"}
+
+    async def test_the_filter_shows_in_the_title(self, app):
+        app.catalog = self._catalog()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.categories = {"SPD", "SBS"}
+            app._fill_slots("USER")
+            await pilot.pause()
+            assert "SBS/SPD" in app.sub_title

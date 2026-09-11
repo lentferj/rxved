@@ -239,7 +239,7 @@ class KeyHints(Static):
 #: Nothing is omitted, because KeyHints wraps rather than truncating.
 KEY_HINTS = (
     "↑↓ move", "tab pane", "⏎ select on synth",
-    "[ ] channel", "c set channel", "R re-read",
+    "[ ] channel", "c set channel", "C categories", "R re-read",
     "f favourite", "F favourites view", "t tags", "n note", "/ search",
     "r read names", "s scan bank", "x probe SRX",
     "i device", "? help", "q quit",
@@ -276,6 +276,100 @@ _KIND_LABEL = {
 }
 
 
+class CategoryScreen(ModalScreen[Optional[set]]):
+    """Pick any number of categories to narrow the list to.
+
+    Offers only the categories actually present in what the user is looking
+    at, with a count beside each. A filter that lists every category the
+    XV-2020 defines would offer 38 choices where the current view has six,
+    and most of them would select nothing.
+    """
+
+    DEFAULT_CSS = """
+    CategoryScreen { align: center middle; }
+    CategoryScreen > Vertical {
+        width: 62; height: 80%; border: thick $accent;
+        background: $surface; padding: 1 2;
+    }
+    CategoryScreen DataTable { height: 1fr; }
+    """
+
+    BINDINGS = [
+        Binding("space", "toggle", "Toggle"),
+        Binding("enter", "accept", "Apply"),
+        Binding("a", "all", "All"),
+        Binding("x", "none", "Clear"),
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, counts: Dict[str, int], selected) -> None:
+        super().__init__()
+        self._counts = dict(counts)
+        self._selected = set(selected)
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("[b]Categories[/b] — narrows whatever is already "
+                        "shown")
+            yield DataTable(id="cats", cursor_type="row")
+            yield Static("[b]space[/b] toggle   [b]a[/b] all   [b]x[/b] clear"
+                         "   [b]enter[/b] apply   [b]esc[/b] cancel")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#cats", DataTable)
+        for label, key in (("", "on"), ("cat", "code"), ("", "name"),
+                           ("n", "count")):
+            table.add_column(label, key=key)
+        self._fill()
+        table.focus()
+
+    def _fill(self) -> None:
+        table = self.query_one("#cats", DataTable)
+        row = table.cursor_row
+        table.clear()
+        for code, count in self._counts.items():
+            table.add_row(
+                "[b]x[/b]" if code in self._selected else " ",
+                code,
+                cat.CATEGORY_NAMES.get(code, ""),
+                str(count),
+                key=code,
+            )
+        if 0 < row < len(self._counts):
+            table.move_cursor(row=row)
+
+    def _code_at_cursor(self) -> Optional[str]:
+        row = self.query_one("#cats", DataTable).cursor_row
+        codes = list(self._counts)
+        return codes[row] if 0 <= row < len(codes) else None
+
+    def action_toggle(self) -> None:
+        code = self._code_at_cursor()
+        if code is None:
+            return
+        self._selected.symmetric_difference_update({code})
+        self._fill()
+
+    def action_all(self) -> None:
+        self._selected = set(self._counts)
+        self._fill()
+
+    def action_none(self) -> None:
+        self._selected = set()
+        self._fill()
+
+    def action_accept(self) -> None:
+        # Everything selected is the same as no filter, and saying so beats
+        # leaving a filter displayed that excludes nothing.
+        if self._selected == set(self._counts):
+            self.dismiss(set())
+        else:
+            self.dismiss(self._selected)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 # --- the application --------------------------------------------------------
 
 
@@ -302,6 +396,7 @@ class RxvedApp(App):
         Binding("left_square_bracket", "channel_down", "Channel -"),
         Binding("right_square_bracket", "channel_up", "Channel +"),
         Binding("c", "pick_channel", "Set channel"),
+        Binding("C", "pick_categories", "Categories"),
         Binding("R", "refresh_state", "Re-read the synth"),
         Binding("f", "toggle_favorite", "Favourite"),
         Binding("F", "cycle_favorites", "Favourites view"),
@@ -340,6 +435,10 @@ class RxvedApp(App):
         self.last_status_refused = False
         #: Which of VIEW_CYCLE the slot pane is showing.
         self.view_mode = VIEW_ALL
+        #: Category codes to narrow to; empty means no narrowing. Applied on
+        #: top of the favourites view rather than instead of it, so "soft
+        #: pads I have favourited" is one filter over another.
+        self.categories: set = set()
         #: The MIDI channel the browser sends on, 0-based. Set from the
         #: synth's own Patch Receive Channel once that has been read --
         #: until then it is whatever was configured, and the UI says so.
@@ -456,19 +555,30 @@ class RxvedApp(App):
         corruption in a DataTable.
         """
         if self.view_mode == VIEW_ALL:
-            return banks.slots(bank_id)
-        if self.view_mode == VIEW_BANK_FAVOURITES:
+            rows = banks.slots(bank_id)
+        elif self.view_mode == VIEW_BANK_FAVOURITES:
             marked = self.favorites.keys_for_bank(bank_id)
-            return [s for s in banks.slots(bank_id) if s.number in marked]
-        out: List[banks.Slot] = []
-        for favourite in self.favorites.all(order="bank"):
-            try:
-                out.append(banks.slot(favourite.bank_id, favourite.number))
-            except LookupError:
-                # A favourite for a bank this build no longer defines. Skipped
-                # rather than crashing the view; `F` lists it with a note.
-                continue
-        return out
+            rows = [s for s in banks.slots(bank_id) if s.number in marked]
+        else:
+            rows = []
+            for favourite in self.favorites.all(order="bank"):
+                try:
+                    rows.append(banks.slot(favourite.bank_id,
+                                           favourite.number))
+                except LookupError:
+                    # A favourite for a bank this build no longer defines.
+                    # Skipped rather than crashing the view.
+                    continue
+        return self._by_category(rows)
+
+    def _by_category(self, rows: List[banks.Slot]) -> List[banks.Slot]:
+        """Narrow to the selected categories. A no-op when none are chosen."""
+        if not self.categories:
+            return rows
+        return [
+            s for s in rows
+            if self.catalog.category(s.bank_id, s.number) in self.categories
+        ]
 
     def _fill_slots(self, bank_id: str, *, cursor: int = 0) -> None:
         """Rebuild the slot table. Only for when every row changes.
@@ -534,6 +644,8 @@ class RxvedApp(App):
             what = (f"all favourites — {shown} "
                     f"across {len({s.bank_id for s in self._current_slots})} "
                     f"bank(s)")
+        if self.categories:
+            what += "   ·   " + "/".join(sorted(self.categories))
         self.sub_title = f"{what}   ·   ch {self.target_channel + 1}"
 
     def _update_detail(self, row: int) -> None:
@@ -824,6 +936,38 @@ class RxvedApp(App):
             self.notify_status(
                 f"showing {VIEW_LABEL[self.view_mode]} — {shown} row(s); "
                 f"enter still selects, f un-favourites")
+
+    def action_pick_categories(self) -> None:
+        """Narrow the current list by category. Stacks on the current view."""
+        # Offered over the *unfiltered* rows of the current view, so the
+        # picker still lists a category after you have filtered it away --
+        # otherwise the only way back would be to clear the filter blind.
+        saved, self.categories = self.categories, set()
+        try:
+            rows = self._visible_slots(self._current_bank)
+        finally:
+            self.categories = saved
+        counts = self.catalog.categories_in(
+            [(s.bank_id, s.number) for s in rows])
+        if not counts:
+            self.notify_status("nothing to categorise here", refused=True)
+            return
+
+        def apply(chosen) -> None:
+            if chosen is None:
+                return
+            self.categories = set(chosen)
+            self._fill_slots(self._current_bank)
+            self.query_one("#slot-table", DataTable).focus()
+            shown = len(self._current_slots)
+            if not self.categories:
+                self.notify_status(f"category filter cleared — {shown} rows")
+            else:
+                self.notify_status(
+                    f"{'/'.join(sorted(self.categories))} — {shown} of "
+                    f"{len(rows)} rows")
+
+        self.push_screen(CategoryScreen(counts, self.categories), apply)
 
     def action_search(self) -> None:
         def run(needle: Optional[str]) -> None:
@@ -1225,6 +1369,8 @@ Keys
                  every favourite. The filtered views are the real table, so
                  enter still selects and f still un-favourites.
   t / n          tags / note (favourites only)
+  C              filter by category — multi-select, and it stacks on top of
+                 whichever favourites view is showing
   /              search names
   r              read this bank's names from the synth (USER banks only,
                  read-only, nothing is selected)

@@ -70,7 +70,13 @@ client `Roland XV-2020`, device ID 17):
   `SELECT_GAP` in particular gates `scan_bank`, and if it is too short the
   failure is silent — every name attached to the wrong slot number.
 - Anything in `tools/extract_catalog.py` beyond the fact that it produces
-  1044 plausible names that agree with the printed lists.
+  1045 plausible names that agree with the printed lists. One of those 1045
+  was recovered only after the extractor was taught to refuse two patches
+  claiming one Bank Select triple — the editor binary states that triple
+  wrongly for a single GM record, and until then the name was silently
+  overwritten at load. See §7b of `docs/RESOLUTION_NOTES.md`. There is no
+  reason to assume that was the only such record in a document this large;
+  it is the only one found.
 
 ### One bug worth recording, because of how it hid
 

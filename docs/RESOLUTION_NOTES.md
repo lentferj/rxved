@@ -243,12 +243,12 @@ reported as differing from the printed list, correctly.
 
 ## §7 — Catalog extraction results
 
-`tools/extract_catalog.py` currently produces **1044 names across 22 banks**:
+`tools/extract_catalog.py` currently produces **1045 names across 22 banks**:
 PST-A/B/C/D (128 each, with category tags), GM and its nine variation banks
 (256 total), the nine GM2 rhythm sets, the three internal rhythm-set banks,
 the three performance banks, and USER's factory contents.
 
-Two parsing bugs found and fixed while building it, both of the
+Three bugs found and fixed while building it, all of the
 silently-drops-data kind:
 
 - `$` in the entry regex without `re.MULTILINE` is end-of-*string*, not
@@ -257,10 +257,53 @@ silently-drops-data kind:
 - The performance table was anchored on the phrase "Performance List", whose
   first occurrence in the document is the table-of-contents entry, 9000
   lines before the table. Anchored on the table's own column header instead.
+- One record in the editor's own GM table carries the wrong Bank Select LSB,
+  which cost a name — see §7b.
 
 The extractor leaves a bank **out entirely** rather than shipping a partial
 one, on the grounds that a browser showing 60% of a bank's names with no
 indication which 40% are missing is worse than one showing none.
+
+---
+
+## §7b — The editor's GM table has one wrong Bank Select LSB
+
+**Resolved 2026-09-11.** The GM banks were already being filled, from the
+256-record table described in §3 — but one of the 256 names never reached
+the catalog.
+
+The table is in program order with a program's variations grouped after it,
+and each record's second byte is its Bank Select LSB. For one program, two
+consecutive records claim the *same* LSB. That cannot be true of the
+instrument: a Bank Select triple selects one sound, so two sounds on one
+triple means one of them is unreachable. `xv.catalog` keys its entries on
+bank and number, so the second record simply replaced the first, and the
+first sound lost its name.
+
+Nothing downstream could have noticed. The row was written to
+`catalog.json`, so the extractor's own "wrote N names" count was unchanged;
+the loss happened at load, and a missing name in a bank of 128 looks exactly
+like the many GM variation slots that legitimately have none.
+
+**The manual settles it.** The OM's GM patch list prints an LSB column, and
+for that program it gives three variations — LSB 0, 1 and 2 — so the second
+of the pair is LSB 2 and the editor's byte is wrong. The correction lives in
+`GM_LSB_FIXES` in `tools/extract_catalog.py`, keyed on the claimed LSB and
+program change rather than on the name: nothing in rxved's source is then a
+copy of Roland's list, and a build of the editor that fixes the byte
+produces no second record and never reaches the correction.
+
+Two guards now make this class of fault loud rather than silent:
+
+- `read_gm_patches()` refuses any collision not in `GM_LSB_FIXES`, and its
+  message says which triple collided and where to look it up.
+- `check_no_duplicates()` runs over **every** bank before the catalog is
+  written, so no reader — the SRX ones included — can lose a name this way
+  again.
+
+`tests/test_extract.py` covers both against synthetic tables. The GM banks
+now hold all 256 GM2 patches (128 capital sounds plus 128 variations spread
+over GM-1…GM-9) and all nine GM2 rhythm sets.
 
 ---
 

@@ -206,14 +206,42 @@ def read_preset_banks(data: bytes) -> Dict[str, List[dict]]:
     return out
 
 
+#: One record in the editor's GM table carries the wrong Bank Select LSB.
+#:
+#: The table is in program order with a program's variations grouped after
+#: it, and the LSB byte says which variation each record is. For one program
+#: two consecutive records claim the *same* LSB, which is impossible -- two
+#: sounds cannot answer the same Bank Select triple. The XV-2020 Owner's
+#: Manual settles it: its GM patch list gives that program three variations,
+#: LSB 0, 1 and 2, so the second of the pair is LSB 2 and the editor's byte
+#: is simply wrong.
+#:
+#: Keyed on (claimed LSB, program change) -> the LSBs the successive records
+#: at that key really have, in table order. Keyed on position rather than on
+#: the name so that nothing here is a copy of Roland's list, and so that a
+#: build that fixes the byte produces no second record and never reaches the
+#: correction at all.
+GM_LSB_FIXES: Dict[Tuple[int, int], Tuple[int, ...]] = {
+    (1, 118): (1, 2),
+}
+
+
 def read_gm_patches(data: bytes) -> Dict[str, List[dict]]:
     """The 256 GM2 patches, filed under the bank their own LSB names.
 
     Each record states its LSB, so the split into GM (variation 0) and
-    GM-1..GM-9 is read off the data rather than assumed.
+    GM-1..GM-9 is read off the data rather than assumed -- except where the
+    editor states it wrongly; see :data:`GM_LSB_FIXES`.
+
+    A GM2 sound is *reached* by its Bank Select triple, so two sounds landing
+    on one triple is not a cosmetic duplicate: one of them becomes
+    unreachable, and in the catalog one name silently overwrites the other.
+    That is a hard error here rather than something to notice later on
+    screen.
     """
     base = find_gm_table(data, GM_PATCH_MSB, 256)
     out: Dict[str, List[dict]] = {}
+    seen: Dict[Tuple[int, int], int] = {}
     for index in range(256):
         offset = base + index * GM_RECORD
         lsb = data[offset + 1]
@@ -221,6 +249,23 @@ def read_gm_patches(data: bytes) -> Dict[str, List[dict]]:
         name = _name_at(data, offset + 3)
         if name is None:
             raise SystemExit(f"error: GM record {index} is not a valid name")
+
+        repeat = seen.get((lsb, program), 0)
+        seen[(lsb, program)] = repeat + 1
+        corrected = GM_LSB_FIXES.get((lsb, program))
+        if corrected is not None and repeat < len(corrected):
+            lsb = corrected[repeat]
+        elif repeat:
+            raise SystemExit(
+                f"error: GM record {index} is the {repeat + 1}th to claim "
+                f"Bank Select MSB {GM_PATCH_MSB} LSB {lsb} PC {program}. "
+                f"Two patches cannot share one Bank Select triple, so the "
+                f"editor's LSB byte is wrong here and one name would be lost."
+                f" Check the LSB column of the Owner's Manual GM patch list "
+                f"for PC {program + 1} and add the correction to "
+                f"GM_LSB_FIXES."
+            )
+
         bank_id = f"GM-{lsb}" if lsb else "GM"
         # The catalog is keyed on the number the display shows, which is the
         # program change plus one -- see xv/banks.py on why the two are never
@@ -895,6 +940,29 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def check_no_duplicates(banks_out: Dict[str, List[dict]]) -> None:
+    """Refuse to write a catalog in which one slot is named twice.
+
+    xv.catalog keys its entries on bank and number, so a repeated slot does
+    not show up as a duplicate -- the later name simply replaces the earlier
+    one and the earlier sound becomes unnamed. Nothing downstream can notice
+    that, which is why it is checked at the only point that can: here, where
+    the readers' output is still a list.
+    """
+    for bank_id, rows in sorted(banks_out.items()):
+        seen: Dict[int, int] = {}
+        for position, row in enumerate(rows):
+            number = row["n"]
+            if number in seen:
+                raise SystemExit(
+                    f"error: {bank_id} names slot {number:03d} twice, at "
+                    f"rows {seen[number]} and {position}. One of the two "
+                    f"names would be lost. Fix the reader that produced "
+                    f"this bank rather than dropping a row."
+                )
+            seen[number] = position
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -973,6 +1041,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         for bank_id, entries in read_srx_names(card, path).items():
             banks_out.setdefault(bank_id, entries)
         sources.append(f"{card} ({os.path.basename(path)}, transcribed)")
+
+    check_no_duplicates(banks_out)
 
     payload = {
         "source": "; ".join(sources),

@@ -151,3 +151,43 @@ class TestSilenceReport:
         assert "[VALUE]" in report and "[PATCH RX CH]" in report
         # ...and the ones that are not, said as such.
         assert "NOT in the module's own parameter list" in report
+
+
+class TestWritableOffsetsAgree:
+    """Three places name the same six Performance Part offsets.
+
+    They have to agree: a cell the screen offers but the bridge refuses is a
+    dialog that fails only after the user has committed to it, and a demo
+    that accepts a different set lets that drift ship untested.
+    """
+
+    def test_the_screen_and_the_bridge_agree(self):
+        from rxved.app import EDITABLE_PART_COLUMNS
+        from xv.bridge import XvBridge
+
+        offered = {offset for offset, _, _, _
+                   in EDITABLE_PART_COLUMNS.values()}
+        assert offered == set(XvBridge.WRITABLE_PART_OFFSETS)
+
+    def test_the_demo_accepts_exactly_what_the_bridge_does(self):
+        from rxved.demo import DemoBridge
+        from xv.bridge import XvBridge
+
+        assert set(DemoBridge._PART_FIELDS) == set(
+            XvBridge.WRITABLE_PART_OFFSETS)
+
+    def test_nothing_outside_the_temporary_performance_is_writable(self):
+        """The allowlist is the whole safety argument, so assert its shape.
+
+        Every writable offset is a Performance **Part** parameter, and the
+        address they are used with is 10 00 <20+n-1> <offset> -- Temporary
+        Performance. Nothing here can reach a stored performance, a user
+        patch, or the System area.
+        """
+        from xv.bridge import XvBridge
+
+        assert set(XvBridge.WRITABLE_PART_OFFSETS) == {
+            0x00, 0x01, 0x04, 0x05, 0x06, 0x07}
+        for offset, (label, low, high) in (
+                XvBridge.WRITABLE_PART_OFFSETS.items()):
+            assert 0 <= low <= high <= 127, label

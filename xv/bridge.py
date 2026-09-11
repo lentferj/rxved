@@ -1173,6 +1173,70 @@ class XvBridge:
             f"simply busy."
         )
 
+    # --- the one write ------------------------------------------------------
+
+    #: Performance Part offsets rxved will write, and the range each accepts.
+    #:
+    #: An allowlist rather than an arbitrary-address poke, and deliberately
+    #: so: a DT1 to a mistyped address in a Roland map does not fail, it
+    #: writes something else. Every entry here is a Performance **Part**
+    #: parameter in the *temporary* area, which is the edit buffer -- power
+    #: cycling or loading another performance discards all of it.
+    WRITABLE_PART_OFFSETS = {
+        0x00: ("receive channel", 0, 15),
+        0x01: ("receive switch", 0, 1),
+        0x04: ("bank select MSB", 0, 127),
+        0x05: ("bank select LSB", 0, 127),
+        0x06: ("program change", 0, 127),
+        0x07: ("part level", 0, 127),
+    }
+
+    def write_part_param(self, part: int, offset: int, value: int, *,
+                         verify: bool = True,
+                         timeout: Optional[float] = None) -> int:
+        """Set one Performance Part parameter in the **temporary** area.
+
+        This is the only write in rxved, and what makes it acceptable is
+        where it goes: ``10 00 <20+part-1> <offset>`` is Temporary
+        Performance -- the edit buffer the module is playing from right now,
+        not a stored performance. Power-cycling the XV-2020, or loading any
+        performance, discards every byte written here. rxved does not perform
+        the Write (store) operation and has no code that could.
+
+        Returns the value **read back from the device**, not the value sent.
+        A DT1 is fire-and-forget: the XV-2020 does not acknowledge it, and a
+        parameter it declines to change -- or one written while the mode
+        makes it meaningless -- produces exactly the same silence as success.
+        Reporting the sent value as fact would be a guess dressed as a
+        confirmation, so the caller gets what the synth says it now holds and
+        can tell the user when the two differ.
+        """
+        if not 1 <= part <= 16:
+            raise ValueError(f"part {part} is outside 1-16")
+        if offset not in self.WRITABLE_PART_OFFSETS:
+            raise ValueError(
+                f"offset {offset:#04x} is not one of the Performance Part "
+                f"parameters rxved writes "
+                f"({', '.join(f'{o:#04x}' for o in self.WRITABLE_PART_OFFSETS)})"
+            )
+        label, low, high = self.WRITABLE_PART_OFFSETS[offset]
+        if not low <= value <= high:
+            raise ValueError(
+                f"{label} takes {low}-{high}, got {value}")
+
+        address = (0x10, 0x00, 0x20 + part - 1, offset)
+        self._send(m.dt1(address, [value], device=self.device_id))
+        time.sleep(SEND_GAP)
+        if not verify:
+            return value
+        # One byte back from the same address. Cheap, and the only way to
+        # know anything happened at all.
+        data = self.request(address, 1, timeout=timeout)
+        if not data:
+            raise DeviceError(
+                f"wrote {label} on part {part} but read back nothing")
+        return data[0]
+
     # --- operations ---------------------------------------------------------
 
     def identify(self, *, timeout: Optional[float] = None

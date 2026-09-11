@@ -24,8 +24,10 @@ one you cannot.
 import pytest
 from textual.widgets import DataTable
 
-from rxved.app import (CategoryScreen, MultiScreen, ReportScreen,
-                       RxvedApp)
+from textual.coordinate import Coordinate
+
+from rxved.app import (EDITABLE_PART_COLUMNS, CategoryScreen,
+                       MultiScreen, ReportScreen, RxvedApp)
 from rxved.demo import DemoBridge
 from rxved.favorites import Favorites
 from xv import banks
@@ -873,3 +875,98 @@ class TestMultiSetup:
             await pilot.pause()
             state = app.bridge.read_state(with_parts=True)
             assert "Mute Switch" in " ".join(state.silence_report())
+
+
+class TestMultiEditing:
+    """The one writable screen in the program.
+
+    Two things are worth pinning down beyond "the value changed". The screen
+    displays receive channel 1-16 and the wire carries 0-15, so an edit that
+    skipped the conversion would be off by one in a way that still looks
+    plausible. And a DT1 is unacknowledged, so the row must show what the
+    device reports rather than what was sent.
+    """
+
+    async def _open(self, app, pilot):
+        await pilot.pause()
+        await pilot.press("m")
+        await pilot.pause()
+        await pilot.pause()
+        return app.screen
+
+    async def _cell(self, screen, pilot, part, column):
+        table = screen.query_one("#part-table", DataTable)
+        keys = [c.key.value for c in table.columns.values()]
+        table.cursor_coordinate = Coordinate(part - 1, keys.index(column))
+        await pilot.pause()
+        return table
+
+    async def test_space_toggles_receive_switch_off_and_on(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            await self._cell(screen, pilot, 1, "rx")
+            assert app.bridge.read_part(1).receive_switch is True
+            await pilot.press("space")
+            for _ in range(6):
+                await pilot.pause()
+            assert app.bridge.read_part(1).receive_switch is False
+            await pilot.press("space")
+            for _ in range(6):
+                await pilot.pause()
+            assert app.bridge.read_part(1).receive_switch is True
+
+    async def test_it_can_switch_a_silenced_part_back_on(self, app):
+        """The case this was built for: part 5 starts with rx off."""
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            assert app.bridge.read_part(5).receive_switch is False
+            await self._cell(screen, pilot, 5, "rx")
+            await pilot.press("space")
+            for _ in range(6):
+                await pilot.pause()
+            assert app.bridge.read_part(5).receive_switch is True
+
+    async def test_the_channel_column_converts_to_the_wire(self, app):
+        """1-16 on screen, 0-15 on the wire, and never confused."""
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            await self._cell(screen, pilot, 3, "ch")
+            # Part 3 starts on wire channel 2, shown as 3.
+            assert app.bridge.read_part(3).receive_channel == 2
+            await pilot.press("minus")
+            for _ in range(6):
+                await pilot.pause()
+            # Display 3 -> 2, wire 2 -> 1.
+            assert app.bridge.read_part(3).receive_channel == 1
+
+    async def test_bump_respects_the_range(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            await self._cell(screen, pilot, 6, "lvl")
+            assert app.bridge.read_part(6).level == 0
+            await pilot.press("minus")          # already at the floor
+            for _ in range(4):
+                await pilot.pause()
+            assert app.bridge.read_part(6).level == 0
+
+    async def test_the_row_shows_what_the_device_reports(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            table = await self._cell(screen, pilot, 5, "rx")
+            await pilot.press("space")
+            for _ in range(6):
+                await pilot.pause()
+            keys = [c.key.value for c in table.columns.values()]
+            row = table.get_row("5")
+            assert "on" in str(row[keys.index("rx")])
+            # ...and the report no longer lists part 5 as switched off.
+            assert "Part  5" not in screen._report_text()
+
+    async def test_a_non_editable_column_is_refused_not_ignored(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            await self._cell(screen, pilot, 1, "patch")
+            await pilot.press("enter")
+            await pilot.pause()
+            # Still the multi screen: no prompt opened.
+            assert isinstance(app.screen, MultiScreen)

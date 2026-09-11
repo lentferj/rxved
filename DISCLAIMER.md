@@ -97,7 +97,25 @@ things above should be read as a warning rather than a formality.
 ## Hardware safety
 
 rxved does not write to the synth's memory. There is no method in `xv/` that
-stores a patch, renames a slot, or erases anything.
+stores a patch, renames a slot, or erases anything — in particular, nothing
+performs the Write (store) operation.
+
+It does write in exactly one place, and the distinction matters: the
+multi-mode screen (`m`) edits six **Performance Part** parameters — receive
+channel, Receive Switch, Part Level and the part's own Bank Select MSB/LSB
+and Program Change — at `10 00 <20+part-1> <offset>`, which is **Temporary
+Performance**: the edit buffer the module is playing from, not a stored
+performance. A power cycle, or loading any performance, discards all of it.
+
+`XvBridge.WRITABLE_PART_OFFSETS` is an allowlist of those six offsets and
+the range each accepts, and `write_part_param` refuses anything else. This
+is not defensiveness about typos: a DT1 to a wrong address in a Roland map
+does not fail, it writes something else.
+
+Every write is read back and the screen shows what the device reports, not
+what was sent — a DT1 is unacknowledged, so a write the XV-2020 declines
+looks exactly like one it accepted. **This write path has not yet been
+exercised against hardware**; the read path has.
 
 It does **play the instrument**, in three places, all of which say so:
 

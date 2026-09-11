@@ -54,6 +54,7 @@ from __future__ import annotations
 import argparse
 import sys
 import threading
+from dataclasses import replace
 from typing import Dict, List, Optional, Tuple
 
 from rich.text import Text
@@ -278,39 +279,80 @@ _KIND_LABEL = {
 }
 
 
+#: The Performance Part columns this screen can edit, by column key: the
+#: parameter's offset in the part block, a label, and the range it accepts.
+#:
+#: Re-stated here rather than imported from XvBridge.WRITABLE_PART_OFFSETS so
+#: the screen can be built without a bridge, with a test asserting the two
+#: agree -- a screen that offers an offset the bridge refuses is a dialog
+#: that fails only after the user has committed to it.
+#:
+#: "ch" is the exception that proves the project's rule about numbers: it is
+#: 1-16 here because that is what the module shows, and 0-15 on the wire.
+#: The conversion happens once, visibly, in _apply.
+EDITABLE_PART_COLUMNS = {
+    "ch": (0x00, "receive channel", 1, 16),
+    "rx": (0x01, "receive switch", 0, 1),
+    "pc": (0x06, "program change", 0, 127),
+    "lsb": (0x05, "bank select LSB", 0, 127),
+    "msb": (0x04, "bank select MSB", 0, 127),
+    "lvl": (0x07, "part level", 0, 127),
+}
+
+
 class MultiScreen(ModalScreen[None]):
-    """Multi-mode setup: all 16 Performance Parts, and why a channel is quiet.
+    """Multi-mode setup: all 16 Performance Parts, editable.
 
-    Read-only, like the rest of rxved. That is a real limitation here rather
-    than a stylistic one -- this screen can tell you a part's Receive Switch
-    is off but cannot turn it back on -- so it says where on the panel each
-    setting lives instead of pretending the numbers are the whole story.
+    The report underneath the table is why this screen exists. A part that
+    makes no sound is the obvious reading of a silent channel and is
+    frequently not the reason: in PATCH mode the parts are not in use at
+    all, and Solo Part Select silences fifteen of them from a byte nowhere
+    near any of them.
 
-    The report underneath the table is the point. A part that makes no sound
-    is the obvious reading of a silent channel and is often not the reason:
-    in PATCH mode the parts are not in use at all, and Solo Part Select
-    silences fifteen of them from a byte that is nowhere near any of them.
+    **Edits go to Temporary Performance -- the edit buffer, not a stored
+    performance.** A power cycle, or loading any performance, discards every
+    byte written here, and rxved has no code that performs the Write (store)
+    operation. That is what makes this the one writable screen in an
+    otherwise read-only program: nothing done here can cost a saved sound.
+
+    Every edit is read back, and the row shows what the synth reports rather
+    than what was sent. A DT1 is unacknowledged, so a write the XV-2020
+    declines -- or one that is meaningless in the current mode -- looks
+    exactly like one it accepted.
     """
 
     DEFAULT_CSS = """
     MultiScreen { align: center middle; }
     MultiScreen > Vertical {
-        width: 96; height: 90%; border: thick $accent;
+        width: 100; height: 90%; border: thick $accent;
         background: $surface; padding: 1 2;
     }
     MultiScreen DataTable { height: auto; max-height: 18; }
     MultiScreen .report { height: 1fr; overflow-y: auto; padding-top: 1; }
+    MultiScreen .hint { color: $text-muted; }
     """
 
     BINDINGS = [
         Binding("escape", "close", "Close"),
         Binding("q", "close", "Close"),
+        # Not priority: the prompt this opens needs Enter for itself. That
+        # is the trap the category picker fell into.
+        Binding("enter", "edit_cell", "Edit", show=False),
+        Binding("space", "toggle_cell", "Toggle", show=False),
+        Binding("plus", "bump(1)", "+1", show=False),
+        Binding("equals_sign", "bump(1)", "+1", show=False),
+        Binding("minus", "bump(-1)", "-1", show=False),
     ]
 
-    def __init__(self, state, catalog) -> None:
+    def __init__(self, state, catalog, *, on_write=None) -> None:
         super().__init__()
         self._state = state
         self._catalog = catalog
+        #: ``on_write(part, offset, value, adopt)``. The screen never touches
+        #: MIDI: it runs on the main thread, and workers do MIDI.
+        self._on_write = on_write
+
+    # --- building ------------------------------------------------------------
 
     def compose(self) -> ComposeResult:
         state = self._state
@@ -320,9 +362,13 @@ class MultiScreen(ModalScreen[None]):
             title += f" — performance “{common.name}”"
         with Vertical():
             yield Label(f"[b]{title}[/b]")
-            yield DataTable(id="part-table", cursor_type="row",
+            yield DataTable(id="part-table", cursor_type="cell",
                             zebra_stripes=True)
-            yield Static(self._report_text(), classes="report")
+            yield Static(
+                "⏎ edit cell · space toggles rx · +/- adjust · edits go to "
+                "the temporary performance, so a power cycle undoes them",
+                classes="hint")
+            yield Static(self._report_text(), classes="report", id="report")
             yield Static("[dim]esc / q to close[/dim]")
 
     def on_mount(self) -> None:
@@ -333,33 +379,133 @@ class MultiScreen(ModalScreen[None]):
                            ("", "flag")):
             table.add_column(label, key=key)
         for part in self._state.parts:
-            slot = part.slot
-            name = ""
-            if slot is not None:
-                name = self._catalog.display_name(slot.bank_id, slot.number)
-                name = f"{slot.bank.label} {slot.number:03d}  {name}".rstrip()
-            else:
-                name = "[dim]no bank claims this[/dim]"
-            reason = part.silence_reason()
-            if reason is None and self._state.soloed_out(part):
-                reason = "not soloed"
-            table.add_row(
-                str(part.part),
-                str(part.channel_display),
-                "on" if part.receive_switch else "[b]OFF[/b]",
-                str(part.level) if part.level else "[b]0[/b]",
-                str(part.program_change),
-                str(part.lsb),
-                str(part.msb),
-                name,
-                f"[b]{reason}[/b]" if reason else "",
-                key=str(part.part),
-            )
+            table.add_row(*self._row_cells(part), key=str(part.part))
+
+    def _row_cells(self, part):
+        slot = part.slot
+        if slot is not None:
+            name = self._catalog.display_name(slot.bank_id, slot.number)
+            name = f"{slot.bank.label} {slot.number:03d}  {name}".rstrip()
+        else:
+            name = "[dim]no bank claims this[/dim]"
+        reason = part.silence_reason()
+        if reason is None and self._state.soloed_out(part):
+            reason = "not soloed"
+        return (
+            str(part.part),
+            str(part.channel_display),
+            "on" if part.receive_switch else "[b]OFF[/b]",
+            str(part.level) if part.level else "[b]0[/b]",
+            str(part.program_change),
+            str(part.lsb),
+            str(part.msb),
+            name,
+            f"[b]{reason}[/b]" if reason else "",
+        )
 
     def _report_text(self) -> str:
         lines = list(self._state.silence_report())
-        lines.append("")
         return "\n".join(f"· {line}" if line else "" for line in lines)
+
+    # --- editing -------------------------------------------------------------
+
+    def _cursor(self):
+        """``(part, column_key)`` under the cursor; part is ``None`` if the
+        column is not one of the editable ones."""
+        table = self.query_one("#part-table", DataTable)
+        if not table.row_count:
+            return None, None
+        row_key, column_key = table.coordinate_to_cell_key(
+            table.cursor_coordinate)
+        column = column_key.value
+        if column not in EDITABLE_PART_COLUMNS:
+            return None, column
+        part = next((p for p in self._state.parts
+                     if str(p.part) == row_key.value), None)
+        return part, column
+
+    def _current_value(self, part, column: str) -> int:
+        """The value as this column displays it -- 1-based for ch."""
+        return {
+            "ch": part.channel_display,
+            "rx": 1 if part.receive_switch else 0,
+            "lvl": part.level,
+            "pc": part.program_change,
+            "lsb": part.lsb,
+            "msb": part.msb,
+        }[column]
+
+    def action_edit_cell(self) -> None:
+        part, column = self._cursor()
+        if part is None:
+            self.app.notify_status(
+                f"{column} is not editable" if column else "nothing to edit",
+                refused=True)
+            return
+        if column == "rx":
+            self.action_toggle_cell()
+            return
+        _offset, label, low, high = EDITABLE_PART_COLUMNS[column]
+
+        def done(text) -> None:
+            if text is None or not text.strip():
+                return
+            try:
+                value = int(text.strip())
+            except ValueError:
+                self.app.notify_status(f"{text!r} is not a number",
+                                       refused=True)
+                return
+            self._apply(part, column, value)
+
+        self.app.push_screen(
+            TextPromptScreen(
+                f"Part {part.part} — {label} ({low}-{high})",
+                str(self._current_value(part, column))),
+            done,
+        )
+
+    def action_toggle_cell(self) -> None:
+        part, column = self._cursor()
+        if part is None or column != "rx":
+            return
+        self._apply(part, column, 0 if part.receive_switch else 1)
+
+    def action_bump(self, delta: int) -> None:
+        part, column = self._cursor()
+        if part is None:
+            return
+        _offset, _label, low, high = EDITABLE_PART_COLUMNS[column]
+        value = self._current_value(part, column) + delta
+        if low <= value <= high:
+            self._apply(part, column, value)
+
+    def _apply(self, part, column: str, value: int) -> None:
+        offset, label, low, high = EDITABLE_PART_COLUMNS[column]
+        if not low <= value <= high:
+            self.app.notify_status(
+                f"{label} takes {low}-{high}, not {value}", refused=True)
+            return
+        if self._on_write is None:
+            self.app.notify_status("not connected to a synth", refused=True)
+            return
+        # 1-16 on screen, 0-15 on the wire. Converted here, once, in the
+        # open -- see xv/banks.py on why this project never does it quietly.
+        wire = value - 1 if column == "ch" else value
+        self._on_write(part.part, offset, wire, self._adopt_part)
+
+    def _adopt_part(self, fresh) -> None:
+        """Replace one part with what the device reported after a write."""
+        self._state = replace(
+            self._state,
+            parts=tuple(fresh if p.part == fresh.part else p
+                        for p in self._state.parts),
+        )
+        table = self.query_one("#part-table", DataTable)
+        for column, cell in zip(table.columns.values(),
+                                self._row_cells(fresh)):
+            table.update_cell(str(fresh.part), column.key, cell)
+        self.query_one("#report", Static).update(self._report_text())
 
     def action_close(self) -> None:
         self.dismiss(None)
@@ -1406,7 +1552,52 @@ class RxvedApp(App):
                 "\n".join(f"· {line}" for line in state.silence_report()),
             ))
             return
-        self.push_screen(MultiScreen(state, self.catalog))
+        self.push_screen(
+            MultiScreen(state, self.catalog, on_write=self._write_part_param))
+
+    def _write_part_param(self, part: int, offset: int, value: int,
+                          adopt) -> None:
+        """Hand one part-parameter write to a worker. Main thread."""
+        if self._busy:
+            self.notify_status("busy", refused=True)
+            return
+        self._write_part_worker(part, offset, value, adopt)
+
+    @work(thread=True)
+    def _write_part_worker(self, part: int, offset: int, value: int,
+                           adopt) -> None:
+        """**MIDI only.** Write one byte, then re-read the whole part.
+
+        The whole part, not the byte written: the XV-2020 is free to adjust
+        neighbouring parameters in response -- and whether it does is not
+        something rxved knows -- so re-reading only what was sent could leave
+        the rest of the row saying something that stopped being true.
+        """
+        self._busy = True
+        try:
+            with self._bridge_lock:
+                landed = self.bridge.write_part_param(part, offset, value)
+                fresh = self.bridge.read_part(part)
+        except Exception as exc:
+            self.call_from_thread(
+                self.notify_status, f"write: {exc}", refused=True)
+            return
+        finally:
+            self._busy = False
+        self.call_from_thread(adopt, fresh)
+        if landed != value:
+            # Not an error: the synth is entitled to refuse, and saying
+            # nothing would leave the user believing a write that did not
+            # happen. The row already shows the truth; this says why.
+            self.call_from_thread(
+                self.notify_status,
+                f"part {part}: wrote {value}, synth reports {landed}",
+                refused=True)
+        else:
+            self.call_from_thread(
+                self.notify_status,
+                f"part {part}: set to {landed} in the temporary performance "
+                f"(not stored)")
 
     def action_device_info(self) -> None:
         self._device_info_worker()

@@ -372,11 +372,14 @@ def dt1(address: Sequence[int], data: Sequence[int], *,
         device: int = DEFAULT_DEVICE_ID) -> bytes:
     """A Data Set (DT1) frame. ``device`` is the wire byte.
 
-    rxved does not send these yet -- it is a browser, and every write to an
-    XV-2020 patch is a write to a user slot that had something else in it.
-    The encoder exists because DT1 is also what the device *replies* with,
-    and a round-trip test that can only decode is worth much less than one
-    that can build the frame it expects to see.
+    rxved sends these in exactly one place: XvBridge.write_part_param, which
+    writes six Performance Part parameters in the *temporary* area. It does
+    not write patches -- every write to an XV-2020 patch is a write to a user
+    slot that had something else in it.
+
+    The encoder predates that use, because DT1 is also what the device
+    *replies* with, and a round-trip test that can only decode is worth much
+    less than one that can build the frame it expects to see.
     """
     payload = list(pack_address(address)) + [int(b) for b in data]
     for byte in payload:

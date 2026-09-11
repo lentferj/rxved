@@ -122,7 +122,36 @@ XV-3080 on the same chain. The port that answered is remembered in
 | `C` | filter by category (multi-select), on top of whichever view is showing |
 | `[` / `]` / `c` | previous / next send channel, or type one |
 | `R` | re-read the synth's mode, channels and all 16 parts |
+| `m` | multi-mode setup: all 16 parts, **editable**, and why a channel is silent |
 | `i` / `?` / `q` | device identity / help / quit |
+
+### Multi-mode setup (`m`)
+
+The one screen that writes. It shows every Performance Part — receive
+channel, Receive Switch, Part Level, the part's own PC/LSB/MSB and patch —
+and underneath, a report on why any channel makes no sound.
+
+That report exists because the obvious answer is usually wrong. In PATCH
+mode the synth is single-timbral and the parts are not in use at all, so
+fifteen channels are silent with every part parameter reading perfectly
+normal. Solo Part Select silences fifteen parts from one byte nowhere near
+any of them. And a channel no audible part listens on is not a muted
+channel. The report tells these apart.
+
+`⏎` edits the cell under the cursor, `space` toggles Receive Switch, `+`/`-`
+adjust. **Edits go to Temporary Performance — the edit buffer, not a stored
+performance — and a power cycle undoes them.** rxved never performs the
+Write (store) operation. Each edit is read back and the row shows what the
+synth reports, not what was sent.
+
+This matters on an XV-2020 specifically: it is a half-rack module with a
+three-digit LED, and OM p. 116 lists what its four controls can reach.
+Receive Switch, Mute Switch and Solo Part Select are **not** on that list —
+without the editor or SysEx there is no way to see or change them at all.
+
+One thing rxved can never show: the Mute Switch is absent from the parameter
+address map, so a muted part reads back as audible. The report says so every
+time it discusses parts.
 
 **Moving the cursor never sends anything.** That is enforced by a test, not
 just by intent: it is the property that decides whether you can leave this

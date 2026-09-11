@@ -32,6 +32,7 @@ imports cleanly on a host with no MIDI stack at all.
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from xv import banks
@@ -93,6 +94,9 @@ class DemoBridge:
         #: real machine fails.
         self.channels: Optional[object] = None
         self.state: Optional[object] = None
+        #: Edits made through the multi-mode screen, as the temporary
+        #: performance would hold them: in memory, gone when this object is.
+        self._part_edits: Dict[int, dict] = {}
         self._closed = False
 
     # --- lifecycle ----------------------------------------------------------
@@ -210,10 +214,39 @@ class DemoBridge:
         # Two deliberately silenced parts, one by each readable mechanism,
         # so the silence report has something real to find in demo mode.
         # Both of these are what a channel that has "gone quiet" usually is.
-        return PartState(part=part, receive_channel=channel,
-                         receive_switch=part != 5,
-                         level=0 if part == 6 else 100,
-                         msb=87, lsb=64, program_change=part - 1)
+        state = PartState(part=part, receive_channel=channel,
+                          receive_switch=part != 5,
+                          level=0 if part == 6 else 100,
+                          msb=87, lsb=64, program_change=part - 1)
+        return replace(state, **self._part_edits.get(part, {}))
+
+    #: Offsets this fake accepts, mapped to the PartState field they set.
+    #: Same allowlist as the real bridge, which a test checks.
+    _PART_FIELDS = {
+        0x00: "receive_channel",
+        0x01: "receive_switch",
+        0x04: "msb",
+        0x05: "lsb",
+        0x06: "program_change",
+        0x07: "level",
+    }
+
+    def write_part_param(self, part: int, offset: int, value: int, *,
+                         verify=True, timeout=None):
+        """Remember an edit, the way the temporary area would hold it.
+
+        Kept in memory and never written anywhere, so a demo session is
+        still a session that touches nothing.
+        """
+        if not 1 <= part <= 16:
+            raise ValueError(f"part {part} is outside 1-16")
+        if offset not in self._PART_FIELDS:
+            raise ValueError(f"offset {offset:#04x} is not writable")
+        self._tick()
+        field = self._PART_FIELDS[offset]
+        stored = bool(value) if field == "receive_switch" else value
+        self._part_edits.setdefault(part, {})[field] = stored
+        return value
 
     def read_performance_common(self, *, timeout=None):
         from xv.bridge import PerformanceCommon

@@ -22,12 +22,12 @@ one you cannot.
 """
 
 import pytest
-from textual.widgets import DataTable
+from textual.widgets import DataTable, Input
 
 from textual.coordinate import Coordinate
 
-from rxved.app import (EDITABLE_PART_COLUMNS, CategoryScreen,
-                       MultiScreen, ReportScreen, RxvedApp)
+from rxved.app import (CategoryScreen, MultiScreen, ReportScreen,
+                       RxvedApp, TextPromptScreen)
 from rxved.demo import DemoBridge
 from rxved.favorites import Favorites
 from xv import banks
@@ -969,4 +969,70 @@ class TestMultiEditing:
             await pilot.press("enter")
             await pilot.pause()
             # Still the multi screen: no prompt opened.
+            assert isinstance(app.screen, MultiScreen)
+
+    async def test_typing_a_digit_opens_the_prompt_holding_it(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            await self._cell(screen, pilot, 1, "lvl")
+            await pilot.press("9")
+            await pilot.pause()
+            assert isinstance(app.screen, TextPromptScreen)
+            field = app.screen.query_one("#value", Input)
+            assert field.value == "9"
+            # Cursor at the end, so the next digit continues the number.
+            assert field.cursor_position == 1
+
+    async def test_a_typed_number_is_written(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            await self._cell(screen, pilot, 1, "lvl")
+            assert app.bridge.read_part(1).level == 100
+            await pilot.press("1", "2")
+            await pilot.pause()
+            await pilot.press("enter")
+            for _ in range(8):
+                await pilot.pause()
+            assert app.bridge.read_part(1).level == 12
+
+    async def test_enter_seeds_the_prompt_with_the_current_value(self, app):
+        """Enter means "change this one", so start from what is there."""
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            await self._cell(screen, pilot, 1, "lvl")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.screen.query_one("#value", Input).value == "100"
+
+    async def test_digits_set_receive_switch_directly(self, app):
+        """rx holds one bit: there is nothing to type into."""
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            await self._cell(screen, pilot, 5, "rx")
+            assert app.bridge.read_part(5).receive_switch is False
+            await pilot.press("1")
+            for _ in range(8):
+                await pilot.pause()
+            assert isinstance(app.screen, MultiScreen)   # no prompt opened
+            assert app.bridge.read_part(5).receive_switch is True
+
+    async def test_an_out_of_range_number_is_refused_not_clamped(self, app):
+        """Clamping would report success for a value never written."""
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            await self._cell(screen, pilot, 1, "ch")
+            before = app.bridge.read_part(1).receive_channel
+            await pilot.press("9", "9")
+            await pilot.pause()
+            await pilot.press("enter")
+            for _ in range(8):
+                await pilot.pause()
+            assert app.bridge.read_part(1).receive_channel == before
+
+    async def test_digits_do_nothing_on_a_non_editable_cell(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            await self._cell(screen, pilot, 1, "patch")
+            await pilot.press("7")
+            await pilot.pause()
             assert isinstance(app.screen, MultiScreen)

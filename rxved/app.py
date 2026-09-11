@@ -134,7 +134,11 @@ class TextPromptScreen(ModalScreen[Optional[str]]):
             yield Input(value=self._current, id="value")
 
     def on_mount(self) -> None:
-        self.query_one("#value", Input).focus()
+        field = self.query_one("#value", Input)
+        field.focus()
+        # Cursor at the end, so a prompt opened by typing a digit continues
+        # that number rather than inserting in front of it.
+        field.cursor_position = len(field.value)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self.dismiss(event.value)
@@ -335,13 +339,20 @@ class MultiScreen(ModalScreen[None]):
     BINDINGS = [
         Binding("escape", "close", "Close"),
         Binding("q", "close", "Close"),
-        # Not priority: the prompt this opens needs Enter for itself. That
-        # is the trap the category picker fell into.
-        Binding("enter", "edit_cell", "Edit", show=False),
+        # Enter is NOT bound here. A focused DataTable consumes it for its
+        # own cell selection, so a plain binding never fires -- the trap the
+        # category picker fell into. It arrives as CellSelected instead; see
+        # on_data_table_cell_selected.
         Binding("space", "toggle_cell", "Toggle", show=False),
         Binding("plus", "bump(1)", "+1", show=False),
         Binding("equals_sign", "bump(1)", "+1", show=False),
         Binding("minus", "bump(-1)", "-1", show=False),
+    ] + [
+        # Typing a digit on a numeric cell starts entering a number, the way
+        # a spreadsheet does -- pressing Enter first to open an empty-ish
+        # prompt is a step nobody wants for a three-keystroke value.
+        Binding(str(digit), f"type_digit('{digit}')", show=False)
+        for digit in range(10)
     ]
 
     def __init__(self, state, catalog, *, on_write=None) -> None:
@@ -365,8 +376,9 @@ class MultiScreen(ModalScreen[None]):
             yield DataTable(id="part-table", cursor_type="cell",
                             zebra_stripes=True)
             yield Static(
-                "⏎ edit cell · space toggles rx · +/- adjust · edits go to "
-                "the temporary performance, so a power cycle undoes them",
+                "type a number, or ⏎ to edit · space toggles rx · +/- "
+                "adjust · edits go to the temporary performance, so a "
+                "power cycle undoes them",
                 classes="hint")
             yield Static(self._report_text(), classes="report", id="report")
             yield Static("[dim]esc / q to close[/dim]")
@@ -435,6 +447,30 @@ class MultiScreen(ModalScreen[None]):
             "msb": part.msb,
         }[column]
 
+    def on_data_table_cell_selected(self, event) -> None:
+        """Enter on a cell. This is where Enter arrives, not a binding."""
+        if event.data_table.id == "part-table":
+            self.action_edit_cell()
+
+    def action_type_digit(self, digit: str) -> None:
+        """A digit on a numeric cell opens the prompt already holding it.
+
+        On the rx column there is nothing to type: it holds one bit, so 0
+        and 1 set it directly and any other digit is refused rather than
+        silently rounded to something.
+        """
+        part, column = self._cursor()
+        if part is None:
+            return
+        if column == "rx":
+            if digit in ("0", "1"):
+                self._apply(part, column, int(digit))
+            else:
+                self.app.notify_status(
+                    "receive switch is 0 (off) or 1 (on)", refused=True)
+            return
+        self._prompt_for_value(part, column, seed=digit)
+
     def action_edit_cell(self) -> None:
         part, column = self._cursor()
         if part is None:
@@ -445,6 +481,13 @@ class MultiScreen(ModalScreen[None]):
         if column == "rx":
             self.action_toggle_cell()
             return
+        # Seeded with the current value, because Enter means "change this
+        # one" and the old value is usually the starting point. Typing a
+        # digit instead replaces outright -- see action_type_digit.
+        self._prompt_for_value(
+            part, column, seed=str(self._current_value(part, column)))
+
+    def _prompt_for_value(self, part, column: str, *, seed: str) -> None:
         _offset, label, low, high = EDITABLE_PART_COLUMNS[column]
 
         def done(text) -> None:
@@ -460,8 +503,7 @@ class MultiScreen(ModalScreen[None]):
 
         self.app.push_screen(
             TextPromptScreen(
-                f"Part {part.part} — {label} ({low}-{high})",
-                str(self._current_value(part, column))),
+                f"Part {part.part} — {label} ({low}-{high})", seed),
             done,
         )
 

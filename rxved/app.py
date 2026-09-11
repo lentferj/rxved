@@ -1080,10 +1080,15 @@ class RxvedApp(App):
     ]
 
     def __init__(self, bridge, *, favorites, catalog=None,
-                 channel: int = 0) -> None:
+                 channel: int = 0, backup_dir: Optional[str] = None) -> None:
         super().__init__()
         self.bridge = bridge
         self.favorites = favorites
+        #: Where performance backups are written. Injected rather than
+        #: looked up inside the worker so that tests -- which exercise the
+        #: destructive store -- cannot write into the real data directory.
+        #: They did, once, and left files in it.
+        self._backup_dir = backup_dir
         self.catalog = catalog if catalog is not None else cat.empty()
         self.channel = channel
         #: Every bridge call is taken under this, and shutdown waits on it --
@@ -1987,6 +1992,16 @@ class RxvedApp(App):
             return
         self._write_part_worker(part, offset, value, adopt)
 
+    def backup_dir(self) -> str:
+        """Where backups go. The per-platform data directory unless a
+        caller said otherwise."""
+        if self._backup_dir is not None:
+            return self._backup_dir
+        from xv import backup as bk
+        from rxved.favorites import data_dir
+
+        return bk.default_dir(data_dir())
+
     def open_store_screen(self, source_name: str) -> None:
         """Show the arm-then-fire write screen. Main thread; sends nothing.
 
@@ -2019,7 +2034,6 @@ class RxvedApp(App):
         chance to lose it that buys nothing.
         """
         from xv import backup as bk
-        from rxved.favorites import data_dir
 
         self._busy = True
         try:
@@ -2031,7 +2045,7 @@ class RxvedApp(App):
                 previous, mismatched = self.bridge.store_temporary_to_slot(
                     slot, on_progress=progress)
             path = bk.save(
-                previous, bk.default_dir(data_dir()), slot=slot,
+                previous, self.backup_dir(), slot=slot,
                 device_id=self.bridge.device_id,
                 source=f"{self.bridge.description} (before store)")
         except Exception as exc:
@@ -2293,6 +2307,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="path to a generated name catalog")
     parser.add_argument("--favorites", default=None,
                         help="path to the favourites database")
+    parser.add_argument("--backup-dir", default=None,
+                        help="where performance backups are written "
+                             "(default: alongside the favourites database)")
     return parser
 
 
@@ -2346,7 +2363,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     favorites = Favorites(args.favorites)
 
     app = RxvedApp(bridge, favorites=favorites, catalog=catalog,
-                   channel=channel or 0)
+                   channel=channel or 0, backup_dir=args.backup_dir)
     try:
         app.run()
     finally:

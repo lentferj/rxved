@@ -44,7 +44,11 @@ def app(tmp_path):
     ])
     bridge = DemoBridge()
     favorites = Favorites(str(tmp_path / "f.db"))
-    application = RxvedApp(bridge, favorites=favorites, catalog=catalog)
+    # backup_dir is not optional in tests: the store worker writes real
+    # files, and without this the suite leaves performance backups in the
+    # user's own data directory. It did.
+    application = RxvedApp(bridge, favorites=favorites, catalog=catalog,
+                           backup_dir=str(tmp_path / "backups"))
     yield application
     favorites.close()
 
@@ -1277,20 +1281,25 @@ class TestStoreIsHardToFireByAccident:
             assert written[user_performance_base(3)] == (
                 app.bridge.read_performance_blocks(TEMPORARY_PERFORMANCE))
 
-    async def test_the_previous_contents_are_backed_up(self, app, tmp_path,
-                                                       monkeypatch):
-        import rxved.favorites as fav
-
-        monkeypatch.setattr(fav, "data_dir", lambda: str(tmp_path))
+    async def test_the_previous_contents_are_backed_up(self, app):
         async with app.run_test() as pilot:
             await self._open_store(app, pilot)
             await pilot.press("a", "w")
             for _ in range(12):
                 await pilot.pause()
             from xv import backup as bk
-            saved = bk.list_backups(bk.default_dir(str(tmp_path)))
+            saved = bk.list_backups(app.backup_dir())
             assert len(saved) == 1
             assert saved[0]["slot"] == 1
+
+    async def test_the_suite_never_writes_to_the_real_data_dir(self, app,
+                                                               tmp_path):
+        """This test exists because it happened.
+
+        The store worker used to call data_dir() itself, so every test that
+        fired it left a backup file in the user's own directory.
+        """
+        assert app.backup_dir().startswith(str(tmp_path))
 
 
 class TestEnterReplacesAndDigitsAppend:

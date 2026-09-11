@@ -104,9 +104,26 @@ things above should be read as a warning rather than a formality.
 
 ## Hardware safety
 
-rxved does not write to the synth's memory. There is no method in `xv/` that
-stores a patch, renames a slot, or erases anything — in particular, nothing
-performs the Write (store) operation.
+rxved writes to the synth's **memory** in one place only: `StoreScreen`
+(`W` in the multi-mode screen) and `rxvcli perf-store` / `perf-restore`,
+which save a performance into one of the 64 user performance slots. That is
+destructive — it replaces what was stored there and no power cycle brings it
+back — so it is fenced: arm-then-fire in a modal, never one keystroke from
+the browser, the destination read in full and written to a backup file
+before a byte goes out, and every block verified by reading it back.
+
+**If the backup read fails, nothing is written.** A store that cannot be
+undone is not one this program performs.
+
+Nothing stores a *patch*, renames a slot, or erases anything else.
+
+**How the store works is an inference, not documentation.** The Owner's
+Manual documents only the front-panel WRITE procedure (p. 92) and the
+editor's WRITE button; it never says that a DT1 addressed to `20 nn 00 00`
+stores. That the user performance slots are addressable is documented; that
+writing them persists is deduced. `rxvcli perf-verify <slot> --yes` tests it
+without risk — it writes a slot's own current bytes back to it and compares
+— and **that test has not been run yet**.
 
 It does write in exactly one place, and the distinction matters: the
 multi-mode screen (`m`) edits twelve **Performance Part** parameters —

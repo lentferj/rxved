@@ -712,6 +712,52 @@ OUTPUT_ASSIGN_ON_XV2020 = frozenset({0, 1, 5, 6, 13})
 OUTPUT_MFX = {0: "MFXA", 1: "MFXB*", 2: "MFXC*"}
 
 
+#: A performance, block by block: ``(name, (sub_hi, sub_lo), size)``.
+#:
+#: Sizes are the "Total Size" each section of the parameter address map
+#: prints (OM pp. 147-149), and every one was checked against its own last
+#: offset -- ``size - 1`` in each case, which is the arithmetic that catches
+#: a mis-paired heading. They were read by cropping the PDF's two columns
+#: apart rather than from a ``-layout`` dump, after that dump's interleaving
+#: produced a confidently wrong claim about the Mute Switch; see
+#: RESOLUTION_NOTES §12b.
+#:
+#: 36 blocks, 1309 bytes. This is the whole of a performance as the machine
+#: stores it -- and note what that does *not* include: the manual is
+#: explicit that saving a performance saves "only the Performance settings",
+#: not the patches its parts point at (OM p. 92).
+PERFORMANCE_BLOCKS: Tuple[Tuple[str, Tuple[int, int], int], ...] = (
+    ("common", (0x00, 0x00), 53),
+    ("mfx", (0x02, 0x00), 145),
+    ("chorus", (0x04, 0x00), 52),
+    ("reverb", (0x06, 0x00), 83),
+) + tuple(
+    (f"midi{channel + 1}", (0x10 + channel, 0x00), 12) for channel in range(16)
+) + tuple(
+    (f"part{part + 1}", (0x20 + part, 0x00), 49) for part in range(16)
+)
+
+#: Address prefix of the temporary performance -- the edit buffer.
+TEMPORARY_PERFORMANCE = (0x10, 0x00)
+
+#: How many user performance slots the XV-2020 has.
+USER_PERFORMANCE_SLOTS = 64
+
+
+def user_performance_base(slot: int) -> Tuple[int, int]:
+    """Address prefix of User Performance ``slot`` (1-64).
+
+    ``20 00 00 00`` is User Performance 01 and ``20 3F 00 00`` is 64 (OM
+    p. 146), so the second byte is the slot **minus one** -- the same
+    off-by-one this project keeps visible everywhere else.
+    """
+    if not 1 <= slot <= USER_PERFORMANCE_SLOTS:
+        raise ValueError(
+            f"user performance slot {slot} is outside "
+            f"1-{USER_PERFORMANCE_SLOTS}")
+    return (0x20, slot - 1)
+
+
 def _ranges(numbers: Iterable[int]) -> str:
     """``[3,4,5,9]`` -> ``"3-5, 9"``. For reports that would otherwise be
     a column of near-identical lines."""
@@ -1435,6 +1481,102 @@ class XvBridge:
         0x0A: ("phase lock", 0, 1),
         0x0B: ("velocity curve type", 0, 4),
     }
+
+    # --- whole performances -------------------------------------------------
+
+    def read_performance_blocks(
+        self, base: Tuple[int, int], *,
+        on_progress: Optional[Callable[[int, int], None]] = None,
+        timeout: Optional[float] = None,
+    ) -> Dict[str, bytes]:
+        """Every block of one performance. 36 round trips, no sound.
+
+        ``base`` is :data:`TEMPORARY_PERFORMANCE` or the result of
+        :func:`user_performance_base`. A short block is an error rather than
+        something to pad: a partial read that later gets written back would
+        write the wrong thing to the wrong offsets.
+        """
+        out: Dict[str, bytes] = {}
+        total = len(PERFORMANCE_BLOCKS)
+        for index, (name, (sub_hi, sub_lo), size) in enumerate(
+                PERFORMANCE_BLOCKS, start=1):
+            address = (base[0], base[1], sub_hi, sub_lo)
+            data = self.request(address, size, timeout=timeout)
+            if len(data) != size:
+                raise DeviceError(
+                    f"block {name} at "
+                    f"{'.'.join(f'{b:02X}' for b in address)} returned "
+                    f"{len(data)} bytes, expected {size}")
+            out[name] = bytes(data)
+            if on_progress is not None:
+                on_progress(index, total)
+        return out
+
+    def write_performance_blocks(
+        self, base: Tuple[int, int], blocks: Dict[str, bytes], *,
+        on_progress: Optional[Callable[[int, int], None]] = None,
+        verify: bool = True, timeout: Optional[float] = None,
+    ) -> List[str]:
+        """Write a whole performance. Returns the names of blocks that
+        did **not** read back identical.
+
+        **This is the one operation in rxved that can destroy something.**
+        Written to a user slot it replaces whatever was stored there, and no
+        power cycle brings it back. Callers are expected to have taken a
+        backup; :meth:`store_temporary_to_slot` does.
+
+        Verification is per block and by comparison, not by trusting the
+        send: DT1 is unacknowledged, so the only evidence that a write
+        landed is reading the bytes back and finding them equal.
+        """
+        missing = [name for name, _addr, _size in PERFORMANCE_BLOCKS
+                   if name not in blocks]
+        if missing:
+            raise ValueError(
+                f"refusing to write a partial performance; missing "
+                f"{', '.join(missing)}")
+
+        mismatched: List[str] = []
+        total = len(PERFORMANCE_BLOCKS)
+        for index, (name, (sub_hi, sub_lo), size) in enumerate(
+                PERFORMANCE_BLOCKS, start=1):
+            payload = blocks[name]
+            if len(payload) != size:
+                raise ValueError(
+                    f"block {name} is {len(payload)} bytes, expected {size}")
+            address = (base[0], base[1], sub_hi, sub_lo)
+            self._send(m.dt1(address, payload, device=self.device_id))
+            time.sleep(SEND_GAP)
+            if verify:
+                back = self.request(address, size, timeout=timeout)
+                if bytes(back) != payload:
+                    mismatched.append(name)
+            if on_progress is not None:
+                on_progress(index, total)
+        return mismatched
+
+    def store_temporary_to_slot(
+        self, slot: int, *,
+        on_progress: Optional[Callable[[int, int], None]] = None,
+        timeout: Optional[float] = None,
+    ) -> Tuple[Dict[str, bytes], List[str]]:
+        """Save the edit buffer into User Performance ``slot``.
+
+        Returns ``(backup, mismatched)`` -- the destination's **previous**
+        contents, read before anything is written so the slot can be put
+        back, and the names of any blocks that did not verify.
+
+        The backup is taken first and unconditionally. If reading the
+        destination fails, nothing is written: a store that cannot be undone
+        is not one this program performs.
+        """
+        base = user_performance_base(slot)
+        backup = self.read_performance_blocks(base, timeout=timeout)
+        blocks = self.read_performance_blocks(
+            TEMPORARY_PERFORMANCE, timeout=timeout)
+        mismatched = self.write_performance_blocks(
+            base, blocks, on_progress=on_progress, timeout=timeout)
+        return backup, mismatched
 
     def write_channel_param(self, channel: int, offset: int, value: int, *,
                             verify: bool = True,

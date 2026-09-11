@@ -33,8 +33,10 @@ base from the one that goes on the wire.
 Plus a local **favourites** database, so the patches you actually use stop
 being something you rediscover.
 
-rxved is a **browser, not an editor**. There is no code in it that writes to
-the synth's memory.
+rxved is mostly a **browser**. It edits the temporary performance, and it
+can save one into a user performance slot — the only thing in it that can
+destroy something, and fenced accordingly. It does not edit or store
+patches.
 
 ---
 
@@ -123,6 +125,7 @@ XV-3080 on the same chain. The port that answered is remembered in
 | `[` / `]` / `c` | previous / next send channel, or type one |
 | `R` | re-read the synth's mode, channels and all 16 parts |
 | `m` | multi-mode setup: all 16 parts, **editable**, and why a channel is silent |
+| `W` | (in `m`) write the edit buffer to a user performance slot — **destructive** |
 | `i` / `?` / `q` | device identity / help / quit |
 
 ### Multi-mode setup (`m`)

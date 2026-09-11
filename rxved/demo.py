@@ -98,6 +98,9 @@ class DemoBridge:
         #: performance would hold them: in memory, gone when this object is.
         self._part_edits: Dict[int, dict] = {}
         self._channel_edits: Dict[int, dict] = {}
+        #: Whole performances the fake has been asked to store, keyed by
+        #: address prefix. In memory only -- a demo session writes nothing.
+        self._performances: Dict[tuple, dict] = {}
         self._closed = False
 
     # --- lifecycle ----------------------------------------------------------
@@ -269,6 +272,53 @@ class DemoBridge:
         stored = bool(value) if field in self._PART_FLAGS else value
         self._part_edits.setdefault(part, {})[field] = stored
         return value
+
+    def read_performance_blocks(self, base, *, on_progress=None,
+                                timeout=None):
+        from xv.bridge import PERFORMANCE_BLOCKS
+
+        self._tick()
+        stored = self._performances.get(tuple(base))
+        if stored is not None:
+            return dict(stored)
+        # A demo performance whose bytes are deterministic but not uniform,
+        # so a round-trip test cannot pass by comparing zeros to zeros.
+        out = {}
+        for index, (name, _sub, size) in enumerate(PERFORMANCE_BLOCKS):
+            seed = (base[0] * 7 + base[1] * 13 + index) & 0x7F
+            out[name] = bytes((seed + i) & 0x7F for i in range(size))
+        out["common"] = b"Demo Perf   " + out["common"][12:]
+        if on_progress is not None:
+            for i in range(1, len(PERFORMANCE_BLOCKS) + 1):
+                on_progress(i, len(PERFORMANCE_BLOCKS))
+        return out
+
+    def write_performance_blocks(self, base, blocks, *, on_progress=None,
+                                 verify=True, timeout=None):
+        from xv.bridge import PERFORMANCE_BLOCKS
+
+        missing = [n for n, _a, _s in PERFORMANCE_BLOCKS if n not in blocks]
+        if missing:
+            raise ValueError(
+                f"refusing to write a partial performance; missing "
+                f"{', '.join(missing)}")
+        self._tick()
+        self._performances[tuple(base)] = dict(blocks)
+        if on_progress is not None:
+            for i in range(1, len(PERFORMANCE_BLOCKS) + 1):
+                on_progress(i, len(PERFORMANCE_BLOCKS))
+        return []
+
+    def store_temporary_to_slot(self, slot: int, *, on_progress=None,
+                                timeout=None):
+        from xv.bridge import TEMPORARY_PERFORMANCE, user_performance_base
+
+        base = user_performance_base(slot)
+        previous = self.read_performance_blocks(base)
+        blocks = self.read_performance_blocks(TEMPORARY_PERFORMANCE)
+        mismatched = self.write_performance_blocks(
+            base, blocks, on_progress=on_progress)
+        return previous, mismatched
 
     def read_performance_midi(self, channel: int, *, timeout=None):
         from xv.bridge import ChannelMidi

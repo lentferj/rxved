@@ -349,6 +349,134 @@ EDITABLE_CHANNEL_COLUMNS = {
 }
 
 
+class StoreScreen(ModalScreen[None]):
+    """Save the edit buffer into a user performance slot. **Destructive.**
+
+    The only screen in rxved that can destroy something. Writing a
+    performance into a user slot replaces what was stored there and no power
+    cycle brings it back, so this follows the sibling projects' rule for
+    destructive operations -- eosed's Master menu, k2kremote's DELBANK -- and
+    then adds a backup:
+
+    1. Pick a destination. Its **current** name is read from the synth and
+       shown, because "slot 12" means nothing and the name it is about to
+       replace means everything.
+    2. **Arm.** Nothing has been sent yet.
+    3. **Fire**, a different key, only while armed.
+
+    Three deliberate steps, none of them a single keystroke from the browser.
+    Moving the cursor over slots sends nothing and reads only names.
+
+    Before a byte is written the destination is read in full and saved to a
+    file. If that read fails, nothing is written at all: a store that cannot
+    be undone is not one this program performs.
+    """
+
+    DEFAULT_CSS = """
+    StoreScreen { align: center middle; }
+    StoreScreen > Vertical {
+        width: 76; height: 80%; border: thick $error;
+        background: $surface; padding: 1 2;
+    }
+    StoreScreen DataTable { height: 1fr; }
+    StoreScreen .armed { color: $error; text-style: bold; }
+    """
+
+    BINDINGS = [
+        Binding("escape", "close", "Cancel"),
+        Binding("q", "close", "Cancel"),
+        Binding("a", "arm", "Arm", show=False),
+        # Deliberately not Enter, and deliberately not next to "a" on the
+        # keyboard: the fire key should not be the one a finger is already
+        # resting on after arming.
+        Binding("w", "fire", "Write", show=False),
+    ]
+
+    def __init__(self, source_name: str, slot_names, *, on_store=None) -> None:
+        super().__init__()
+        self._source = source_name
+        #: ``{slot: name}``, as far as they have been read. Unread slots show
+        #: as unknown rather than blank -- blank reads as "empty", and an
+        #: occupied slot displayed as empty is how somebody overwrites work.
+        self._names = dict(slot_names or {})
+        self._on_store = on_store
+        self._armed: Optional[int] = None
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label(
+                f"[b]Write the edit buffer to a user performance[/b]\n"
+                f"source: {self._source or 'the temporary performance'}")
+            yield DataTable(id="slot-table", cursor_type="row",
+                            zebra_stripes=True)
+            yield Static(self._status(), id="store-status")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#slot-table", DataTable)
+        table.add_column("slot", key="slot")
+        table.add_column("currently holds", key="name")
+        for slot in range(1, 65):
+            table.add_row(f"{slot:02d}", self._name_cell(slot),
+                          key=str(slot))
+        table.focus()
+
+    def _name_cell(self, slot: int) -> str:
+        name = self._names.get(slot)
+        return name if name is not None else "[dim]not read[/dim]"
+
+    def _slot(self) -> Optional[int]:
+        table = self.query_one("#slot-table", DataTable)
+        if not table.row_count:
+            return None
+        row = table.coordinate_to_cell_key(table.cursor_coordinate)[0]
+        return int(row.value)
+
+    def _status(self) -> str:
+        if self._armed is None:
+            return ("[dim]a to arm the slot under the cursor · "
+                    "esc to cancel[/dim]")
+        name = self._names.get(self._armed)
+        holds = f"“{name}”" if name else "an unread performance"
+        return (
+            f"[b]ARMED[/b] — pressing [b]w[/b] overwrites slot "
+            f"{self._armed:02d}, which holds {holds}.\n"
+            f"Its current contents are saved to a backup file first. "
+            f"Any other key disarms."
+        )
+
+    def on_data_table_row_highlighted(self, event) -> None:
+        # Moving the cursor disarms. Arming is about one specific slot, and
+        # an arm that survives a cursor move is an arm aimed somewhere the
+        # user is no longer looking.
+        if self._armed is not None:
+            self._armed = None
+            self.query_one("#store-status", Static).update(self._status())
+
+    def action_arm(self) -> None:
+        slot = self._slot()
+        if slot is None:
+            return
+        self._armed = slot
+        self.query_one("#store-status", Static).update(self._status())
+
+    def action_fire(self) -> None:
+        if self._armed is None:
+            self.app.notify_status(
+                "not armed — press a on the destination slot first",
+                refused=True)
+            return
+        slot, self._armed = self._armed, None
+        self.query_one("#store-status", Static).update(self._status())
+        if self._on_store is None:
+            self.app.notify_status("not connected to a synth", refused=True)
+            return
+        self.dismiss(None)
+        self._on_store(slot)
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
 class MultiScreen(ModalScreen[None]):
     """Multi-mode setup: all 16 Performance Parts, editable.
 
@@ -390,6 +518,9 @@ class MultiScreen(ModalScreen[None]):
         # on_data_table_cell_selected.
         Binding("space", "toggle_cell", "Toggle", show=False),
         Binding("tab", "toggle_view", "MIDI / FX columns", show=False),
+        # Opens the arm-then-fire screen. Opening it writes nothing; the
+        # destructive step is two further keys inside it, on purpose.
+        Binding("W", "store", "Write to a slot", show=False),
         Binding("plus", "bump(1)", "+1", show=False),
         Binding("equals_sign", "bump(1)", "+1", show=False),
         Binding("minus", "bump(-1)", "-1", show=False),
@@ -441,8 +572,9 @@ class MultiScreen(ModalScreen[None]):
         nxt = COLUMN_VIEWS[(self._view + 1) % len(COLUMN_VIEWS)][0]
         return (
             f"[b]{which}[/b] columns · tab for {nxt} · type a number, or "
-            f"⏎ to edit · space toggles · +/- adjust · edits go to the "
-            f"temporary performance, so a power cycle undoes them"
+            f"⏎ to edit · space toggles · +/- adjust · W writes to a slot · "
+            f"edits go to the temporary performance, so a power cycle undoes "
+            f"them"
         )
 
     def _columns(self):
@@ -728,6 +860,12 @@ class MultiScreen(ModalScreen[None]):
                                 self._row_cells(fresh)):
             table.update_cell(str(fresh.part), column.key, cell)
         self.query_one("#report", Static).update(self._report_text())
+
+    def action_store(self) -> None:
+        name = ""
+        if self._state.common is not None:
+            name = self._state.common.name
+        self.app.open_store_screen(name)
 
     def action_close(self) -> None:
         self.dismiss(None)
@@ -1786,6 +1924,73 @@ class RxvedApp(App):
             self.notify_status("busy", refused=True)
             return
         self._write_part_worker(part, offset, value, adopt)
+
+    def open_store_screen(self, source_name: str) -> None:
+        """Show the arm-then-fire write screen. Main thread; sends nothing.
+
+        Slot names are whatever has already been read -- from a `r` on
+        P-USER, or from a previous visit. Reading all 64 here would cost 64
+        round trips before showing anything, and an unread slot is labelled
+        as unread rather than blank, so nothing is misrepresented as empty.
+        """
+        names = {}
+        for number in range(1, 65):
+            name = self.catalog.live_name("P-USER", number)
+            if name:
+                names[number] = name
+        self.push_screen(
+            StoreScreen(source_name, names, on_store=self._store_to_slot))
+
+    def _store_to_slot(self, slot: int) -> None:
+        if self._busy:
+            self.notify_status("busy", refused=True)
+            return
+        self._store_worker(slot)
+
+    @work(thread=True)
+    def _store_worker(self, slot: int) -> None:
+        """**MIDI only**, plus one file write, which is the point of it.
+
+        The backup is written from this thread deliberately: it is a plain
+        file, not the favourites SQLite connection, and holding 1.3 KB of
+        somebody's performance in a variable while hopping threads is a
+        chance to lose it that buys nothing.
+        """
+        from xv import backup as bk
+        from rxved.favorites import data_dir
+
+        self._busy = True
+        try:
+            def progress(done, total):
+                self.call_from_thread(
+                    self.notify_status, f"writing block {done}/{total}")
+
+            with self._bridge_lock:
+                previous, mismatched = self.bridge.store_temporary_to_slot(
+                    slot, on_progress=progress)
+            path = bk.save(
+                previous, bk.default_dir(data_dir()), slot=slot,
+                device_id=self.bridge.device_id,
+                source=f"{self.bridge.description} (before store)")
+        except Exception as exc:
+            self.call_from_thread(
+                self.notify_status, f"store: {exc}", refused=True)
+            return
+        finally:
+            self._busy = False
+
+        if mismatched:
+            self.call_from_thread(
+                self.notify_status,
+                f"slot {slot}: {len(mismatched)} block(s) did NOT read back "
+                f"as written ({', '.join(mismatched[:3])}...). Previous "
+                f"contents are in {path}",
+                refused=True)
+        else:
+            self.call_from_thread(
+                self.notify_status,
+                f"stored into user performance {slot}; what was there "
+                f"is in {path}")
 
     def _write_channel_param(self, channel: int, offset: int, value: int,
                              adopt) -> None:

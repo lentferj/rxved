@@ -27,7 +27,7 @@ from textual.widgets import DataTable, Input, Static
 from textual.coordinate import Coordinate
 
 from rxved.app import (CategoryScreen, MultiScreen, ReportScreen,
-                       RxvedApp, TextPromptScreen)
+                       RxvedApp, StoreScreen, TextPromptScreen)
 from rxved.demo import DemoBridge
 from rxved.favorites import Favorites
 from xv import banks
@@ -1152,3 +1152,90 @@ class TestMultiEditing:
             first = str(table.get_row("1")[keys.index("rx_pc")])
             second = str(table.get_row("2")[keys.index("rx_pc")])
             assert first == second == "[b]OFF[/b]"
+
+
+class TestStoreIsHardToFireByAccident:
+    """The one screen that can destroy something.
+
+    What is being tested is not that it works but that it does not work too
+    easily: opening it writes nothing, a single key writes nothing, and an
+    arm aimed at one slot does not survive the cursor moving to another.
+    """
+
+    async def _open_store(self, app, pilot):
+        await pilot.pause()
+        await pilot.press("m")
+        await pilot.pause()
+        await pilot.pause()
+        await pilot.press("W")
+        await pilot.pause()
+        return app.screen
+
+    async def test_opening_it_writes_nothing(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._open_store(app, pilot)
+            assert isinstance(screen, StoreScreen)
+            assert app.bridge._performances == {}
+
+    async def test_firing_without_arming_writes_nothing(self, app):
+        async with app.run_test() as pilot:
+            await self._open_store(app, pilot)
+            await pilot.press("w")
+            for _ in range(6):
+                await pilot.pause()
+            assert app.bridge._performances == {}
+
+    async def test_arming_alone_writes_nothing(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._open_store(app, pilot)
+            await pilot.press("a")
+            await pilot.pause()
+            assert screen._armed == 1
+            assert app.bridge._performances == {}
+
+    async def test_moving_the_cursor_disarms(self, app):
+        """An arm that survives a cursor move is aimed where nobody is
+        looking."""
+        async with app.run_test() as pilot:
+            screen = await self._open_store(app, pilot)
+            await pilot.press("a")
+            await pilot.pause()
+            assert screen._armed == 1
+            await pilot.press("down")
+            await pilot.pause()
+            assert screen._armed is None
+            await pilot.press("w")
+            for _ in range(6):
+                await pilot.pause()
+            assert app.bridge._performances == {}
+
+    async def test_arm_then_fire_writes_the_armed_slot(self, app):
+        async with app.run_test() as pilot:
+            await self._open_store(app, pilot)
+            await pilot.press("down", "down")      # slot 3
+            await pilot.pause()
+            await pilot.press("a")
+            await pilot.pause()
+            await pilot.press("w")
+            for _ in range(12):
+                await pilot.pause()
+            from xv.bridge import TEMPORARY_PERFORMANCE, user_performance_base
+            written = app.bridge._performances
+            assert set(written) == {user_performance_base(3)}
+            assert written[user_performance_base(3)] == (
+                app.bridge.read_performance_blocks(TEMPORARY_PERFORMANCE))
+
+    async def test_the_previous_contents_are_backed_up(self, app, tmp_path,
+                                                       monkeypatch):
+        import rxved.favorites as fav
+
+        monkeypatch.setattr(fav, "data_dir", lambda: str(tmp_path))
+        async with app.run_test() as pilot:
+            await self._open_store(app, pilot)
+            await pilot.press("a", "w")
+            for _ in range(12):
+                await pilot.pause()
+            from xv import backup as bk
+            saved = bk.list_backups(bk.default_dir(str(tmp_path)))
+            assert len(saved) == 1
+            assert saved[0]["slot"] == 1

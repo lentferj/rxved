@@ -31,6 +31,7 @@ is not a recoverable mistake.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from typing import Callable, Dict, List, Optional
 
@@ -485,7 +486,153 @@ def _parse_slot(text: str) -> tuple:
     )
 
 
+def _backup_dir(args) -> str:
+    from xv import backup as bk
+
+    from rxved.favorites import data_dir
+
+    return args.dir or bk.default_dir(data_dir())
+
+
+def _progress(label: str):
+    def report(done: int, total: int) -> None:
+        print(f"\r  {label} {done}/{total}", end="", file=sys.stderr)
+    return report
+
+
+def _cmd_perf_list(bridge, args) -> None:
+    """Backups on disk. Needs no synth."""
+    from xv import backup as bk
+
+    directory = _backup_dir(args)
+    rows = []
+    for entry in bk.list_backups(directory):
+        if "error" in entry:
+            rows.append([os.path.basename(entry["path"]), "", "",
+                         entry["error"]])
+            continue
+        slot = f"{entry['slot']:02d}" if entry["slot"] else "temp"
+        rows.append([os.path.basename(entry["path"]), slot,
+                     entry["saved"], entry["name"]])
+    if not rows:
+        print(f"no backups in {directory}")
+        return
+    print(f"{directory}\n")
+    print(_fmt_table(rows, ["file", "slot", "saved", "name"]))
+
+
+def _cmd_perf_backup(bridge, args) -> None:
+    """Read a performance and write it to a file. Read-only, makes no sound."""
+    from xv import backup as bk
+    from xv import bridge as b
+
+    if args.slot is None:
+        base, slot = b.TEMPORARY_PERFORMANCE, None
+        what = "the temporary performance"
+    else:
+        base, slot = b.user_performance_base(args.slot), args.slot
+        what = f"user performance {args.slot}"
+    print(f"reading {what}...", file=sys.stderr)
+    blocks = bridge.read_performance_blocks(
+        base, on_progress=_progress("block"))
+    print("", file=sys.stderr)
+    path = bk.save(blocks, _backup_dir(args), slot=slot,
+                   device_id=bridge.device_id, source=bridge.description)
+    print(f"saved {bk.performance_name(blocks)!r} to {path}")
+
+
+def _cmd_perf_verify(bridge, args) -> None:
+    """Prove a user slot can be written, without changing it.
+
+    Reads the slot, writes back the **identical** bytes, reads again and
+    compares. If that round trip is faithful, DT1 to a user address really
+    does store -- which the Owner's Manual never states; it documents only
+    the front-panel WRITE procedure. Nothing is at risk, because the bytes
+    written are the ones already there.
+    """
+    from xv import bridge as b
+
+    base = b.user_performance_base(args.slot)
+    if not args.yes:
+        raise SystemExit(
+            f"error: this writes user performance {args.slot} -- with its "
+            f"own current contents, so it changes nothing, but it is still "
+            f"a write to stored memory. Re-run with --yes.")
+    before = bridge.read_performance_blocks(base,
+                                            on_progress=_progress("read"))
+    print("", file=sys.stderr)
+    mismatched = bridge.write_performance_blocks(
+        base, before, on_progress=_progress("write"))
+    print("", file=sys.stderr)
+    after = bridge.read_performance_blocks(base)
+    changed = [name for name in before if before[name] != after.get(name)]
+    if mismatched or changed:
+        print(f"MISMATCH: {len(mismatched)} block(s) did not verify on "
+              f"write, {len(changed)} differ after: "
+              f"{', '.join(sorted(set(mismatched) | set(changed)))}")
+        print("Writing to a user slot does NOT work this way on this "
+              "machine. Do not use `perf store`.")
+        return
+    print(f"all {len(before)} blocks round-tripped identically -- "
+          f"user slot {args.slot} is writable over SysEx, and is unchanged")
+
+
+def _cmd_perf_store(bridge, args) -> None:
+    """Save the edit buffer into a user slot. **Destructive.**"""
+    from xv import backup as bk
+
+    if not args.yes:
+        raise SystemExit(
+            f"error: this overwrites user performance {args.slot}, "
+            f"permanently -- a power cycle does not bring it back. The slot "
+            f"is backed up to {_backup_dir(args)} first. Re-run with --yes.")
+    backup_blocks, mismatched = bridge.store_temporary_to_slot(
+        args.slot, on_progress=_progress("block"))
+    print("", file=sys.stderr)
+    path = bk.save(backup_blocks, _backup_dir(args), slot=args.slot,
+                   device_id=bridge.device_id,
+                   source=f"{bridge.description} (before store)")
+    print(f"previous contents of slot {args.slot} "
+          f"({bk.performance_name(backup_blocks)!r}) saved to {path}")
+    if mismatched:
+        print(f"WARNING: {len(mismatched)} block(s) did not read back as "
+              f"written: {', '.join(mismatched)}")
+        print(f"Restore with: rxvcli perf-restore {path} "
+              f"--slot {args.slot} --yes")
+        return
+    print(f"stored into user performance {args.slot}")
+
+
+def _cmd_perf_restore(bridge, args) -> None:
+    """Write a backup file back into a user slot. **Destructive.**"""
+    from xv import backup as bk
+
+    blocks = bk.load(args.file)
+    if not args.yes:
+        raise SystemExit(
+            f"error: this overwrites user performance {args.slot} with "
+            f"{bk.performance_name(blocks)!r} from {args.file}. Re-run with "
+            f"--yes.")
+    from xv import bridge as b
+
+    mismatched = bridge.write_performance_blocks(
+        b.user_performance_base(args.slot), blocks,
+        on_progress=_progress("block"))
+    print("", file=sys.stderr)
+    if mismatched:
+        print(f"WARNING: {len(mismatched)} block(s) did not read back as "
+              f"written: {', '.join(mismatched)}")
+        return
+    print(f"restored {bk.performance_name(blocks)!r} into user "
+          f"performance {args.slot}")
+
+
 _COMMANDS: Dict[str, Callable] = {
+    "perf-list": _cmd_perf_list,
+    "perf-backup": _cmd_perf_backup,
+    "perf-verify": _cmd_perf_verify,
+    "perf-store": _cmd_perf_store,
+    "perf-restore": _cmd_perf_restore,
     "ports": _cmd_ports,
     "banks": _cmd_banks,
     "list": _cmd_list,
@@ -505,7 +652,8 @@ _COMMANDS: Dict[str, Callable] = {
 #: Commands that construct no bridge and open no port. `ports` is here too:
 #: it enumerates, which needs the MIDI backend but not the synth, and it is
 #: the first thing a new user runs.
-_OFFLINE = {"ports", "banks", "list", "find", "resolve", "fav", "tags"}
+_OFFLINE = {"ports", "banks", "list", "find", "resolve", "fav", "tags",
+            "perf-list"}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -567,6 +715,36 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser(
         "multi", help="multi-mode setup, and why a channel is silent")
+
+    # --- performances -------------------------------------------------------
+    sp = sub.add_parser("perf-list", help="performance backups on disk")
+    sp.add_argument("--dir", help="backup directory (default: the data dir)")
+
+    sp = sub.add_parser("perf-backup",
+                        help="read a performance to a backup file")
+    sp.add_argument("--slot", type=int,
+                    help="user performance 1-64 (default: the edit buffer)")
+    sp.add_argument("--dir")
+
+    sp = sub.add_parser(
+        "perf-verify",
+        help="prove a user slot is writable WITHOUT changing it")
+    sp.add_argument("slot", type=int)
+    sp.add_argument("--yes", action="store_true")
+
+    sp = sub.add_parser("perf-store",
+                        help="save the edit buffer to a user slot (DESTROYS "
+                             "what is there; backs it up first)")
+    sp.add_argument("slot", type=int)
+    sp.add_argument("--dir")
+    sp.add_argument("--yes", action="store_true")
+
+    sp = sub.add_parser("perf-restore",
+                        help="write a backup file back to a user slot "
+                             "(DESTRUCTIVE)")
+    sp.add_argument("file")
+    sp.add_argument("--slot", type=int, required=True)
+    sp.add_argument("--yes", action="store_true")
 
     sp = sub.add_parser("read", help="read a USER bank's names (read-only)")
     sp.add_argument("bank", choices=["USER", "P-USER", "R-USER"])

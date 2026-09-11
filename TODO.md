@@ -208,3 +208,21 @@ The database is the user's own work and currently only leaves the machine as
 a SQLite file. `rxvcli fav` prints a table; a `--json` or `--csv` flag would
 make it scriptable, and an importer would make the file portable between
 machines.
+
+## 11 — Confirm why only channel 1 sounds
+
+**Status:** open, needs the hardware.
+
+The `m` (multi-mode setup) window was written for this and has not yet been
+run against the synth. Press `m` and read the report.
+
+The likely answer is that nothing is muted: the synth was observed in
+**PATCH** sound mode, which is single-timbral — only the Patch Receive
+Channel sounds and the Performance Parts are not in use. PERFORM mode is
+what makes it multitimbral.
+
+Not decidable from the window: the **Mute Switch** on the PERFORM PART ALL
+page is absent from the parameter address map, so a part muted there reads
+back as audible. If the report explains nothing, that is the remaining
+candidate and it has to be checked on the panel.
+

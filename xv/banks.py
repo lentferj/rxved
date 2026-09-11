@@ -331,6 +331,13 @@ SRX_CARDS: Tuple[SrxCard, ...] = (
     SrxCard("SRX-11", "SRX-11", 24, 42, rhythm_lsb=None, rhythm_count=0),
     # LSB 25 is assigned to nothing; SRX-12 starts at 26. Transcribed, not
     # a typo -- see the note above.
+    # 105 is SN 132's figure and is what the MIDI map addresses. The board's
+    # own manual lists 105 patches for the Fantom-X/S and JUNO-G but only
+    # **50** for the XV series -- the 55 it leaves out are the velocity-
+    # switched "/Bite ... Pk4Mt" patches. Kept at 105 because SN 132 is the
+    # authority on what the Bank Select map reaches and it names the XV-2020
+    # among the hosts; whether an XV-2020 actually sounds patches 51-105 is
+    # untested, and there is no board here to test it with.
     SrxCard("SRX-12", "SRX-12", 26, 105, rhythm_lsb=None, rhythm_count=0),
     SrxCard("SRX-97", "SRX-97", 97, 12, rhythm_lsb=None, rhythm_count=0),
     SrxCard("SRX-98", "SRX-98", 98, 78, rhythm_lsb=None, rhythm_count=0),

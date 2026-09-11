@@ -326,8 +326,16 @@ _SRX_ROW = re.compile(
 #: series/...", the Faxback sheets write "XV-Series Patch List:".
 _LIST_HEADING = re.compile(r"^\s*(For\s+\S|.*Patch List\s*:)", re.IGNORECASE)
 
-#: The families whose list is the right one for an XV-2020.
-_OURS = re.compile(r"XV|Fantom|JUNO-G|MX-200", re.IGNORECASE)
+#: What marks a heading as introducing *our* list. Case-sensitive, and
+#: nothing but "XV".
+#:
+#: It used to also accept Fantom, JUNO-G and MX-200, on the reasoning that
+#: the XV heading names those alongside it. That is true of most boards and
+#: false where it matters: SRX-12's manual prints "For Fantom-X series/
+#: Fantom-S series/JUNO-G" **first** and "For Fantom (FA-76)/XV series/
+#: MX-200" second, so the loose pattern matched the Fantom-X list and would
+#: have read the wrong table for a board whose XV list is not the first one.
+_OURS = re.compile(r"XV")
 
 
 def _xv_section(text: str) -> str:
@@ -521,9 +529,23 @@ def read_srx(card: str, path: str) -> Dict[str, List[dict]]:
 
     missing = [n for n in range(1, total + 1) if n not in found]
     if missing:
-        print(f"warning: {card}: {len(missing)} of {total} patches were not "
-              f"parsed ({missing[:8]}...). Those slots stay unnamed; the "
-              f"rest are unaffected.", file=sys.stderr)
+        # Two very different causes, and the shape tells them apart. A
+        # scattering of gaps is a parse that missed rows. A clean tail --
+        # everything from some point to the end -- is usually the document:
+        # a board can offer fewer patches to the XV series than to a Fantom,
+        # and its XV list then simply stops early. SRX-12 does exactly that,
+        # listing 105 for Fantom-X and 50 for XV.
+        tail = missing == list(range(missing[0], total + 1))
+        if tail:
+            print(f"note: {card}: the XV list stops at {missing[0] - 1}, "
+                  f"though the board has {total} patches. That is usually "
+                  f"the document, not the parse -- a board can expose fewer "
+                  f"patches to the XV series than to other hosts. The "
+                  f"remaining slots stay unnamed.", file=sys.stderr)
+        else:
+            print(f"warning: {card}: {len(missing)} of {total} patches were "
+                  f"not parsed ({missing[:8]}...). Those slots stay unnamed; "
+                  f"the rest are unaffected.", file=sys.stderr)
 
     out: Dict[str, List[dict]] = {}
     for number, (name, category) in sorted(found.items()):

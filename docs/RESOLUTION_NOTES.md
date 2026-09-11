@@ -544,3 +544,29 @@ side by side would need column-aware parsing, not line-aware.
 
 Coverage: SRX-01 through SRX-11 complete (2587 patches); SRX-12, 97 and 98
 have no source yet.
+
+### A board can offer fewer patches to an XV than to a Fantom
+
+SRX-12's manual prints its patch list three times, and they are not the same
+length: 105 patches for the Fantom-X/S and JUNO-G, **50** for the XV series,
+105 again for the RD series. The 55 the XV list leaves out are the
+velocity-switched "/Bite ... Pk4Mt" patches.
+
+So the extractor reporting "55 of 105 not parsed" for SRX-12 is the document
+speaking, not a parse failure, and the tool now says which it thinks it is:
+a scattering of gaps is a parse that missed rows, a clean tail to the end is
+usually a list that stops early.
+
+`xv/banks.py` keeps SRX-12 at 105 because SN 132 is the authority on what
+the Bank Select map reaches and it names the XV-2020 among the hosts.
+Whether an XV-2020 actually sounds patches 51-105 is untested and there is
+no board here to test with.
+
+### And the heading match had to get stricter
+
+SRX-12 also broke `_xv_section`, which accepted any heading naming XV,
+Fantom, JUNO-G or MX-200 -- on the reasoning that the XV heading names those
+alongside it. True of every other board, and false here: SRX-12 prints "For
+Fantom-X series/Fantom-S series/JUNO-G" **first** and "For Fantom
+(FA-76)/XV series/MX-200" second, so the loose pattern matched the Fantom-X
+list. It now requires "XV" and nothing else.

@@ -24,7 +24,8 @@ one you cannot.
 import pytest
 from textual.widgets import DataTable
 
-from rxved.app import CategoryScreen, ReportScreen, RxvedApp
+from rxved.app import (CategoryScreen, MultiScreen, ReportScreen,
+                       RxvedApp)
 from rxved.demo import DemoBridge
 from rxved.favorites import Favorites
 from xv import banks
@@ -832,3 +833,43 @@ class TestCategoryFilter:
             app._fill_slots("USER")
             await pilot.pause()
             assert "SBS/SPD" in app.sub_title
+
+
+class TestMultiSetup:
+    """The multi-mode window, and the diagnosis under it.
+
+    The diagnosis is the part worth testing: the obvious reading of a silent
+    channel is "the part is muted", and two of the real causes are nowhere
+    near the part. One cause is not readable at all, and saying so is a
+    required part of the report rather than a caveat.
+    """
+
+    async def test_m_opens_the_window(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("m")
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, MultiScreen)
+            table = app.screen.query_one("#part-table", DataTable)
+            assert table.row_count == 16
+
+    async def test_it_reports_a_part_with_its_receive_switch_off(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            state = app.bridge.read_state(with_parts=True)
+            report = " ".join(state.silence_report())
+            assert "RX SWITCH is OFF" in report
+
+    async def test_it_reports_a_part_at_zero_level(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            state = app.bridge.read_state(with_parts=True)
+            assert "LEVEL is 0" in " ".join(state.silence_report())
+
+    async def test_the_unreadable_mute_switch_is_always_named(self, app):
+        """Never let the report read as exhaustive. It cannot be."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            state = app.bridge.read_state(with_parts=True)
+            assert "Mute Switch" in " ".join(state.silence_report())

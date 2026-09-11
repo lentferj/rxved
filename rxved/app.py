@@ -244,7 +244,7 @@ KEY_HINTS = (
     "[ ] channel", "c set channel", "C categories", "R re-read",
     "f favourite", "F favourites view", "t tags", "n note", "/ search",
     "r read names", "s scan bank", "x probe SRX",
-    "i device", "? help", "q quit",
+    "m multi setup", "i device", "? help", "q quit",
 )
 
 
@@ -276,6 +276,99 @@ _KIND_LABEL = {
     banks.Kind.RHYTHM: "rhythm",
     banks.Kind.PERFORMANCE: "perf",
 }
+
+
+class MultiScreen(ModalScreen[None]):
+    """Multi-mode setup: all 16 Performance Parts, and why a channel is quiet.
+
+    Read-only, like the rest of rxved. That is a real limitation here rather
+    than a stylistic one -- this screen can tell you a part's Receive Switch
+    is off but cannot turn it back on -- so it says where on the panel each
+    setting lives instead of pretending the numbers are the whole story.
+
+    The report underneath the table is the point. A part that makes no sound
+    is the obvious reading of a silent channel and is often not the reason:
+    in PATCH mode the parts are not in use at all, and Solo Part Select
+    silences fifteen of them from a byte that is nowhere near any of them.
+    """
+
+    DEFAULT_CSS = """
+    MultiScreen { align: center middle; }
+    MultiScreen > Vertical {
+        width: 96; height: 90%; border: thick $accent;
+        background: $surface; padding: 1 2;
+    }
+    MultiScreen DataTable { height: auto; max-height: 18; }
+    MultiScreen .report { height: 1fr; overflow-y: auto; padding-top: 1; }
+    """
+
+    BINDINGS = [
+        Binding("escape", "close", "Close"),
+        Binding("q", "close", "Close"),
+    ]
+
+    def __init__(self, state, catalog) -> None:
+        super().__init__()
+        self._state = state
+        self._catalog = catalog
+
+    def compose(self) -> ComposeResult:
+        state = self._state
+        common = state.common
+        title = f"Multi-mode setup — {state.setup.mode_name} mode"
+        if common is not None and common.name:
+            title += f" — performance “{common.name}”"
+        with Vertical():
+            yield Label(f"[b]{title}[/b]")
+            yield DataTable(id="part-table", cursor_type="row",
+                            zebra_stripes=True)
+            yield Static(self._report_text(), classes="report")
+            yield Static("[dim]esc / q to close[/dim]")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#part-table", DataTable)
+        for label, key in (("part", "part"), ("ch", "ch"), ("rx", "rx"),
+                           ("lvl", "lvl"), ("PC", "pc"), ("LSB", "lsb"),
+                           ("MSB", "msb"), ("patch", "patch"),
+                           ("", "flag")):
+            table.add_column(label, key=key)
+        for part in self._state.parts:
+            slot = part.slot
+            name = ""
+            if slot is not None:
+                name = self._catalog.display_name(slot.bank_id, slot.number)
+                name = f"{slot.bank.label} {slot.number:03d}  {name}".rstrip()
+            else:
+                name = "[dim]no bank claims this[/dim]"
+            reason = part.silence_reason()
+            if reason is None and self._state.soloed_out(part):
+                reason = "not soloed"
+            table.add_row(
+                str(part.part),
+                str(part.channel_display),
+                "on" if part.receive_switch else "[b]OFF[/b]",
+                str(part.level) if part.level else "[b]0[/b]",
+                str(part.program_change),
+                str(part.lsb),
+                str(part.msb),
+                name,
+                f"[b]{reason}[/b]" if reason else "",
+                key=str(part.part),
+            )
+
+    def _report_text(self) -> str:
+        lines = list(self._state.silence_report())
+        lines.append("")
+        lines.append(
+            "On the panel: RX SWITCH and LEVEL are on PERFORM PART ALL; "
+            "SOLO is on Performance Common; the sound mode is the "
+            "PATCH/PERFORM button. rxved reads these and does not write "
+            "them."
+        )
+        return "\n".join(f"· {line}" if line else "" for line in lines)
+
+    def action_close(self) -> None:
+        self.dismiss(None)
 
 
 class CategoryScreen(ModalScreen[Optional[set]]):
@@ -417,6 +510,7 @@ class RxvedApp(App):
         Binding("r", "read_bank", "Read names"),
         Binding("s", "scan_bank", "Scan bank"),
         Binding("x", "probe_srx", "Probe SRX"),
+        Binding("m", "multi_setup", "Multi-mode setup"),
         Binding("i", "device_info", "Device"),
         Binding("question_mark", "help", "Help"),
         Binding("tab", "switch_pane", "Switch pane"),
@@ -1274,6 +1368,51 @@ class RxvedApp(App):
         finally:
             self._busy = False
         self.call_from_thread(self._adopt_state, state)
+
+    def action_multi_setup(self) -> None:
+        """Show all 16 parts, reading them fresh first.
+
+        Fresh rather than cached: the cached state may have been assembled
+        by refresh_channel, which re-reads only the parts on one channel, and
+        a stale Receive Switch on this screen is exactly the wrong thing to
+        be wrong about.
+        """
+        if self._busy:
+            self.notify_status("busy", refused=True)
+            return
+        self._multi_setup_worker()
+
+    @work(thread=True)
+    def _multi_setup_worker(self) -> None:
+        """**MIDI only** -- the screen is built on the main thread."""
+        self._busy = True
+        try:
+            def progress(done, total):
+                self.call_from_thread(
+                    self.notify_status, f"reading part {done}/{total}")
+
+            with self._bridge_lock:
+                state = self.bridge.read_state(with_parts=True,
+                                               on_progress=progress)
+        except Exception as exc:
+            self.call_from_thread(
+                self.notify_status, f"multi setup: {exc}", refused=True)
+            return
+        finally:
+            self._busy = False
+        self.call_from_thread(self._show_multi_setup, state)
+
+    def _show_multi_setup(self, state) -> None:
+        self._adopt_state(state)
+        if not state.parts:
+            # Single-timbral: there is nothing to tabulate, and a table of
+            # sixteen unused parts would imply there is.
+            self.push_screen(ReportScreen(
+                "Multi-mode setup",
+                "\n".join(f"· {line}" for line in state.silence_report()),
+            ))
+            return
+        self.push_screen(MultiScreen(state, self.catalog))
 
     def action_device_info(self) -> None:
         self._device_info_worker()

@@ -103,6 +103,7 @@ __all__ = [
     "SoundMode",
     "SetupState",
     "PartState",
+    "PerformanceCommon",
     "DeviceState",
     "PERFORMANCE_CHANNEL_OFF",
     "DeviceError",
@@ -555,6 +556,12 @@ class PartState:
     msb: int
     lsb: int
     program_change: int
+    #: Offset ``00 01``, Receive Switch. OFF means the part ignores its
+    #: channel entirely -- the first thing to check when a channel is silent.
+    receive_switch: bool = True
+    #: Offset ``00 07``, Part Level (CC#7). 0 is silence that looks like a
+    #: dead channel but is really a fader down.
+    level: int = 127
 
     @property
     def channel_display(self) -> int:
@@ -564,6 +571,25 @@ class PartState:
     def slot(self) -> Optional[banks.Slot]:
         """The bank/slot this part is set to, if rxved's table claims it."""
         return banks.lookup(self.msb, self.lsb, self.program_change)
+
+    @property
+    def silent(self) -> bool:
+        """Whether this part cannot be heard, for a reason that is readable.
+
+        Deliberately not named "muted": the Mute Switch on the PERFORM PART
+        ALL page is **not in the parameter address map**, so a part muted
+        there reads back as perfectly audible here. See
+        :func:`silence_reasons`.
+        """
+        return not self.receive_switch or self.level == 0
+
+    def silence_reason(self) -> Optional[str]:
+        """Why this part makes no sound, in the words the synth's page uses."""
+        if not self.receive_switch:
+            return "RX SWITCH is OFF"
+        if self.level == 0:
+            return "LEVEL is 0"
+        return None
 
 
 @dataclass(frozen=True)
@@ -619,6 +645,23 @@ def _describe_selection(slot, msb: int, lsb: int, program: int) -> str:
 
 
 @dataclass(frozen=True)
+class PerformanceCommon:
+    """Temporary Performance Common, ``10 00 00 00`` (OM p. 149).
+
+    Only the fields that can explain a silent channel are kept. The one that
+    matters is Solo Part Select at offset ``00 0C``: with it set, exactly one
+    part sounds and the other fifteen are silent while every parameter on
+    them still reads back perfectly normal.
+    """
+
+    name: str
+    #: Solo Part Select. ``None`` is OFF; otherwise the 1-16 part number that
+    #: is soloed. The map gives 0-32 as "OFF, 1 - 16, 17 - 32", and the
+    #: 17-32 half belongs to machines with 32 parts; an XV-2020 has 16.
+    solo: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class DeviceState:
     """Everything needed to answer "what does channel N do right now?"."""
 
@@ -627,6 +670,8 @@ class DeviceState:
     #: Empty unless the parts were read; they are only meaningful in a
     #: multitimbral mode.
     parts: Tuple[PartState, ...] = ()
+    #: ``None`` unless Performance Common was read, for the same reason.
+    common: Optional["PerformanceCommon"] = None
 
     def parts_on(self, channel: int) -> List[PartState]:
         """Every part listening on this 0-based channel.
@@ -636,6 +681,83 @@ class DeviceState:
         this was written against has parts 1, 2 and 3 all on channel 1.
         """
         return [p for p in self.parts if p.receive_channel == channel]
+
+    def audible_parts(self, channel: int) -> List[PartState]:
+        """Parts on this channel that would actually be heard."""
+        return [p for p in self.parts_on(channel)
+                if not p.silent and not self.soloed_out(p)]
+
+    def soloed_out(self, part: PartState) -> bool:
+        """Whether Solo Part Select silences this part."""
+        solo = self.common.solo if self.common is not None else None
+        return solo is not None and part.part != solo
+
+    def silence_report(self) -> List[str]:
+        """Why channels are silent, or the fact that nothing readable says.
+
+        This exists because the obvious answer -- "the parts are muted" -- is
+        often not the answer, and two of the real ones are invisible unless
+        somebody goes looking:
+
+        * In **PATCH mode** the synth is single-timbral. Fifteen channels are
+          silent and no part parameter is out of place, because the parts are
+          not in use at all.
+        * **Solo Part Select** silences fifteen parts from one byte in
+          Performance Common, nowhere near the parts themselves.
+
+        And one answer is not readable at all: the **Mute Switch** on the
+        PERFORM PART ALL page is not in the parameter address map, so a part
+        muted there reads back as audible. That is stated rather than
+        guessed around -- see the last line of the report.
+        """
+        lines: List[str] = []
+        if not self.setup.multitimbral:
+            channel = self.channels.patch_display
+            lines.append(
+                f"Sound mode is {self.setup.mode_name}, which is "
+                f"single-timbral: only channel {channel} sounds, and the "
+                f"Performance Parts are not in use. This alone explains a "
+                f"synth that answers on one channel and ignores the other "
+                f"15. Switch to PERFORM on the front panel for multitimbral."
+            )
+            return lines
+
+        if self.common is not None and self.common.solo is not None:
+            lines.append(
+                f"Solo Part Select is on, set to part {self.common.solo}: "
+                f"every other part is silenced from Performance Common, not "
+                f"from the parts themselves."
+            )
+
+        quiet = [(p, p.silence_reason()) for p in self.parts
+                 if p.silence_reason() is not None]
+        for part, reason in quiet:
+            lines.append(
+                f"Part {part.part:>2} (ch {part.channel_display:>2}): "
+                f"{reason}")
+
+        listening = {p.receive_channel for p in self.parts}
+        unused = [c + 1 for c in range(16) if c not in listening]
+        if unused:
+            lines.append(
+                "No part listens on channel "
+                + ", ".join(str(c) for c in unused)
+                + " -- nothing is muted there, there is simply nothing "
+                  "assigned to it."
+            )
+
+        if not lines:
+            lines.append(
+                "Nothing readable is silencing any part: every part has its "
+                "Receive Switch on, a non-zero level, and Solo is off."
+            )
+        lines.append(
+            "Not readable over MIDI: the Mute Switch on the PERFORM PART ALL "
+            "page is absent from the parameter address map, so a part muted "
+            "there looks audible here. If a channel is quiet and nothing "
+            "above explains it, check MUTE on the panel."
+        )
+        return lines
 
     def describes(self, channel: int) -> str:
         """One line saying what a Bank Select / PC on this channel would hit.
@@ -1094,13 +1216,34 @@ class XvBridge:
             raise ValueError(f"part {part} is outside 1-16")
         data = self.request((0x10, 0x00, 0x20 + part - 1, 0x00), 8,
                             timeout=timeout)
-        if len(data) < 7:
+        if len(data) < 8:
             raise DeviceError(
                 f"part {part} read returned {len(data)} bytes, expected 8")
         return PartState(
             part=part, receive_channel=data[0],
+            receive_switch=bool(data[1]),
             msb=data[4], lsb=data[5], program_change=data[6],
+            level=data[7],
         )
+
+    def read_performance_common(self, *, timeout: Optional[float] = None
+                                ) -> PerformanceCommon:
+        """Temporary Performance Common: its name, and Solo Part Select.
+
+        ``10 00 00 00``, 13 bytes -- the 12-byte name plus offset ``00 0C``.
+        One round trip, no sound.
+        """
+        data = self.request((0x10, 0x00, 0x00, 0x00), 0x0D, timeout=timeout)
+        if len(data) < 13:
+            raise DeviceError(
+                f"Performance Common read returned {len(data)} bytes, "
+                f"expected 13")
+        name = "".join(
+            chr(byte) if 32 <= byte <= 126 else " " for byte in data[:12]
+        ).rstrip()
+        solo = data[12]
+        return PerformanceCommon(name=name,
+                                 solo=None if solo == 0 else solo)
 
     def read_parts(self, *, on_progress: Optional[Callable[[int, int], None]] = None,
                    timeout: Optional[float] = None) -> Tuple[PartState, ...]:
@@ -1129,7 +1272,15 @@ class XvBridge:
             self.read_parts(on_progress=on_progress, timeout=timeout)
             if want_parts else ()
         )
-        state = DeviceState(setup=setup, channels=channels, parts=parts)
+        # Solo Part Select lives here, and it silences fifteen parts without
+        # touching any of them -- so reading the parts without it can produce
+        # a screen on which everything looks fine and the synth is quiet.
+        common = (
+            self.read_performance_common(timeout=timeout)
+            if want_parts else None
+        )
+        state = DeviceState(setup=setup, channels=channels, parts=parts,
+                            common=common)
         self.state = state
         return state
 
@@ -1165,7 +1316,13 @@ class XvBridge:
                     for p in parts if p.receive_channel == channel
                 }
                 parts = tuple(fresh.get(p.part, p) for p in parts)
-        state = DeviceState(setup=setup, channels=channels, parts=parts)
+        # Carried over, not re-read: Solo Part Select changes when a
+        # performance is loaded, which is what the refresh key is for. Losing
+        # it here would quietly turn "part 3 is soloed" into "nothing is
+        # soloed" on the next cursor move, which is worse than stale.
+        common = previous.common if previous is not None else None
+        state = DeviceState(setup=setup, channels=channels, parts=parts,
+                            common=common)
         self.state = state
         self.channels = channels
         return state

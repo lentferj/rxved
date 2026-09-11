@@ -207,8 +207,21 @@ class DemoBridge:
         # machine does this and a fake where every part had its own channel
         # would let the layered case go untested.
         channel = 0 if part in (1, 2) else part - 1
+        # Two deliberately silenced parts, one by each readable mechanism,
+        # so the silence report has something real to find in demo mode.
+        # Both of these are what a channel that has "gone quiet" usually is.
         return PartState(part=part, receive_channel=channel,
+                         receive_switch=part != 5,
+                         level=0 if part == 6 else 100,
                          msb=87, lsb=64, program_change=part - 1)
+
+    def read_performance_common(self, *, timeout=None):
+        from xv.bridge import PerformanceCommon
+
+        self._tick()
+        # Solo off: the demo's silent parts are silent for per-part reasons,
+        # which keeps the two mechanisms distinguishable in a screenshot.
+        return PerformanceCommon(name="Demo Multi", solo=None)
 
     def read_parts(self, *, on_progress=None, timeout=None):
         out = []
@@ -226,7 +239,9 @@ class DemoBridge:
         self.channels = channels
         want = setup.multitimbral if with_parts is None else with_parts
         parts = self.read_parts(on_progress=on_progress) if want else ()
-        self.state = DeviceState(setup=setup, channels=channels, parts=parts)
+        common = self.read_performance_common() if want else None
+        self.state = DeviceState(setup=setup, channels=channels, parts=parts,
+                                 common=common)
         return self.state
 
     def refresh_channel(self, channel: int, *, timeout=None):

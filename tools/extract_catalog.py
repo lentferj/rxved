@@ -324,7 +324,13 @@ _SRX_ROW = re.compile(
 #: A heading that introduces a patch list for a particular host family.
 #: Both spellings appear: the owner's manuals write "For Fantom series/XV
 #: series/...", the Faxback sheets write "XV-Series Patch List:".
-_LIST_HEADING = re.compile(r"^\s*(For\s+\S|.*Patch List\s*:)", re.IGNORECASE)
+#: Case-sensitive, and "For" must be followed by a capital. It used to be
+#: case-insensitive, which made every line of prose beginning "for" a
+#: heading -- and SRX-04's footnote, "for some of the patches. As a result,
+#: if your sound generator...", duly ended its patch list halfway, at 64 of
+#: 128. The board's Faxback sheet had already given a verified 128, which is
+#: the only reason the truncation was noticed rather than believed.
+_LIST_HEADING = re.compile(r"^\s*(?:For\s+[A-Z]|.*Patch List\s*:)")
 
 #: What marks a heading as introducing *our* list. Case-sensitive, and
 #: nothing but "XV".
@@ -379,8 +385,14 @@ def _xv_section(text: str) -> str:
 #: stop, then the name. Same no-double-space rule as the manual parser --
 #: these listings set several tables side by side, and without it a name
 #: would run into the next column.
+#: The number must start a column -- line start, or after the two-space gap
+#: that separates columns. Allowing it anywhere lets a digit *inside* a name
+#: begin a row: "106.   12 String" was read as number 12, name "String", and
+#: five SRX-09 names lost their leading number that way. Found only when that
+#: board's manual turned up to disagree; SRX-01 and SRX-04 were exposed to
+#: the same thing with nothing to catch it.
 _SRX_LIST_ROW = re.compile(
-    r"(?<![\d(.])(\d{1,3})\.?\s+((?:\S| (?! ))+?)(?=\s{2,}|$)")
+    r"(?:^|(?<=\s\s))\s*(\d{1,3})\.?\s+((?:\S| (?! ))+?)(?=\s{2,}|$)")
 
 
 def read_srx_list(card: str, path: str) -> Dict[str, List[dict]]:
@@ -513,19 +525,36 @@ def read_srx(card: str, path: str) -> Dict[str, List[dict]]:
     """
     definition = banks.srx_card(card)
     total = definition.patch_count
-    text = _xv_section(_fix_pdf_text(pdf_text(path)))
-    lines = text.splitlines()
+    whole = _fix_pdf_text(pdf_text(path))
 
-    found: Dict[int, Tuple[str, str]] = {}
-    for line in lines:
-        for match in _SRX_ROW.finditer(line):
-            number = int(match.group(1))
-            name = match.group(2).strip()
-            category = match.group(4).strip()
-            if not (1 <= number <= total) or number in found:
-                continue
-            if _ok(name) and category in _CATEGORY_CODES:
-                found[number] = (name, category)
+    def parse(text: str) -> Dict[int, Tuple[str, str]]:
+        out: Dict[int, Tuple[str, str]] = {}
+        for line in text.splitlines():
+            for match in _SRX_ROW.finditer(line):
+                number = int(match.group(1))
+                name = match.group(2).strip()
+                category = match.group(4).strip()
+                if not (1 <= number <= total) or number in out:
+                    continue
+                if _ok(name) and category in _CATEGORY_CODES:
+                    out[number] = (name, category)
+        return out
+
+    # Scope to the XV list first: SRX-12 prints another host's list ahead of
+    # its own, and reading that one would be silently wrong.
+    #
+    # But some manuals label no host at all. SRX-03 sets its XV and RD tables
+    # side by side under a bare "Patch List (1)", so the only heading naming
+    # XV is the *rhythm* section further down, and scoping to that finds no
+    # patches whatever. An empty result means the scoping missed, not that
+    # the board is empty, so fall back to the whole document -- where the XV
+    # column, being the left-hand one, still wins on first occurrence.
+    #
+    # Only on *empty*, deliberately. "Whichever yields more" would take
+    # SRX-12's 105-patch Fantom-X list over its 50-patch XV one.
+    found = parse(_xv_section(whole))
+    if not found:
+        found = parse(whole)
 
     missing = [n for n in range(1, total + 1) if n not in found]
     if missing:

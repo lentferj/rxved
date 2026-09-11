@@ -578,3 +578,37 @@ alongside it. True of every other board, and false here: SRX-12 prints "For
 Fantom-X series/Fantom-S series/JUNO-G" **first** and "For Fantom
 (FA-76)/XV series/MX-200" second, so the loose pattern matched the Fantom-X
 list. It now requires "XV" and nothing else.
+
+### Every board from its manual, and what the manuals caught
+
+Owner's manuals arrived for SRX-01, 03, 04, 09 and 10, so no board is read
+from a Faxback sheet or a transcription any more. All twelve now carry
+categories: 2637 patches.
+
+Replacing the weaker sources found three defects, none of which was visible
+from the weaker source alone:
+
+**Names beginning with a number were being truncated.** `_SRX_LIST_ROW` let
+a digit *inside* a name start a row, so "106.   12 String" read as number
+12, name "String". Five SRX-09 names lost their leading number this way, and
+SRX-01's "OthrCym Menu" lost its last letter. Found by diffing SRX-09's
+manual against its sheet. The number must now start a column — line start,
+or after a two-space gap.
+
+**A footnote was ending a patch list.** `_LIST_HEADING` was case-insensitive,
+so any prose line beginning "for" looked like a host heading. SRX-04's
+footnote, "for some of the patches. As a result, if your sound
+generator...", ended its list at 64 of 128. Only noticed because that
+board's sheet had already given a verified 128. "For" is now
+case-sensitive and must be followed by a capital.
+
+**Some manuals name no host at all.** SRX-03 sets its XV and RD tables side
+by side under a bare "Patch List (1)", so the only heading naming XV is the
+*rhythm* section further down, and scoping to it found zero patches.
+`read_srx` now falls back to the whole document when the scoped section is
+empty — only on empty, because "whichever yields more" would take SRX-12's
+105-patch Fantom-X list over its 50-patch XV one.
+
+And SRX-04's manual confirms the XV/RD difference the sheet showed: its
+Patch List (1) and (2) are both for the XV series and run to 128, with the
+RD-700 list separate.

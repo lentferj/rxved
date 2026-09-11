@@ -166,10 +166,16 @@ python3 tools/extract_catalog.py \
 
 That reads your own copies of Roland's XV-2020 Editor for Windows, the
 Owner's Manual and the Patch Listing, and writes `xv/data/catalog.json`,
-which is gitignored. It currently produces **1044 names across 22 banks**, plus every expansion
-board whose owner's manual you point `--srx` at — 475 more for SRX-07 and
-448 for SRX-08, with categories, split across the LSB pages that select
-them.
+which is gitignored. It currently produces **3682 names across 48 banks**: the XV-2020's own
+1044, plus every expansion board whose owner's manual you point `--srx` at —
+2637 patches across SRX-01 to SRX-12, with categories, each split across the
+LSB pages that select it.
+
+Two weaker routes exist for boards with no manual: `--srx-list` reads a
+names-only Faxback sheet, `--srx-names` a hand-written table. Prefer the
+manual: it brings categories, and replacing the weaker sources with manuals
+found three parsing defects that neither weaker source could reveal on its
+own (RESOLUTION_NOTES §11).
 Pass `--editor`, `--manual` and `--patch-list` if yours are somewhere other
 than the defaults.
 

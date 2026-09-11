@@ -101,16 +101,18 @@ stores a patch, renames a slot, or erases anything — in particular, nothing
 performs the Write (store) operation.
 
 It does write in exactly one place, and the distinction matters: the
-multi-mode screen (`m`) edits six **Performance Part** parameters — receive
-channel, Receive Switch, Part Level and the part's own Bank Select MSB/LSB
-and Program Change — at `10 00 <20+part-1> <offset>`, which is **Temporary
-Performance**: the edit buffer the module is playing from, not a stored
-performance. A power cycle, or loading any performance, discards all of it.
+multi-mode screen (`m`) edits twelve **Performance Part** parameters —
+receive channel, Receive Switch, Part Level, the part's own Bank Select
+MSB/LSB and Program Change, Mute Switch, the dry/chorus/reverb send levels,
+Output Assign and Output MFX Select — at `10 00 <20+part-1> <offset>`, which
+is **Temporary Performance**: the edit buffer the module is playing from,
+not a stored performance. A power cycle, or loading any performance,
+discards all of it.
 
-`XvBridge.WRITABLE_PART_OFFSETS` is an allowlist of those six offsets and
-the range each accepts, and `write_part_param` refuses anything else. This
-is not defensiveness about typos: a DT1 to a wrong address in a Roland map
-does not fail, it writes something else.
+`XvBridge.WRITABLE_PART_OFFSETS` is an allowlist of those offsets and the
+range each accepts, and `write_part_param` refuses anything else. This is
+not defensiveness about typos: a DT1 to a wrong address in a Roland map does
+not fail, it writes something else.
 
 Every write is read back and the screen shows what the device reports, not
 what was sent — a DT1 is unacknowledged, so a write the XV-2020 declines

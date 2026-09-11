@@ -746,14 +746,65 @@ and a part's Receive Channel ([PATCH RX CH]/[PART]).
 Select.** Those can only be set from the XV-2020 Editor or over SysEx —
 which also answers how a machine ends up in this state without its owner
 remembering doing it at the front panel. They could not have done it there.
+(Not reachable on the *module* is a different claim from not being in the
+address map; see §12b, where the second claim turned out to be wrong.)
 
 ### What rxved can and cannot do about it
 
-Reading: all of it except the Mute Switch, which is absent from the
-parameter address map entirely and so reads back as audible no matter what
-it is set to. The report says so every time the parts are discussed.
+Both, now. The multi-mode screen reads every part's MIDI settings and
+effects routing and writes twelve of those parameters into Temporary
+Performance. See §12b for the correction that made the Mute Switch readable.
 
-Writing: nothing, by policy. Restoring these parts means writing `01` to
-offset `00 01` of each part in Temporary Performance — the edit buffer, not
-stored memory — or using the editor. See TODO.md item 11.
+---
+
+## §12b — The Mute Switch is in the address map after all
+
+**Corrected 2026-09-11.** §12 above, the silence report, and the README all
+stated that the Mute Switch was absent from the parameter address map and
+could therefore never be read over MIDI. That was wrong.
+
+It is **Performance Part offset `00 1B`** (OM p. 146), sitting between
+Keyboard Fade Width Upper (`00 1A`) and Part Dry Send Level (`00 1C`), with
+values `0 — 1` reading "OFF, MUTE".
+
+**How the error happened, because the shape of it is worth remembering.**
+The search that produced the claim looked for the string "Mute" in the
+address-map pages. The manual sets that map in two columns, and
+`pdftotext -layout` interleaves them: the offset column of the right-hand
+table lands tens of characters away from its own parameter name, and rows
+get split across what look like unrelated lines. "Mute Switch" was there the
+whole time, in a line that began with the tail of another table's row. A
+negative result from that search was read as evidence of absence when it was
+only evidence that a two-column PDF had been searched one line at a time.
+
+The general lesson for this project, which reads most of its facts out of
+PDFs: **a "not in the document" conclusion from a layout-mangled text dump
+is not a finding.** Confirm a negative by reading the surrounding block, not
+by grepping the whole file. Every other "X is not in the map" claim in these
+notes was re-checked after this.
+
+### What the block actually holds
+
+Read in one 33-byte request per part, `10 00 <20+n-1> 00`:
+
+| Offset | Parameter |
+|---|---|
+| `00 00` | Receive Channel |
+| `00 01` | Receive Switch |
+| `00 04`–`00 06` | Patch Bank Select MSB / LSB / Program Number |
+| `00 07` | Part Level |
+| `00 1B` | **Mute Switch** |
+| `00 1C`–`00 1E` | Dry / Chorus / Reverb send levels |
+| `00 1F` | Part Output Assign (0–13) |
+| `00 20` | Part Output MFX Select (0–2) |
+
+Output Assign and Output MFX Select both list values the manual marks
+`<*>`, which its own legend defines as **"ignored when the XV-2020 received
+them"** — this box has one stereo pair and one MFX where its siblings have
+eight and three. rxved names them with a trailing star rather than hiding
+them: a performance written on a bigger XV can carry one, and "output 6"
+explains a silent part where a blank does not.
+
+So there are six readable causes of a silent part, not four: Patch mode,
+Solo Part Select, Receive Switch off, Mute on, Level 0, and every send at 0.
 

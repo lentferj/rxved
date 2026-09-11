@@ -22,7 +22,7 @@ one you cannot.
 """
 
 import pytest
-from textual.widgets import DataTable, Input
+from textual.widgets import DataTable, Input, Static
 
 from textual.coordinate import Coordinate
 
@@ -1036,3 +1036,61 @@ class TestMultiEditing:
             await pilot.press("7")
             await pilot.pause()
             assert isinstance(app.screen, MultiScreen)
+
+    async def test_tab_switches_to_the_fx_columns(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            table = screen.query_one("#part-table", DataTable)
+            labels = [str(c.label) for c in table.columns.values()]
+            assert labels == ["part", "ch", "rx", "lvl", "PC", "LSB", "MSB",
+                              "patch", ""]
+            await pilot.press("tab")
+            await pilot.pause()
+            labels = [str(c.label) for c in table.columns.values()]
+            assert labels == ["part", "mute", "dry", "cho", "rev", "out",
+                              "mfx", "patch", ""]
+
+    async def test_the_fx_view_keeps_the_patch_and_the_verdict(self, app):
+        """Both views answer "what is this part" and "can it be heard"."""
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            await pilot.press("tab")
+            await pilot.pause()
+            table = screen.query_one("#part-table", DataTable)
+            keys = [c.key.value for c in table.columns.values()]
+            assert keys[-2:] == ["patch", "flag"]
+            # Part 7 is muted in the demo, and the flag says which cause.
+            assert "MUTE" in str(table.get_row("7")[keys.index("flag")])
+
+    async def test_mute_can_be_toggled_from_the_fx_view(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            await pilot.press("tab")
+            await pilot.pause()
+            await self._cell(screen, pilot, 7, "mute")
+            assert app.bridge.read_part(7).mute is True
+            await pilot.press("space")
+            for _ in range(8):
+                await pilot.pause()
+            assert app.bridge.read_part(7).mute is False
+
+    async def test_a_send_level_can_be_typed(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            await pilot.press("tab")
+            await pilot.pause()
+            await self._cell(screen, pilot, 1, "rev")
+            await pilot.press("6", "4")
+            await pilot.pause()
+            await pilot.press("enter")
+            for _ in range(8):
+                await pilot.pause()
+            assert app.bridge.read_part(1).reverb == 64
+
+    async def test_the_effects_summary_is_shown(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            summary = screen._fx_summary()
+            assert "MFX type 12" in summary
+            assert "CHORUS ON" in summary
+            assert "REVERB ON" in summary

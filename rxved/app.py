@@ -301,7 +301,22 @@ EDITABLE_PART_COLUMNS = {
     "lsb": (0x05, "bank select LSB", 0, 127),
     "msb": (0x04, "bank select MSB", 0, 127),
     "lvl": (0x07, "part level", 0, 127),
+    "mute": (0x1B, "mute switch", 0, 1),
+    "dry": (0x1C, "dry send level", 0, 127),
+    "cho": (0x1D, "chorus send level", 0, 127),
+    "rev": (0x1E, "reverb send level", 0, 127),
+    "out": (0x1F, "output assign", 0, 13),
+    "mfx": (0x20, "output MFX select", 0, 2),
 }
+
+#: The two column sets the part table shows, toggled by `tab`. Sixteen parts
+#: times thirteen parameters does not fit a terminal row, and cramming it
+#: would cost the patch name -- which is the one column that says what a
+#: part *is* rather than how it is set.
+MIDI_COLUMNS = (("ch", "ch"), ("rx", "rx"), ("lvl", "lvl"), ("PC", "pc"),
+                ("LSB", "lsb"), ("MSB", "msb"))
+FX_COLUMNS = (("mute", "mute"), ("dry", "dry"), ("cho", "cho"),
+              ("rev", "rev"), ("out", "out"), ("mfx", "mfx"))
 
 
 class MultiScreen(ModalScreen[None]):
@@ -344,6 +359,7 @@ class MultiScreen(ModalScreen[None]):
         # category picker fell into. It arrives as CellSelected instead; see
         # on_data_table_cell_selected.
         Binding("space", "toggle_cell", "Toggle", show=False),
+        Binding("tab", "toggle_view", "MIDI / FX columns", show=False),
         Binding("plus", "bump(1)", "+1", show=False),
         Binding("equals_sign", "bump(1)", "+1", show=False),
         Binding("minus", "bump(-1)", "-1", show=False),
@@ -359,6 +375,8 @@ class MultiScreen(ModalScreen[None]):
         super().__init__()
         self._state = state
         self._catalog = catalog
+        #: Which column set the table shows. Toggled by `tab`.
+        self._fx_view = False
         #: ``on_write(part, offset, value, adopt)``. The screen never touches
         #: MIDI: it runs on the main thread, and workers do MIDI.
         self._on_write = on_write
@@ -373,25 +391,87 @@ class MultiScreen(ModalScreen[None]):
             title += f" — performance “{common.name}”"
         with Vertical():
             yield Label(f"[b]{title}[/b]")
+            yield Static(self._fx_summary(), classes="hint", id="fx")
             yield DataTable(id="part-table", cursor_type="cell",
                             zebra_stripes=True)
-            yield Static(
-                "type a number, or ⏎ to edit · space toggles rx · +/- "
-                "adjust · edits go to the temporary performance, so a "
-                "power cycle undoes them",
-                classes="hint")
+            yield Static(self._hint_text(), classes="hint", id="hint")
             yield Static(self._report_text(), classes="report", id="report")
             yield Static("[dim]esc / q to close[/dim]")
 
+    def _fx_summary(self) -> str:
+        if self._state.fx is None:
+            return "[dim]effects not read[/dim]"
+        return self._state.fx.summary()
+
+    def _hint_text(self) -> str:
+        which = "FX / routing" if self._fx_view else "MIDI"
+        other = "MIDI" if self._fx_view else "FX / routing"
+        return (
+            f"[b]{which}[/b] columns · tab for {other} · type a number, or "
+            f"⏎ to edit · space toggles · +/- adjust · edits go to the "
+            f"temporary performance, so a power cycle undoes them"
+        )
+
+    def _columns(self):
+        """part, the current set, then the two that are always worth seeing.
+
+        The patch name and the silence flag stay in both views: the name is
+        the only column that says what a part *is*, and the flag is the
+        answer to the question the screen was opened to ask.
+        """
+        middle = FX_COLUMNS if self._fx_view else MIDI_COLUMNS
+        return ((("part", "part"),) + middle
+                + (("patch", "patch"), ("", "flag")))
+
     def on_mount(self) -> None:
+        self._build_table()
+
+    def _build_table(self) -> None:
         table = self.query_one("#part-table", DataTable)
-        for label, key in (("part", "part"), ("ch", "ch"), ("rx", "rx"),
-                           ("lvl", "lvl"), ("PC", "pc"), ("LSB", "lsb"),
-                           ("MSB", "msb"), ("patch", "patch"),
-                           ("", "flag")):
+        table.clear(columns=True)
+        for label, key in self._columns():
             table.add_column(label, key=key)
         for part in self._state.parts:
             table.add_row(*self._row_cells(part), key=str(part.part))
+
+    def action_toggle_view(self) -> None:
+        self._fx_view = not self._fx_view
+        self._build_table()
+        self.query_one("#hint", Static).update(self._hint_text())
+
+    def _cell_text(self, part, column: str) -> str:
+        """One cell, bolded where the value is why a part cannot be heard."""
+        if column == "ch":
+            return str(part.channel_display)
+        if column == "rx":
+            return "on" if part.receive_switch else "[b]OFF[/b]"
+        if column == "lvl":
+            return str(part.level) if part.level else "[b]0[/b]"
+        if column == "pc":
+            return str(part.program_change)
+        if column == "lsb":
+            return str(part.lsb)
+        if column == "msb":
+            return str(part.msb)
+        if column == "mute":
+            return "[b]MUTE[/b]" if part.mute else "off"
+        if column in ("dry", "cho", "rev"):
+            value = {"dry": part.dry, "cho": part.chorus,
+                     "rev": part.reverb}[column]
+            # Only worth flagging when *every* send is down; a part can
+            # legitimately run entirely wet or entirely dry.
+            dead = part.dry == part.chorus == part.reverb == 0
+            return f"[b]{value}[/b]" if dead else str(value)
+        if column == "out":
+            # A star means the XV-2020 ignores this value -- the performance
+            # came from a bigger sibling. Worth seeing, not worth silently
+            # normalising away.
+            name = part.output_name
+            return f"[b]{name}[/b]" if name.endswith("*") else name
+        if column == "mfx":
+            name = part.output_mfx_name
+            return f"[b]{name}[/b]" if name.endswith("*") else name
+        return ""
 
     def _row_cells(self, part):
         slot = part.slot
@@ -403,17 +483,10 @@ class MultiScreen(ModalScreen[None]):
         reason = part.silence_reason()
         if reason is None and self._state.soloed_out(part):
             reason = "not soloed"
-        return (
-            str(part.part),
-            str(part.channel_display),
-            "on" if part.receive_switch else "[b]OFF[/b]",
-            str(part.level) if part.level else "[b]0[/b]",
-            str(part.program_change),
-            str(part.lsb),
-            str(part.msb),
-            name,
-            f"[b]{reason}[/b]" if reason else "",
-        )
+        middle = tuple(self._cell_text(part, key)
+                       for _label, key in self._columns()[1:-2])
+        return ((str(part.part),) + middle
+                + (name, f"[b]{reason}[/b]" if reason else ""))
 
     def _report_text(self) -> str:
         lines = list(self._state.silence_report())
@@ -445,6 +518,12 @@ class MultiScreen(ModalScreen[None]):
             "pc": part.program_change,
             "lsb": part.lsb,
             "msb": part.msb,
+            "mute": 1 if part.mute else 0,
+            "dry": part.dry,
+            "cho": part.chorus,
+            "rev": part.reverb,
+            "out": part.output_assign,
+            "mfx": part.output_mfx,
         }[column]
 
     def on_data_table_cell_selected(self, event) -> None:
@@ -462,12 +541,13 @@ class MultiScreen(ModalScreen[None]):
         part, column = self._cursor()
         if part is None:
             return
-        if column == "rx":
+        if column in self._SWITCHES:
             if digit in ("0", "1"):
                 self._apply(part, column, int(digit))
             else:
+                _o, label, _lo, _hi = EDITABLE_PART_COLUMNS[column]
                 self.app.notify_status(
-                    "receive switch is 0 (off) or 1 (on)", refused=True)
+                    f"{label} is 0 or 1", refused=True)
             return
         self._prompt_for_value(part, column, seed=digit)
 
@@ -478,7 +558,7 @@ class MultiScreen(ModalScreen[None]):
                 f"{column} is not editable" if column else "nothing to edit",
                 refused=True)
             return
-        if column == "rx":
+        if column in self._SWITCHES:
             self.action_toggle_cell()
             return
         # Seeded with the current value, because Enter means "change this
@@ -507,11 +587,16 @@ class MultiScreen(ModalScreen[None]):
             done,
         )
 
+    #: The one-bit columns: space toggles them and a digit sets them,
+    #: because there is nothing to type into a switch.
+    _SWITCHES = {"rx": "receive_switch", "mute": "mute"}
+
     def action_toggle_cell(self) -> None:
         part, column = self._cursor()
-        if part is None or column != "rx":
+        if part is None or column not in self._SWITCHES:
             return
-        self._apply(part, column, 0 if part.receive_switch else 1)
+        now = getattr(part, self._SWITCHES[column])
+        self._apply(part, column, 0 if now else 1)
 
     def action_bump(self, delta: int) -> None:
         part, column = self._cursor()

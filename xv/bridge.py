@@ -104,6 +104,9 @@ __all__ = [
     "SetupState",
     "PartState",
     "PerformanceCommon",
+    "PerformanceFx",
+    "OUTPUT_ASSIGN",
+    "OUTPUT_MFX",
     "DeviceState",
     "PERFORMANCE_CHANNEL_OFF",
     "DeviceError",
@@ -562,6 +565,20 @@ class PartState:
     #: Offset ``00 07``, Part Level (CC#7). 0 is silence that looks like a
     #: dead channel but is really a fader down.
     level: int = 127
+    #: Offset ``00 1B``, Mute Switch. Silences the part while it goes on
+    #: receiving and tracking MIDI (OM p. 74).
+    mute: bool = False
+    #: Offsets ``00 1C``-``00 1E``: Dry, Chorus (CC#93) and Reverb (CC#91)
+    #: send levels. Dry at 0 with no send routed is another way to be
+    #: inaudible while every switch reads on.
+    dry: int = 127
+    chorus: int = 0
+    reverb: int = 0
+    #: Offset ``00 1F``, Part Output Assign -- where the part's dry signal
+    #: goes. See :data:`OUTPUT_ASSIGN`.
+    output_assign: int = 0
+    #: Offset ``00 20``, Part Output MFX Select. See :data:`OUTPUT_MFX`.
+    output_mfx: int = 0
 
     @property
     def channel_display(self) -> int:
@@ -573,22 +590,33 @@ class PartState:
         return banks.lookup(self.msb, self.lsb, self.program_change)
 
     @property
-    def silent(self) -> bool:
-        """Whether this part cannot be heard, for a reason that is readable.
+    def output_name(self) -> str:
+        return OUTPUT_ASSIGN.get(self.output_assign,
+                                 f"?{self.output_assign}")
 
-        Deliberately not named "muted": the Mute Switch on the PERFORM PART
-        ALL page is **not in the parameter address map**, so a part muted
-        there reads back as perfectly audible here. See
-        :func:`silence_reasons`.
-        """
-        return not self.receive_switch or self.level == 0
+    @property
+    def output_mfx_name(self) -> str:
+        return OUTPUT_MFX.get(self.output_mfx, f"?{self.output_mfx}")
+
+    @property
+    def silent(self) -> bool:
+        """Whether this part cannot be heard, for a readable reason."""
+        return self.silence_reason() is not None
 
     def silence_reason(self) -> Optional[str]:
-        """Why this part makes no sound, in the words the synth's page uses."""
+        """Why this part makes no sound, in the words the synth's page uses.
+
+        Ordered by how far from the sound the cause sits, so the first
+        answer is the nearest one to fix.
+        """
         if not self.receive_switch:
             return "RX SWITCH is OFF"
+        if self.mute:
+            return "MUTE is on"
         if self.level == 0:
             return "LEVEL is 0"
+        if self.dry == 0 and self.chorus == 0 and self.reverb == 0:
+            return "DRY, CHO and REV sends are all 0"
         return None
 
 
@@ -644,33 +672,112 @@ def _describe_selection(slot, msb: int, lsb: int, program: int) -> str:
     return f"MSB {msb} / LSB {lsb} / PC {program} — no bank claims this"
 
 
-#: Appended wherever the parts are being discussed, so the report can never
-#: be read as exhaustive. It cannot be: the Mute Switch is on the editor's
-#: PERFORM PART ALL page but not in the parameter address map, so a muted
-#: part reads back as audible over MIDI.
-_MUTE_CAVEAT = (
-    "Not readable over MIDI: the Mute Switch (PERFORM PART ALL) is absent "
-    "from the parameter address map, so a part muted there looks audible "
-    "here. It is also not one of the parameters the XV-2020 can edit on its "
-    "own (OM p. 116), so it can only have been set from the editor -- which "
-    "is where to look if a channel is quiet and nothing above explains it."
-)
-
 #: Where a setting can actually be changed on an XV-2020. The module has a
 #: three-digit LED and four controls, and OM p. 116 lists exactly which
 #: parameters those can reach. Most of what silences a part is not on that
 #: list, so "change it on the front panel" is advice that cannot be
-#: followed -- it takes the XV-2020 Editor, or SysEx.
+#: followed -- it takes the XV-2020 Editor, or SysEx, which is what rxved's
+#: multi-mode screen now sends.
 _WHERE_TO_CHANGE = (
-    "Where these live: sound mode is on the module (press [VALUE] until the "
-    "PATCH or PERFORM indicator lights, OM p. 38) and so are Part Level "
-    "(hold [VOLUME], press [VALUE], then [CATEGORY/BANK] to the parameter, "
-    "OM p. 72) and a part's Receive Channel ([PATCH RX CH]/[PART], OM p. "
-    "94). Receive Switch, Mute Switch and Solo Part Select are NOT in the "
-    "module's own parameter list (OM p. 116) -- those can only be changed "
-    "from the XV-2020 Editor, or over SysEx. rxved reads them and does not "
-    "write them."
+    "On the module itself you can reach the sound mode (press [VALUE] until "
+    "the PATCH or PERFORM indicator lights, OM p. 38), Part Level (hold "
+    "[VOLUME], press [VALUE], then [CATEGORY/BANK], OM p. 72) and a part's "
+    "Receive Channel ([PATCH RX CH]/[PART], OM p. 94). Receive Switch, Mute "
+    "Switch and Solo Part Select are NOT in the module's own parameter list "
+    "(OM p. 116) -- those take the XV-2020 Editor, or this screen."
 )
+
+
+#: Part Output Assign (offset ``00 1F``), 0-13. The manual prints the whole
+#: XV-series list; entries it marks ``<*>`` are **ignored when the XV-2020
+#: receives them** (OM p. 146), because this box has one stereo output pair
+#: and one MFX where its bigger siblings have eight and three. They are
+#: named here rather than omitted: a performance written on an XV-5080 can
+#: arrive carrying one, and "output 6" explains a silent part where a blank
+#: does not.
+OUTPUT_ASSIGN = {
+    0: "MFX", 1: "A",
+    2: "B*", 3: "C*", 4: "D*",
+    5: "1", 6: "2",
+    7: "3*", 8: "4*", 9: "5*", 10: "6*", 11: "7*", 12: "8*",
+    13: "PATCH",
+}
+
+#: Values of Part Output Assign that this model actually honours.
+OUTPUT_ASSIGN_ON_XV2020 = frozenset({0, 1, 5, 6, 13})
+
+#: Part Output MFX Select (offset ``00 20``). The XV-2020 has one MFX, so
+#: only MFXA is real; the other two are ``<*>`` entries.
+OUTPUT_MFX = {0: "MFXA", 1: "MFXB*", 2: "MFXC*"}
+
+
+def _ranges(numbers: Iterable[int]) -> str:
+    """``[3,4,5,9]`` -> ``"3-5, 9"``. For reports that would otherwise be
+    a column of near-identical lines."""
+    ordered = sorted(set(numbers))
+    if not ordered:
+        return ""
+    spans: List[List[int]] = [[ordered[0], ordered[0]]]
+    for number in ordered[1:]:
+        if number == spans[-1][1] + 1:
+            spans[-1][1] = number
+        else:
+            spans.append([number, number])
+    return ", ".join(
+        str(low) if low == high else f"{low}-{high}" for low, high in spans)
+
+
+#: Chorus and Reverb Type on an XV-2020 are one bit: the effect is in or
+#: out. Its siblings offer several algorithms here.
+_ON_OFF = {0: "OFF", 1: "ON"}
+
+
+@dataclass(frozen=True)
+class PerformanceFx:
+    """The performance's MFX, chorus and reverb, as far as routing goes.
+
+    Enough to answer "where does a part's sound actually go", which is the
+    question the multi-mode screen is for. Not enough to edit an effect,
+    which rxved does not do.
+    """
+
+    mfx_type: int
+    mfx_dry: int
+    mfx_chorus: int
+    mfx_reverb: int
+    mfx_output: int
+    chorus_type: int
+    chorus_level: int
+    chorus_output: int
+    chorus_output_select: int
+    reverb_type: int
+    reverb_level: int
+    reverb_output: int
+
+    #: Chorus Output Select (``10 00 04 00`` offset ``00 03``).
+    CHORUS_OUTPUT_SELECT = {0: "MAIN", 1: "REV", 2: "MAIN+REV"}
+
+    @property
+    def chorus_on(self) -> bool:
+        return bool(self.chorus_type)
+
+    @property
+    def reverb_on(self) -> bool:
+        return bool(self.reverb_type)
+
+    def summary(self) -> str:
+        """One line for the top of the multi-mode screen."""
+        chorus = _ON_OFF.get(self.chorus_type, "?")
+        reverb = _ON_OFF.get(self.reverb_type, "?")
+        route = self.CHORUS_OUTPUT_SELECT.get(self.chorus_output_select, "?")
+        return (
+            f"MFX type {self.mfx_type} → "
+            f"{OUTPUT_ASSIGN.get(self.mfx_output, '?')}  "
+            f"(dry {self.mfx_dry} cho {self.mfx_chorus} "
+            f"rev {self.mfx_reverb})   ·   "
+            f"CHORUS {chorus} level {self.chorus_level} → {route}   ·   "
+            f"REVERB {reverb} level {self.reverb_level}"
+        )
 
 
 @dataclass(frozen=True)
@@ -701,6 +808,8 @@ class DeviceState:
     parts: Tuple[PartState, ...] = ()
     #: ``None`` unless Performance Common was read, for the same reason.
     common: Optional["PerformanceCommon"] = None
+    #: ``None`` unless the effects blocks were read.
+    fx: Optional["PerformanceFx"] = None
 
     def parts_on(self, channel: int) -> List[PartState]:
         """Every part listening on this 0-based channel.
@@ -722,22 +831,24 @@ class DeviceState:
         return solo is not None and part.part != solo
 
     def silence_report(self) -> List[str]:
-        """Why channels are silent, or the fact that nothing readable says.
+        """Why channels are silent. Every readable cause, and there are six.
 
-        This exists because the obvious answer -- "the parts are muted" -- is
-        often not the answer, and two of the real ones are invisible unless
-        somebody goes looking:
+        This exists because the obvious answer -- "the part is muted" -- is
+        often not the answer, and the real ones are spread across three
+        different blocks:
 
         * In **PATCH mode** the synth is single-timbral. Fifteen channels are
           silent and no part parameter is out of place, because the parts are
           not in use at all.
         * **Solo Part Select** silences fifteen parts from one byte in
           Performance Common, nowhere near the parts themselves.
+        * Per part: **Receive Switch** off, **Mute Switch** on, **Level** 0,
+          or every **send** at 0.
 
-        And one answer is not readable at all: the **Mute Switch** on the
-        PERFORM PART ALL page is not in the parameter address map, so a part
-        muted there reads back as audible. That is stated rather than
-        guessed around -- see the last line of the report.
+        An earlier version of this claimed the Mute Switch was not in the
+        parameter address map and could never be read. That was wrong: it is
+        Performance Part offset ``00 1B`` (OM p. 146), and rxved both reads
+        and writes it.
         """
         lines: List[str] = []
         if not self.setup.multitimbral:
@@ -760,9 +871,6 @@ class DeviceState:
                      "In the performance currently loaded:")
             lines.extend(forward)
             if forward:
-                # Relevant again the moment we are talking about what
-                # PERFORM mode would do, and not before.
-                lines.append(_MUTE_CAVEAT)
                 lines.append(_WHERE_TO_CHANGE)
             return lines
 
@@ -777,34 +885,44 @@ class DeviceState:
 
         if not lines:
             lines.append(
-                "Nothing readable is silencing any part: every part has its "
-                "Receive Switch on, a non-zero level, and Solo is off."
+                "Nothing is silencing any part: every part has its Receive "
+                "Switch on, MUTE off, a non-zero level, a send that goes "
+                "somewhere, and Solo is off."
             )
-        lines.append(_MUTE_CAVEAT)
         lines.append(_WHERE_TO_CHANGE)
         return lines
 
     def _part_findings(self, *, lead: str = "") -> List[str]:
-        """Per-part reasons a channel is quiet. Empty when the parts are
-        unread, which is not the same as "nothing wrong with them"."""
+        """Per-reason summary of what is silent. Empty when the parts are
+        unread, which is not the same as "nothing wrong with them".
+
+        Grouped by reason and collapsed to ranges rather than listed one
+        part per line. On the machine this was written against thirteen
+        parts share one reason, and thirteen near-identical lines restate
+        what the table directly above them already shows in its own column
+        -- which buries the lines that say something the table does not.
+        """
         if not self.parts:
             return []
-        found: List[str] = []
+        by_reason: Dict[str, List[int]] = {}
         for part in self.parts:
             reason = part.silence_reason()
             if reason is not None:
-                found.append(
-                    f"Part {part.part:>2} (ch {part.channel_display:>2}): "
-                    f"{reason}")
+                by_reason.setdefault(reason, []).append(part.part)
+
+        found: List[str] = []
+        for reason, numbers in by_reason.items():
+            label = "Part" if len(numbers) == 1 else "Parts"
+            found.append(f"{label} {_ranges(numbers)}: {reason}")
 
         listening = {p.receive_channel for p in self.parts
                      if not p.silent}
         unused = [c + 1 for c in range(16) if c not in listening]
         if unused:
+            word = "channel" if len(unused) == 1 else "channels"
             found.append(
-                "Nothing audible is assigned to channel "
-                + ", ".join(str(c) for c in unused)
-                + " -- not muted, just unused by any part that can sound."
+                f"Nothing audible is assigned to {word} {_ranges(unused)}"
+                f" -- not muted, just unused by any part that can sound."
             )
         if found and lead:
             found.insert(0, lead)
@@ -1189,6 +1307,15 @@ class XvBridge:
         0x05: ("bank select LSB", 0, 127),
         0x06: ("program change", 0, 127),
         0x07: ("part level", 0, 127),
+        0x1B: ("mute switch", 0, 1),
+        0x1C: ("dry send level", 0, 127),
+        0x1D: ("chorus send level", 0, 127),
+        0x1E: ("reverb send level", 0, 127),
+        # 0-13 as the map gives it. Values this model ignores are still
+        # accepted: refusing them would make it impossible to *clear* one
+        # that arrived in a performance written on a bigger XV.
+        0x1F: ("output assign", 0, 13),
+        0x20: ("output MFX select", 0, 2),
     }
 
     def write_part_param(self, part: int, offset: int, value: int, *,
@@ -1329,16 +1456,22 @@ class XvBridge:
         """
         if not 1 <= part <= 16:
             raise ValueError(f"part {part} is outside 1-16")
-        data = self.request((0x10, 0x00, 0x20 + part - 1, 0x00), 8,
+        # 0x21 bytes: through Part Output MFX Select at offset 00 20. One
+        # round trip for the MIDI settings and the effects routing together,
+        # rather than two reads of the same block.
+        data = self.request((0x10, 0x00, 0x20 + part - 1, 0x00), 0x21,
                             timeout=timeout)
-        if len(data) < 8:
+        if len(data) < 0x21:
             raise DeviceError(
-                f"part {part} read returned {len(data)} bytes, expected 8")
+                f"part {part} read returned {len(data)} bytes, expected 33")
         return PartState(
             part=part, receive_channel=data[0],
             receive_switch=bool(data[1]),
             msb=data[4], lsb=data[5], program_change=data[6],
             level=data[7],
+            mute=bool(data[0x1B]),
+            dry=data[0x1C], chorus=data[0x1D], reverb=data[0x1E],
+            output_assign=data[0x1F], output_mfx=data[0x20],
         )
 
     def read_performance_common(self, *, timeout: Optional[float] = None
@@ -1359,6 +1492,33 @@ class XvBridge:
         solo = data[12]
         return PerformanceCommon(name=name,
                                  solo=None if solo == 0 else solo)
+
+    def read_performance_fx(self, *, timeout: Optional[float] = None
+                            ) -> "PerformanceFx":
+        """The performance's three effects blocks. Three round trips, silent.
+
+        ``10 00 02 00`` MFX, ``10 00 04 00`` Chorus, ``10 00 06 00`` Reverb
+        (OM p. 146). Only the head of each -- type, level and routing. The
+        dozens of per-algorithm parameters that follow mean nothing without
+        knowing the algorithm, and rxved does not edit effects.
+        """
+        mfx = self.request((0x10, 0x00, 0x02, 0x00), 5, timeout=timeout)
+        chorus = self.request((0x10, 0x00, 0x04, 0x00), 4, timeout=timeout)
+        reverb = self.request((0x10, 0x00, 0x06, 0x00), 3, timeout=timeout)
+        for name, data, want in (("MFX", mfx, 5), ("chorus", chorus, 4),
+                                 ("reverb", reverb, 3)):
+            if len(data) < want:
+                raise DeviceError(
+                    f"{name} read returned {len(data)} bytes, "
+                    f"expected {want}")
+        return PerformanceFx(
+            mfx_type=mfx[0], mfx_dry=mfx[1], mfx_chorus=mfx[2],
+            mfx_reverb=mfx[3], mfx_output=mfx[4],
+            chorus_type=chorus[0], chorus_level=chorus[1],
+            chorus_output=chorus[2], chorus_output_select=chorus[3],
+            reverb_type=reverb[0], reverb_level=reverb[1],
+            reverb_output=reverb[2],
+        )
 
     def read_parts(self, *, on_progress: Optional[Callable[[int, int], None]] = None,
                    timeout: Optional[float] = None) -> Tuple[PartState, ...]:
@@ -1394,8 +1554,9 @@ class XvBridge:
             self.read_performance_common(timeout=timeout)
             if want_parts else None
         )
+        fx = self.read_performance_fx(timeout=timeout) if want_parts else None
         state = DeviceState(setup=setup, channels=channels, parts=parts,
-                            common=common)
+                            common=common, fx=fx)
         self.state = state
         return state
 
@@ -1436,8 +1597,9 @@ class XvBridge:
         # it here would quietly turn "part 3 is soloed" into "nothing is
         # soloed" on the next cursor move, which is worse than stale.
         common = previous.common if previous is not None else None
+        fx = previous.fx if previous is not None else None
         state = DeviceState(setup=setup, channels=channels, parts=parts,
-                            common=common)
+                            common=common, fx=fx)
         self.state = state
         self.channels = channels
         return state

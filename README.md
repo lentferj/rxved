@@ -127,9 +127,9 @@ XV-3080 on the same chain. The port that answered is remembered in
 
 ### Multi-mode setup (`m`)
 
-The one screen that writes. It shows every Performance Part — receive
-channel, Receive Switch, Part Level, the part's own PC/LSB/MSB and patch —
-and underneath, a report on why any channel makes no sound.
+The one screen that writes. It shows every Performance Part — its MIDI
+settings and its effects routing — and underneath, a report on why any
+channel makes no sound.
 
 That report exists because the obvious answer is usually wrong. In PATCH
 mode the synth is single-timbral and the parts are not in use at all, so
@@ -138,8 +138,8 @@ normal. Solo Part Select silences fifteen parts from one byte nowhere near
 any of them. And a channel no audible part listens on is not a muted
 channel. The report tells these apart.
 
-`⏎` edits the cell under the cursor, `space` toggles Receive Switch, `+`/`-`
-adjust. **Edits go to Temporary Performance — the edit buffer, not a stored
+Type a number straight into a numeric cell, `⏎` edits the cell under the
+cursor, `space` toggles a switch, `+`/`-` adjust. **Edits go to Temporary Performance — the edit buffer, not a stored
 performance — and a power cycle undoes them.** rxved never performs the
 Write (store) operation. Each edit is read back and the row shows what the
 synth reports, not what was sent.
@@ -149,9 +149,14 @@ three-digit LED, and OM p. 116 lists what its four controls can reach.
 Receive Switch, Mute Switch and Solo Part Select are **not** on that list —
 without the editor or SysEx there is no way to see or change them at all.
 
-One thing rxved can never show: the Mute Switch is absent from the parameter
-address map, so a muted part reads back as audible. The report says so every
-time it discusses parts.
+`tab` switches the middle columns between **MIDI** (ch, rx, lvl, PC, LSB,
+MSB) and **FX / routing** (mute, dry, cho, rev, out, mfx); the patch name and
+the silence verdict stay in both. Above the table, the performance's MFX type
+and routing, chorus and reverb.
+
+Output-assign values this model ignores are shown with a star (`6*`) rather
+than hidden — a performance written on an XV-5080 can carry one, and that
+explains a silent part where a blank would not.
 
 **Moving the cursor never sends anything.** That is enforced by a test, not
 just by intent: it is the property that decides whether you can leave this

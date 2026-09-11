@@ -233,8 +233,9 @@ The likely answer is that nothing is muted: the synth was observed in
 Channel sounds and the Performance Parts are not in use. PERFORM mode is
 what makes it multitimbral.
 
-Not decidable from the window: the **Mute Switch** on the PERFORM PART ALL
-page is absent from the parameter address map, so a part muted there reads
-back as audible. If the report explains nothing, that is the remaining
-candidate and it has to be checked on the panel.
+**Correction:** an earlier version of this item said the Mute Switch was
+absent from the parameter address map and could never be read. That was
+wrong. It is Performance Part offset `00 1B` (OM p. 146), and rxved now
+reads and writes it along with the send levels and output routing. Every
+readable cause of a silent part is now covered.
 

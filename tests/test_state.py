@@ -69,7 +69,8 @@ class TestSilenceReport:
         joined = " ".join(report)
         assert "single-timbral" in joined
         assert "would not be enough on its own" in joined
-        assert "Part  2 (ch  2): RX SWITCH is OFF" in joined
+        # Collapsed to a range rather than fifteen lines.
+        assert "Parts 2-16: RX SWITCH is OFF" in joined
         # And the unreadable cause matters again, now that PERFORM is on the
         # table.
         assert "Mute Switch" in joined
@@ -93,7 +94,7 @@ class TestSilenceReport:
         parts = [self._part(n, n - 1) for n in range(1, 17)]
         report = self._state(mode=SoundMode.PERFORM,
                              parts=parts).silence_report()
-        assert "Nothing readable is silencing any part" in report[0]
+        assert "Nothing is silencing any part" in report[0]
 
     def test_unassigned_channels_are_distinguished_from_muted_ones(self):
         """A channel no part listens on is not a muted channel."""
@@ -107,8 +108,8 @@ class TestSilenceReport:
         parts = [self._part(1, 0, rx=False), self._part(2, 1, level=0)]
         report = " ".join(
             self._state(mode=SoundMode.PERFORM, parts=parts).silence_report())
-        assert "Part  1 (ch  1): RX SWITCH is OFF" in report
-        assert "Part  2 (ch  2): LEVEL is 0" in report
+        assert "Part 1: RX SWITCH is OFF" in report
+        assert "Part 2: LEVEL is 0" in report
 
     def test_the_unreadable_mute_switch_is_always_named(self):
         """The report must never read as exhaustive, in any state."""
@@ -187,7 +188,118 @@ class TestWritableOffsetsAgree:
         from xv.bridge import XvBridge
 
         assert set(XvBridge.WRITABLE_PART_OFFSETS) == {
-            0x00, 0x01, 0x04, 0x05, 0x06, 0x07}
+            0x00, 0x01, 0x04, 0x05, 0x06, 0x07,          # MIDI settings
+            0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20,          # mute, sends, routing
+        }
         for offset, (label, low, high) in (
                 XvBridge.WRITABLE_PART_OFFSETS.items()):
             assert 0 <= low <= high <= 127, label
+
+
+class TestRangeCollapsing:
+    """Thirteen parts sharing one reason is one line, not thirteen.
+
+    The table above the report already shows each part's rx column, so a
+    line per part restates it -- and buries the lines that say something
+    the table cannot.
+    """
+
+    def test_contiguous_parts_collapse(self):
+        from xv.bridge import _ranges
+
+        assert _ranges([3, 4, 5, 6]) == "3-6"
+
+    def test_gaps_are_kept(self):
+        from xv.bridge import _ranges
+
+        assert _ranges([1, 2, 5, 7, 8, 9]) == "1-2, 5, 7-9"
+
+    def test_a_single_number_is_not_a_range(self):
+        from xv.bridge import _ranges
+
+        assert _ranges([7]) == "7"
+
+    def test_it_is_order_and_duplicate_proof(self):
+        from xv.bridge import _ranges
+
+        assert _ranges([9, 3, 4, 3, 5]) == "3-5, 9"
+
+    def test_the_singular_is_used_for_one_part(self):
+        state = TestSilenceReport()._state(
+            mode=SoundMode.PERFORM,
+            parts=[TestSilenceReport()._part(1, 0, rx=False)])
+        assert any(line.startswith("Part 1:")
+                   for line in state.silence_report())
+
+
+class TestMuteIsReadable:
+    """The Mute Switch IS in the parameter address map, at offset 00 1B.
+
+    An earlier version of this report said it was not, and told people to
+    check a front panel the XV-2020 does not have. It is at Performance Part
+    offset 00 1B (OM p. 146), between Keyboard Fade Width Upper and Part Dry
+    Send Level, and rxved both reads and writes it.
+    """
+
+    def _part(self, **kw):
+        base = dict(part=1, receive_channel=0, msb=87, lsb=64,
+                    program_change=0)
+        base.update(kw)
+        return PartState(**base)
+
+    def test_a_muted_part_is_reported(self):
+        assert self._part(mute=True).silence_reason() == "MUTE is on"
+
+    def test_mute_is_distinct_from_rx_off(self):
+        assert self._part(receive_switch=False).silence_reason() == (
+            "RX SWITCH is OFF")
+
+    def test_rx_off_is_reported_before_mute(self):
+        """Both true: name the one nearest the sound's path in."""
+        both = self._part(receive_switch=False, mute=True)
+        assert both.silence_reason() == "RX SWITCH is OFF"
+
+    def test_all_sends_at_zero_is_silence_too(self):
+        part = self._part(dry=0, chorus=0, reverb=0)
+        assert part.silence_reason() == "DRY, CHO and REV sends are all 0"
+
+    def test_a_wet_only_part_is_not_silent(self):
+        """Running fully wet is a legitimate setting, not a fault."""
+        assert self._part(dry=0, chorus=0, reverb=90).silence_reason() is None
+
+    def test_the_report_no_longer_claims_mute_is_unreadable(self):
+        setup = SetupState(
+            mode=SoundMode.PERFORM, patch_msb=87, patch_lsb=0,
+            patch_program=0, performance_msb=85, performance_lsb=0,
+            performance_program=0)
+        state = DeviceState(
+            setup=setup,
+            channels=SystemChannels(patch_receive=0, performance_control=14),
+            parts=(self._part(mute=True),),
+            common=PerformanceCommon(name="X", solo=None),
+        )
+        report = " ".join(state.silence_report())
+        assert "MUTE is on" in report
+        assert "absent from the parameter address map" not in report
+
+
+class TestOutputAssign:
+    def test_values_this_model_ignores_are_named_not_hidden(self):
+        """A performance from an XV-5080 can carry output 6.
+
+        Showing it as "6*" explains a part that makes no sound here;
+        showing a blank, or silently normalising it to A, does not.
+        """
+        from xv.bridge import OUTPUT_ASSIGN, OUTPUT_ASSIGN_ON_XV2020
+
+        assert OUTPUT_ASSIGN[10] == "6*"
+        assert 10 not in OUTPUT_ASSIGN_ON_XV2020
+        # Every starred entry is one this model ignores, and vice versa.
+        starred = {value for value, name in OUTPUT_ASSIGN.items()
+                   if name.endswith("*")}
+        assert starred == set(OUTPUT_ASSIGN) - OUTPUT_ASSIGN_ON_XV2020
+
+    def test_the_map_covers_the_whole_documented_range(self):
+        from xv.bridge import OUTPUT_ASSIGN
+
+        assert set(OUTPUT_ASSIGN) == set(range(14))

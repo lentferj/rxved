@@ -217,7 +217,19 @@ class DemoBridge:
         state = PartState(part=part, receive_channel=channel,
                           receive_switch=part != 5,
                           level=0 if part == 6 else 100,
-                          msb=87, lsb=64, program_change=part - 1)
+                          msb=87, lsb=64, program_change=part - 1,
+                          # Part 7 is muted and part 8 has every send at
+                          # zero, so each readable cause of silence appears
+                          # once in demo mode.
+                          mute=part == 7,
+                          dry=0 if part == 8 else 127,
+                          chorus=0 if part in (1, 8) else 20,
+                          reverb=0 if part == 8 else 40,
+                          # Part 9 carries an output assign this model
+                          # ignores, as a performance from a bigger sibling
+                          # would.
+                          output_assign=10 if part == 9 else 0,
+                          output_mfx=0)
         return replace(state, **self._part_edits.get(part, {}))
 
     #: Offsets this fake accepts, mapped to the PartState field they set.
@@ -229,7 +241,16 @@ class DemoBridge:
         0x05: "lsb",
         0x06: "program_change",
         0x07: "level",
+        0x1B: "mute",
+        0x1C: "dry",
+        0x1D: "chorus",
+        0x1E: "reverb",
+        0x1F: "output_assign",
+        0x20: "output_mfx",
     }
+
+    #: Fields the fake stores as booleans, matching PartState.
+    _PART_FLAGS = ("receive_switch", "mute")
 
     def write_part_param(self, part: int, offset: int, value: int, *,
                          verify=True, timeout=None):
@@ -244,9 +265,21 @@ class DemoBridge:
             raise ValueError(f"offset {offset:#04x} is not writable")
         self._tick()
         field = self._PART_FIELDS[offset]
-        stored = bool(value) if field == "receive_switch" else value
+        stored = bool(value) if field in self._PART_FLAGS else value
         self._part_edits.setdefault(part, {})[field] = stored
         return value
+
+    def read_performance_fx(self, *, timeout=None):
+        from xv.bridge import PerformanceFx
+
+        self._tick()
+        return PerformanceFx(
+            mfx_type=12, mfx_dry=127, mfx_chorus=0, mfx_reverb=40,
+            mfx_output=1,
+            chorus_type=1, chorus_level=64, chorus_output=1,
+            chorus_output_select=0,
+            reverb_type=1, reverb_level=80, reverb_output=1,
+        )
 
     def read_performance_common(self, *, timeout=None):
         from xv.bridge import PerformanceCommon
@@ -273,8 +306,9 @@ class DemoBridge:
         want = setup.multitimbral if with_parts is None else with_parts
         parts = self.read_parts(on_progress=on_progress) if want else ()
         common = self.read_performance_common() if want else None
+        fx = self.read_performance_fx() if want else None
         self.state = DeviceState(setup=setup, channels=channels, parts=parts,
-                                 common=common)
+                                 common=common, fx=fx)
         return self.state
 
     def refresh_channel(self, channel: int, *, timeout=None):

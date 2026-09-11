@@ -60,6 +60,40 @@ class TestStartup:
             assert app._current_bank == banks.bank_ids()[0]
 
 
+class TestTheThreeNumbers:
+    """The columns this program exists to print, in the order asked for.
+
+    Order is PC, LSB, MSB -- what a sequencer's MIDI track asks for, since
+    that is where these get typed. The order is checked, but so is the
+    pairing of each label to its cell: relabelling the columns without
+    moving the cells would leave the screen confidently showing an MSB
+    under "PC", which is the one failure this project cannot have.
+    """
+
+    async def test_the_columns_are_pc_lsb_msb(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.query_one("#slot-table", DataTable)
+            labels = [str(column.label) for column in table.columns.values()]
+            assert labels == ["#", "name", "PC", "LSB", "MSB", "cat", "fav"]
+
+    async def test_each_number_is_under_its_own_label(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.query_one("#slot-table", DataTable)
+            slot = app._current_slots[0]
+            row = table.get_row(slot.key)
+            keys = [str(key.value) for key in table.columns]
+            cells = dict(zip(keys, row))
+            assert cells["pc"] == str(slot.program_change)
+            assert cells["lsb"] == str(slot.lsb)
+            assert cells["msb"] == str(slot.msb)
+            # The display number is one more than the wire byte, and the two
+            # are never the same column -- see xv/banks.py.
+            assert cells["num"] == f"{slot.number:03d}"
+            assert slot.number == slot.program_change + 1
+
+
 class TestCursorIsSilent:
     """The rule the whole design rests on."""
 

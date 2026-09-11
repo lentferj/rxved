@@ -9,19 +9,20 @@ A terminal browser for the **Roland XV-2020**'s sounds.
 
 Two panes: every bank the synth can be sent to on the left, that bank's
 slots on the right, and on every row the three numbers that actually select
-a sound — Bank Select MSB, Bank Select LSB and Program Change.
+a sound — Program Change, Bank Select LSB and Bank Select MSB, in the order
+a sequencer's MIDI track asks for them.
 
 ```
- bank       kind    n    fav      #    name          MSB  LSB  PC   cat  fav
- USER       patch   128           003  Folded Keys     87   65   2    DGT
- PST-A      patch   128  1        004  Static Pluck    87   65   3    DGT
-▸PST-B      patch   128  1        005  Woven Bass     87   65   4    BS
+ bank       kind    n    fav      #    name          PC   LSB  MSB  cat  fav
+ USER       patch   128           003  Folded Keys      2   65   87  DGT
+ PST-A      patch   128  1        004  Static Pluck     3   65   87  DGT
+▸PST-B      patch   128  1        005  Woven Bass       4   65   87  BS
  PST-C      patch   128           …
- GM         patch   128          ▸029  Iron Drone      87   65   28   SBS  *
+ GM         patch   128          ▸029  Iron Drone      28   65   87  SBS  *
 
  PRESET B 029  Iron Drone
- Bank Select MSB 87 (CC#0)   LSB 65 (CC#32)   Program Change 28 (wire,
- 0-based; the display shows 29)
+ Program Change 28 (wire, 0-based; the display shows 29)
+ Bank Select LSB 65 (CC#32)   MSB 87 (CC#0)
 ```
 
 That last line is the point of the project. Everything else about a patch

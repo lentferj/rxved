@@ -22,8 +22,10 @@
 """``rxved`` -- a terminal browser for the XV-2020's sounds.
 
 Two panes: banks on the left, that bank's slots on the right, with the three
-numbers that actually select a sound -- Bank Select MSB, Bank Select LSB and
-program change -- on every row. That is the whole of the first version, and
+numbers that actually select a sound -- program change, Bank Select LSB and
+Bank Select MSB -- on every row, in that order, because that is the order
+the hardware that receives them asks for it (an MPC One's MIDI track, for
+one). That is the whole of the first version, and
 the numbers are the point: everything else about a patch can be found by
 listening to it, and those three cannot.
 
@@ -481,8 +483,11 @@ class RxvedApp(App):
         self._fill_banks()
 
         slot_table = self.query_one("#slot-table", DataTable)
-        for label, key in (("#", "num"), ("name", "name"), ("MSB", "msb"),
-                           ("LSB", "lsb"), ("PC", "pc"), ("cat", "cat"),
+        # PC, LSB, MSB -- least significant first. Not the order the
+        # manual's tables print, but the order a sequencer's MIDI track
+        # asks for the three, which is where these numbers get typed.
+        for label, key in (("#", "num"), ("name", "name"), ("PC", "pc"),
+                           ("LSB", "lsb"), ("MSB", "msb"), ("cat", "cat"),
                            ("fav", "fav")):
             slot_table.add_column(label, key=key)
         self._fill_slots(self._current_bank)
@@ -621,9 +626,9 @@ class RxvedApp(App):
                     (f"{slot.bank_id} {slot.number:03d}" if across_banks
                      else f"{slot.number:03d}"),
                     shown,
-                    str(slot.msb),
-                    str(slot.lsb),
                     str(slot.program_change),
+                    str(slot.lsb),
+                    str(slot.msb),
                     (catalog_entry.category or "") if catalog_entry else "",
                     "*" if slot.key in favorited else "",
                     key=slot.key,
@@ -675,11 +680,11 @@ class RxvedApp(App):
         fav = self.favorites.get(slot.bank_id, slot.number)
         lines = [
             f"[b]{slot.bank.label} {slot.number:03d}[/b]  {name}",
-            f"Bank Select MSB [b]{slot.msb}[/b] (CC#0)   "
-            f"LSB [b]{slot.lsb}[/b] (CC#32)   "
             f"Program Change [b]{slot.program_change}[/b] "
             f"[dim](wire, 0-based; the display shows "
-            f"{slot.number})[/dim]",
+            f"{slot.number})[/dim]   "
+            f"Bank Select LSB [b]{slot.lsb}[/b] (CC#32)   "
+            f"MSB [b]{slot.msb}[/b] (CC#0)",
         ]
         state = getattr(self.bridge, "state", None)
         if state is not None:
@@ -846,7 +851,7 @@ class RxvedApp(App):
             return
         message = (
             f"selected {slot} on MIDI channel {used + 1} "
-            f"(MSB {slot.msb}, LSB {slot.lsb}, PC {slot.program_change})"
+            f"(PC {slot.program_change}, LSB {slot.lsb}, MSB {slot.msb})"
         )
         state = getattr(self.bridge, "state", None)
         if state is None:
@@ -1001,8 +1006,8 @@ class RxvedApp(App):
             for bank_id, number, name in hits[:400]:
                 try:
                     slot = banks.slot(bank_id, number)
-                    wire = (f"MSB {slot.msb:>3}  LSB {slot.lsb:>3}  "
-                            f"PC {slot.program_change:>3}")
+                    wire = (f"PC {slot.program_change:>3}  "
+                            f"LSB {slot.lsb:>3}  MSB {slot.msb:>3}")
                 except LookupError:
                     wire = ""
                 lines.append(f"{bank_id:<10} {number:03d}  {name:<14} {wire}")
@@ -1353,11 +1358,17 @@ _HELP = """\
 Two panes. Left: every bank the XV-2020 can be sent to. Right: that bank's
 slots, with the three numbers that select each one.
 
+  PC    Program Change            -- the byte on the wire, 0-based
+  LSB   Bank Select LSB, CC#32    -- which bank within the kind
   MSB   Bank Select MSB, CC#0     -- what kind of thing (85 performance,
                                      86 rhythm, 87 patch, 92/93 SRX,
                                      120/121 GM)
-  LSB   Bank Select LSB, CC#32    -- which bank within that
-  PC    Program Change            -- the byte on the wire, 0-based
+
+They are shown in that order -- PC first, MSB last -- because that is the
+order a sequencer asks for them on a MIDI track, and this screen exists to
+be copied from. The synth receives them the other way round: both Bank
+Select bytes must arrive BEFORE the program change, or the program change
+lands in whatever bank was already selected.
 
 The "#" column is what the synth's own display shows, and it is one more
 than PC. Both are given because both are right, in different places: the

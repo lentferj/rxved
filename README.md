@@ -176,6 +176,26 @@ they come out byte-exact rather than with the apostrophes a PDF text layer
 mangles. Its GM records carry their own MSB/LSB/PC, so that mapping is read
 rather than inferred. See `docs/RESOLUTION_NOTES.md` §3.
 
+## Reading a marked-up printout
+
+If you print a patch list, go through it at the keyboard with a highlighter
+and want the result in software afterwards:
+
+```sh
+python3 tools/read_marked_list.py scan.pdf --bank 1=PST-C --bank 2=PST-D --apply
+```
+
+It writes a text list beside the PDF and, with `--apply`, adds the rows to
+the favourites database. Names come from the local catalog rather than from
+OCR of the scan, so they are exact.
+
+The marker fades, and a photocopier and a scanner each fade it further, so
+detection measures how far blue runs ahead of red rather than matching a
+colour — black text and white paper are both neutral, and any blue lift at
+all is the highlighter. Rows that score just under the line are listed rather
+than dropped quietly; in practice they are rows sitting directly beneath a
+marked one, catching the top edge of its mark.
+
 ## How much of this is verified?
 
 **Read `DISCLAIMER.md` before trusting a byte offset.** Short version:

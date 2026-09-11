@@ -160,12 +160,16 @@ change are all its own arithmetic; only the names come from Roland, and
 those you generate locally:
 
 ```sh
-python3 tools/extract_catalog.py
+python3 tools/extract_catalog.py \
+    --srx SRX-07=SRX-07_OM.pdf --srx SRX-08=SRX-08_OM.pdf
 ```
 
 That reads your own copies of Roland's XV-2020 Editor for Windows, the
 Owner's Manual and the Patch Listing, and writes `xv/data/catalog.json`,
-which is gitignored. It currently produces **1044 names across 22 banks**.
+which is gitignored. It currently produces **1044 names across 22 banks**, plus every expansion
+board whose owner's manual you point `--srx` at — 475 more for SRX-07 and
+448 for SRX-08, with categories, split across the LSB pages that select
+them.
 Pass `--editor`, `--manual` and `--patch-list` if yours are somewhere other
 than the defaults.
 

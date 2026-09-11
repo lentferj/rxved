@@ -408,3 +408,62 @@ This settles three things at once:
 
 Still not confirmed: performances (they need a mode switch and the control
 channel), rhythm sets, and the whole SRX table.
+
+---
+
+## §11 — Expansion-board names, and four ways a column parse goes wrong
+
+`tools/extract_catalog.py --srx CARD=PDF` reads a board's patch list out of
+its owner's manual: 475 names for SRX-07 and 448 for SRX-08, with
+categories, split across the LSB pages that actually select them.
+
+The parse is one regex per row and it took four corrections, each of which
+had produced complete, plausible, wrong output:
+
+**The manuals contain more than one patch list.** One for the Fantom/XV/
+JUNO-G family and another for the RD series, MC-909 and G-70 — and they are
+*different patches*. SRX-05 number 298 is "OldSkool FX" in the first and
+"Noise Cycle" in the second. Parsing is now scoped to the section headed for
+the XV series.
+
+**Column separators are not consistent.** SRX-05 leaves one space after the
+number, SRX-07 row 34 leaves one before the category ("3 (1) EL.PIANO"),
+others leave one after the name. Every separator had to become `\s+`.
+
+**Which needs a constraint to stay safe**, and the one that works is that a
+name may contain a single space but never two, while a column gap is always
+at least two. Without it, row 34 read as the name "Heavens Tine 3 (1)
+EL.PIANO 124 FuzzheadSRX" carrying the *next* row's voice count and
+category.
+
+**Validating after matching does not work.** `finditer` consumes what a
+match covers, so rejecting a bad match does not make the engine try a better
+one — it moves past, and the row is lost. SRX-07 row 40 reads "Clav 1 SRX
+2 KEYBOARDS", whose shortest parse is name "Clav", voices 1, category "SRX".
+The fix is to build the real category names into the pattern as an
+alternation: "SRX" is then not a category, so the engine backtracks to name
+"Clav 1 SRX", voices 2, category "KEYBOARDS" by itself.
+
+### The two boards spell tempo differently, and say so
+
+SRX-07's phrase-loop patches print a recommended tempo in its own column —
+`453  Pursuit 90   (90)   2  BEAT&GROOVE` — and its footnote reads "the
+numbers **in parenthesis following** the Patch name". SRX-08 prints
+`37  BAD 88   3  BEAT&GROOVE` and its footnote reads "the numbers
+**included in** the Patch name".
+
+So "BAD 88" is the whole name and "(90)" is not. The two readings look
+inconsistent and are correct, which is only knowable from the footnotes.
+
+### Cross-check
+
+The separate Faxback patch listings agree on 421 of 475 SRX-07 names and 396
+of 448 for SRX-08. The disagreements are all explained:
+
+* the listings truncate to a narrower column ("Tenamos L" for "Tenamos
+  L100");
+* SRX-08's tempo suffix is absent from them ("BAD" for "BAD 88");
+* and a handful are genuine Roland renames between revisions — "TouchRhdsSRX"
+  became "Touch EP SRX", "Cool Rhodes" became "Cool EP 2". The owner's manual
+  is the later document and the one whose names the device displays, so it
+  wins.

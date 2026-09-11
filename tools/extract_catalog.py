@@ -81,6 +81,11 @@ GM_RECORD = 16
 GM_PATCH_MSB = 121
 GM_RHYTHM_MSB = 120
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from xv import banks  # noqa: E402
+from xv import catalog as cat  # noqa: E402
+
 #: Patch categories, in the order the category byte indexes them (1-based).
 #: The canonical list lives in xv/catalog.py, because the browser needs it
 #: too -- keeping a second copy here is how the two would drift and every
@@ -245,6 +250,134 @@ def read_gm_rhythm(data: bytes) -> Dict[str, List[dict]]:
         row["n"] = position
         del row["pc"]
     return {"R-GM": rows}
+
+
+# --- expansion-board patch lists --------------------------------------------
+
+#: The XV-2020 stores a patch name in twelve bytes and cannot display more
+#: (OM p. 149). So a "name" longer than that is not a name -- it is a parse
+#: that ran past the end of its column and swallowed the next one. Checking
+#: it turns a whole class of silent column-alignment bugs into a miss, which
+#: the completeness check then reports.
+NAME_WIDTH = 12
+
+
+def _ok(name: str) -> bool:
+    return 0 < len(name) <= NAME_WIDTH
+
+
+#: One row of an SRX patch list: number, name, voices, CATEGORY.
+#:
+#: The number-to-name separator is ``\s+`` rather than ``\s{2,}`` because
+#: the columns are packed differently per board -- SRX-05 leaves a single
+#: space there in its second and third columns. Name-to-voices stays at two
+#: or more: relaxing that as well makes "Acid Bass 2   1   SYNTH BASS"
+#: ambiguous, and it would read the 2 as the voice count.
+#: Map the full category names the expansion lists print back to the codes
+#: the XV-2020 itself uses, so one filter covers internal and SRX patches.
+_CATEGORY_CODES = {name: code for code, name in cat.CATEGORIES}
+
+#: The categories as a regex alternation, longest first so that "SYNTH BASS"
+#: is preferred over the "BASS" inside it.
+_CATEGORY_ALTERNATION = "|".join(
+    re.escape(name) for name in sorted(_CATEGORY_CODES, key=len, reverse=True)
+)
+
+#: The real category names are built into the pattern rather than checked
+#: after matching, and that distinction is the whole difference between this
+#: working and not.
+#:
+#: Validating afterwards cannot work: ``finditer`` consumes the text a match
+#: covers, so rejecting a bad match does not make the engine try a better one
+#: -- it moves past. SRX-07 row 40 reads "Clav 1 SRX   2   KEYBOARDS", and
+#: the shortest parse is name "Clav", voices 1, category "SRX". Rejecting
+#: that lost the row entirely. With the categories in the pattern, "SRX" is
+#: simply not a category, so the engine backtracks to name "Clav 1 SRX",
+#: voices 2, category "KEYBOARDS" on its own.
+#: Phrase-loop patches carry a recommended tempo in its own column between
+#: the name and the voice count -- "453  Pursuit 90   (90)   2  BEAT&GROOVE"
+#: -- which the manual's own footnote explains. Optional, because only the
+#: BEAT&GROOVE patches have one.
+_SRX_ROW = re.compile(
+    r"(?<![\d(])(\d{1,3})\s+((?:\S| (?! ))+?)\s+(?:\(\d+\)\s+)?"
+    r"(\d+(?: ?\(\d+\))?)\s+"
+    r"(" + _CATEGORY_ALTERNATION + r")(?=\s|$)"
+)
+
+#: The same row where the board packs the name hard against the voice count.
+#: Only ever tried for a number the strict pattern missed, and anchored on
+#: that exact number, so the ambiguity it would otherwise introduce cannot
+#: bite.
+def _xv_section(text: str) -> str:
+    """Just the patch list meant for the XV series.
+
+    These manuals carry **more than one** patch list -- one for the
+    Fantom/XV/JUNO-G family and another for the RD series, MC-909 and G-70 --
+    and they are not the same patches. SRX-05 number 298 is "OldSkool FX" in
+    the first and "Noise Cycle" in the second. Taking whichever came first
+    happens to be right for every board here, and would be silently wrong for
+    one that printed them the other way round.
+    """
+    lines = text.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if line.strip().startswith("For ") and "XV" in line:
+            start = index
+            break
+    if start is None:
+        return text
+    for index in range(start + 1, len(lines)):
+        stripped = lines[index].strip()
+        if stripped.startswith("For ") and "XV" not in stripped:
+            return "\n".join(lines[start:index])
+    return "\n".join(lines[start:])
+
+
+def read_srx(card: str, path: str) -> Dict[str, List[dict]]:
+    """One expansion board's patches, split across its Bank Select LSBs.
+
+    A board's manual numbers its patches 1..N straight through, but selecting
+    one needs the LSB page it falls on -- SRX-07's patch 300 is LSB 13, slot
+    44. :mod:`xv.banks` holds that split, and the patch count it states is
+    also the check that this parse is complete.
+    """
+    definition = banks.srx_card(card)
+    total = definition.patch_count
+    text = _xv_section(_fix_pdf_text(pdf_text(path)))
+    lines = text.splitlines()
+
+    found: Dict[int, Tuple[str, str]] = {}
+    for line in lines:
+        for match in _SRX_ROW.finditer(line):
+            number = int(match.group(1))
+            name = match.group(2).strip()
+            category = match.group(4).strip()
+            if not (1 <= number <= total) or number in found:
+                continue
+            if _ok(name) and category in _CATEGORY_CODES:
+                found[number] = (name, category)
+
+    missing = [n for n in range(1, total + 1) if n not in found]
+    if missing:
+        print(f"warning: {card}: {len(missing)} of {total} patches were not "
+              f"parsed ({missing[:8]}...). Those slots stay unnamed; the "
+              f"rest are unaffected.", file=sys.stderr)
+
+    out: Dict[str, List[dict]] = {}
+    for number, (name, category) in sorted(found.items()):
+        page, slot = divmod(number - 1, 128)
+        bank_id = f"{card}-{page + 1}"
+        row: Dict[str, object] = {"n": slot + 1, "name": name}
+        code = _CATEGORY_CODES.get(category)
+        if code:
+            row["category"] = code
+        elif category:
+            print(f"note: {card}: no code for category {category!r}",
+                  file=sys.stderr)
+        out.setdefault(bank_id, []).append(row)
+    for rows in out.values():
+        rows.sort(key=lambda r: r["n"])
+    return out
 
 
 # --- the PDFs ---------------------------------------------------------------
@@ -474,6 +607,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="path to the XV-2020 patch listing PDF")
     parser.add_argument("--manual", default=DEFAULT_MANUAL,
                         help="path to the XV-2020 owner's manual PDF")
+    parser.add_argument(
+        "--srx", action="append", default=[], metavar="CARD=PDF",
+        help="an expansion board's owner's manual, e.g. "
+             "--srx SRX-07=SRX-07_OM.pdf (repeatable)")
     parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT)
     parser.add_argument("--no-crosscheck", action="store_true")
     return parser
@@ -519,6 +656,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         print(f"note: no manual at {args.manual}; performance and rhythm-set "
               f"names will be missing", file=sys.stderr)
+
+    for item in args.srx:
+        card, _, path = item.partition("=")
+        if not path:
+            raise SystemExit(f"error: --srx wants CARD=PDF, got {item!r}")
+        banks.srx_card(card)          # fail now on an unknown board
+        if not os.path.exists(path):
+            raise SystemExit(f"error: no such file: {path}")
+        banks_out.update(read_srx(card, path))
+        sources.append(f"{card} Owner's Manual ({os.path.basename(path)})")
 
     payload = {
         "source": "; ".join(sources),

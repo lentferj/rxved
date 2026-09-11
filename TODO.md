@@ -123,7 +123,20 @@ repeating: the device answers an unsupported Bank Select by **staying where
 it was**, so "no change" is the only signal available, and an LSB missing
 from the result is not proof the board lacks it.
 
-## 6. The catalog has no SRX names
+## 6. The catalog has no SRX names — DONE for the boards with a manual
+
+**Status:** resolved for SRX-07 and SRX-08; open for the rest.
+
+`tools/extract_catalog.py --srx CARD=PDF` reads a board's patch list out of
+its owner's manual, with categories, and files each patch under the LSB page
+that selects it. Cross-checked against the separate Faxback listings; the
+disagreements are all explained in RESOLUTION_NOTES §11.
+
+Any other board needs only its owner's manual — the Faxback-style "patch
+listing" PDFs carry no Voices or Category column and no Bank Select data, so
+they do not work as input.
+
+## 6b. The remaining boards (original item)
 
 **Status:** open. Not blocked — just work.
 

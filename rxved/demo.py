@@ -97,6 +97,7 @@ class DemoBridge:
         #: Edits made through the multi-mode screen, as the temporary
         #: performance would hold them: in memory, gone when this object is.
         self._part_edits: Dict[int, dict] = {}
+        self._channel_edits: Dict[int, dict] = {}
         self._closed = False
 
     # --- lifecycle ----------------------------------------------------------
@@ -269,6 +270,48 @@ class DemoBridge:
         self._part_edits.setdefault(part, {})[field] = stored
         return value
 
+    def read_performance_midi(self, channel: int, *, timeout=None):
+        from xv.bridge import ChannelMidi
+
+        if not 0 <= channel <= 15:
+            raise ValueError(f"channel {channel} is outside 0-15")
+        self._tick()
+        # Channel 3 ignores Bank Select: a select there changes the patch to
+        # the wrong one rather than failing, which is the nastiest of the
+        # failures this screen exists to surface, so the demo has one.
+        base = ChannelMidi(channel=channel,
+                           bank_select=channel != 2,
+                           program_change=channel != 11)
+        return replace(base, **self._channel_edits.get(channel, {}))
+
+    _CHANNEL_FIELDS = {
+        0x00: "program_change", 0x01: "bank_select", 0x02: "bender",
+        0x03: "poly_pressure", 0x04: "channel_pressure",
+        0x05: "modulation", 0x06: "volume", 0x07: "pan",
+        0x08: "expression", 0x09: "hold_1", 0x0A: "phase_lock",
+        0x0B: "velocity_curve",
+    }
+
+    def write_channel_param(self, channel: int, offset: int, value: int, *,
+                            verify=True, timeout=None):
+        if not 0 <= channel <= 15:
+            raise ValueError(f"channel {channel} is outside 0-15")
+        if offset not in self._CHANNEL_FIELDS:
+            raise ValueError(f"offset {offset:#04x} is not writable")
+        self._tick()
+        field = self._CHANNEL_FIELDS[offset]
+        stored = value if field == "velocity_curve" else bool(value)
+        self._channel_edits.setdefault(channel, {})[field] = stored
+        return value
+
+    def read_channel_midi(self, *, on_progress=None, timeout=None):
+        out = []
+        for channel in range(16):
+            out.append(self.read_performance_midi(channel))
+            if on_progress is not None:
+                on_progress(channel + 1, 16)
+        return tuple(out)
+
     def read_performance_fx(self, *, timeout=None):
         from xv.bridge import PerformanceFx
 
@@ -307,8 +350,9 @@ class DemoBridge:
         parts = self.read_parts(on_progress=on_progress) if want else ()
         common = self.read_performance_common() if want else None
         fx = self.read_performance_fx() if want else None
+        midi = self.read_channel_midi() if want else ()
         self.state = DeviceState(setup=setup, channels=channels, parts=parts,
-                                 common=common, fx=fx)
+                                 common=common, fx=fx, midi=midi)
         return self.state
 
     def refresh_channel(self, channel: int, *, timeout=None):

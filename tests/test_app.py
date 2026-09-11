@@ -1094,3 +1094,61 @@ class TestMultiEditing:
             assert "MFX type 12" in summary
             assert "CHORUS ON" in summary
             assert "REVERB ON" in summary
+
+    async def test_tab_cycles_three_views(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            table = screen.query_one("#part-table", DataTable)
+
+            def keys():
+                return [c.key.value for c in table.columns.values()]
+
+            assert "rx" in keys() and "lvl" in keys()
+            await pilot.press("tab")
+            await pilot.pause()
+            assert "mute" in keys() and "cho" in keys()
+            await pilot.press("tab")
+            await pilot.pause()
+            assert "rx_pc" in keys() and "rx_bs" in keys()
+            await pilot.press("tab")
+            await pilot.pause()
+            assert "rx" in keys() and "lvl" in keys()   # back to the start
+
+    async def _rx_view(self, app, pilot):
+        screen = await self._open(app, pilot)
+        await pilot.press("tab", "tab")
+        await pilot.pause()
+        return screen
+
+    async def test_a_channel_that_ignores_bank_select_is_shown(self, app):
+        """The demo's channel 3 drops Bank Select. Part 3 listens there."""
+        async with app.run_test() as pilot:
+            screen = await self._rx_view(app, pilot)
+            table = screen.query_one("#part-table", DataTable)
+            keys = [c.key.value for c in table.columns.values()]
+            row = table.get_row("3")
+            assert "OFF" in str(row[keys.index("rx_bs")])
+
+    async def test_toggling_receive_bank_select_writes_to_the_channel(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._rx_view(app, pilot)
+            await self._cell(screen, pilot, 3, "rx_bs")
+            assert app.bridge.read_performance_midi(2).bank_select is False
+            await pilot.press("space")
+            for _ in range(10):
+                await pilot.pause()
+            assert app.bridge.read_performance_midi(2).bank_select is True
+
+    async def test_a_channel_write_updates_every_part_sharing_it(self, app):
+        """Parts 1 and 2 share channel 1, and share these settings."""
+        async with app.run_test() as pilot:
+            screen = await self._rx_view(app, pilot)
+            await self._cell(screen, pilot, 1, "rx_pc")
+            await pilot.press("space")
+            for _ in range(10):
+                await pilot.pause()
+            table = screen.query_one("#part-table", DataTable)
+            keys = [c.key.value for c in table.columns.values()]
+            first = str(table.get_row("1")[keys.index("rx_pc")])
+            second = str(table.get_row("2")[keys.index("rx_pc")])
+            assert first == second == "[b]OFF[/b]"

@@ -45,8 +45,16 @@ client `Roland XV-2020`, device ID 17):
   `30 00 00 00` … `30 7F 00 00`, one per slot, in order.
 - **The Setup block** (`01 00 00 00`): sound mode, and the Bank Select and
   Program Number of both the current patch and the current performance.
-- **All 16 Performance Parts** (`10 00 <20+n-1> 00`): each one's receive
-  channel and patch selection. Three parts were found sharing channel 1.
+- **All 16 Performance Parts** (`10 00 <20+n-1> 00`), the full 33-byte
+  block: receive channel, Receive Switch, patch selection, level, Mute
+  Switch, the three send levels and the output routing. Three parts were
+  found sharing channel 1.
+- **All 16 Performance MIDI blocks** (`10 00 <10+channel> 00`): the
+  per-channel receive switches, including the two that gate everything rxved
+  sends — Receive Program Change and Receive Bank Select.
+- **Performance Common** (`10 00 00 00`) and the three effects blocks
+  (`10 00 02/04/06 00`): performance name, Solo Part Select, MFX type and
+  routing, chorus and reverb.
 - **The Bank Select triples for USER, PST-A, PST-B, PST-D and GM**, sent and
   read back, confirming the MSB/LSB map and the 0-based/1-based split.
 - **System Common's two receive-channel bytes** (`02 00 00 09` and

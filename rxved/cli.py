@@ -386,6 +386,37 @@ def _cmd_multi(bridge, args) -> None:
                                 "MSB", "slot", ""]))
         print()
 
+        # The TUI puts these behind `tab`; a CLI has no cursor to move, so
+        # it prints all three.
+        rows = [
+            [str(p.part), str(p.channel_display),
+             "MUTE" if p.mute else "off",
+             str(p.dry), str(p.chorus), str(p.reverb),
+             p.output_name, p.output_mfx_name]
+            for p in state.parts
+        ]
+        print(_fmt_table(rows, ["part", "ch", "mute", "dry", "cho", "rev",
+                                "out", "mfx"]))
+        print()
+
+    if state.midi:
+        rows = [
+            [str(e.channel_display),
+             "on" if e.program_change else "OFF",
+             "on" if e.bank_select else "OFF",
+             "on" if e.bender else "off",
+             "on" if e.modulation else "off",
+             "on" if e.volume else "off",
+             "on" if e.expression else "off",
+             "on" if e.hold_1 else "off",
+             "on" if e.phase_lock else "off",
+             str(e.velocity_curve) if e.velocity_curve else "off"]
+            for e in state.midi
+        ]
+        print(_fmt_table(rows, ["ch", "rxPC", "rxBS", "bend", "mod", "vol",
+                                "exp", "hold", "phase", "vcurve"]))
+        print()
+
     for line in state.silence_report():
         print(f"  {line}")
 

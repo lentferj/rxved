@@ -149,10 +149,19 @@ three-digit LED, and OM p. 116 lists what its four controls can reach.
 Receive Switch, Mute Switch and Solo Part Select are **not** on that list —
 without the editor or SysEx there is no way to see or change them at all.
 
-`tab` switches the middle columns between **MIDI** (ch, rx, lvl, PC, LSB,
-MSB) and **FX / routing** (mute, dry, cho, rev, out, mfx); the patch name and
-the silence verdict stay in both. Above the table, the performance's MFX type
-and routing, chorus and reverb.
+`tab` cycles the middle columns through three sets — **MIDI** (ch, rx, lvl,
+PC, LSB, MSB), **FX / routing** (mute, dry, cho, rev, out, mfx) and
+**receive switches** (rxPC, rxBS, bend, mod, vol, hold). The patch name and
+the silence verdict stay in all three. Above the table, the performance's
+MFX type and routing, chorus and reverb.
+
+The receive switches are the ones that matter most to rxved, and they are
+per **MIDI channel**, not per part (OM p. 74 marks them `+` where the
+per-part parameters are `#`). **rxBS off is the nasty one**: the Bank Select
+bytes are dropped and the Program Change still lands, so a select appears to
+work and puts the part on the wrong patch. rxPC off means a select does
+nothing at all. Neither produces any response from the synth, so nothing
+downstream can detect it — the report names the channels.
 
 Output-assign values this model ignores are shown with a star (`6*`) rather
 than hidden — a performance written on an XV-5080 can carry one, and that

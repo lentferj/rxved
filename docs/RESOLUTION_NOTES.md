@@ -808,3 +808,47 @@ explains a silent part where a blank does not.
 So there are six readable causes of a silent part, not four: Patch mode,
 Solo Part Select, Receive Switch off, Mute on, Level 0, and every send at 0.
 
+---
+
+## §12c — Performance MIDI: the switches that gate what rxved sends
+
+**Read against hardware 2026-09-11**, after the user pointed at OM p. 70ff.
+
+The Performance chapter distinguishes two kinds of per-voice parameter, and
+the address map follows it:
+
+- `#` — **per part**. Receive Channel, Receive Switch, Mute, levels, sends,
+  routing. Block `10 00 <20+n-1> 00`, one per part.
+- `+` — **per MIDI channel**. Receive Program Change, Receive Bank Select,
+  Bender, Poly/Channel Pressure, Modulation, Volume, Pan, Expression,
+  Hold-1, Phase Lock, Velocity Curve. Block `10 00 <10+channel> 00`, one per
+  channel, 12 bytes.
+
+Two parts sharing a channel share the second set. rxved shows them on each
+part's row anyway, because the question being asked is "will a select aimed
+at this part land", and the answer genuinely is the same for both.
+
+### Why these two bytes outrank everything else on that screen
+
+rxved's entire output is Bank Select plus Program Change. Offsets `00 00`
+and `00 01` decide whether the channel acts on either:
+
+- **Receive Program Change off** — a select does nothing.
+- **Receive Bank Select off** — the Bank Select bytes are dropped and the
+  Program Change *still lands*, in whatever bank the part was already on.
+
+The second is the worse failure and the one worth wording carefully. It does
+not look like a failure: the part changes patch, promptly, to the wrong one.
+Neither case produces any response from the synth, so no amount of care in
+rxved can detect it after the fact — it can only be read beforehand, which
+is what this now does.
+
+The report puts channel findings **first**, ahead of anything about
+audibility: a part can be perfectly audible and still ignore every select
+aimed at it.
+
+### On the author's machine
+
+All 16 channels accept both, so this diagnoses nothing there today. It was
+still worth reading: "nothing is in the way" is only useful as a statement
+if the alternative was detectable.

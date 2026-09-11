@@ -105,6 +105,7 @@ __all__ = [
     "PartState",
     "PerformanceCommon",
     "PerformanceFx",
+    "ChannelMidi",
     "OUTPUT_ASSIGN",
     "OUTPUT_MFX",
     "DeviceState",
@@ -733,6 +734,62 @@ _ON_OFF = {0: "OFF", 1: "ON"}
 
 
 @dataclass(frozen=True)
+class ChannelMidi:
+    """Performance MIDI for one channel: what that channel will accept.
+
+    ``10 00 <10+channel> 00``, 12 bytes (OM p. 146, 74). **Per MIDI channel,
+    not per part** -- the manual marks these ``+`` where the per-part
+    parameters are marked ``#``, and the address map gives them their own
+    sixteen blocks. Two parts sharing a channel share these settings.
+
+    The first two bytes are the ones that matter to rxved, because they gate
+    exactly what it sends:
+
+    * **Receive Program Change** off -- a Program Change does nothing.
+    * **Receive Bank Select** off -- the Bank Select bytes are dropped and
+      the Program Change lands in whatever bank the part was already on.
+
+    The second is the nastier of the two: a select appears to work, the part
+    changes patch, and it is the wrong patch. Neither failure produces any
+    response at all from the synth, so nothing downstream can detect it.
+    """
+
+    channel: int              #: 0-based wire channel.
+    program_change: bool = True
+    bank_select: bool = True
+    bender: bool = True
+    poly_pressure: bool = True
+    channel_pressure: bool = True
+    modulation: bool = True
+    volume: bool = True
+    pan: bool = True
+    expression: bool = True
+    hold_1: bool = True
+    phase_lock: bool = False
+    velocity_curve: int = 0
+
+    @property
+    def channel_display(self) -> int:
+        return self.channel + 1
+
+    @property
+    def accepts_selection(self) -> bool:
+        """Whether a Bank Select + Program Change here would do what it says."""
+        return self.program_change and self.bank_select
+
+    def selection_problem(self) -> Optional[str]:
+        """Why a select on this channel would not land, if it would not."""
+        if not self.program_change and not self.bank_select:
+            return "ignores Program Change and Bank Select"
+        if not self.program_change:
+            return "ignores Program Change"
+        if not self.bank_select:
+            return ("ignores Bank Select -- a Program Change would land in "
+                    "whatever bank the part is already on")
+        return None
+
+
+@dataclass(frozen=True)
 class PerformanceFx:
     """The performance's MFX, chorus and reverb, as far as routing goes.
 
@@ -810,6 +867,8 @@ class DeviceState:
     common: Optional["PerformanceCommon"] = None
     #: ``None`` unless the effects blocks were read.
     fx: Optional["PerformanceFx"] = None
+    #: Empty unless the 16 Performance MIDI blocks were read.
+    midi: Tuple["ChannelMidi", ...] = ()
 
     def parts_on(self, channel: int) -> List[PartState]:
         """Every part listening on this 0-based channel.
@@ -869,10 +928,13 @@ class DeviceState:
             forward = self._part_findings(
                 lead="Switching to PERFORM would not be enough on its own. "
                      "In the performance currently loaded:")
+            forward.extend(self._selection_findings())
             lines.extend(forward)
             if forward:
                 lines.append(_WHERE_TO_CHANGE)
             return lines
+
+        lines.extend(self._selection_findings())
 
         if self.common is not None and self.common.solo is not None:
             lines.append(
@@ -885,12 +947,50 @@ class DeviceState:
 
         if not lines:
             lines.append(
-                "Nothing is silencing any part: every part has its Receive "
-                "Switch on, MUTE off, a non-zero level, a send that goes "
-                "somewhere, and Solo is off."
+                "Nothing is silencing any part and every channel accepts "
+                "Bank Select and Program Change: Receive Switches on, MUTE "
+                "off, non-zero levels, sends that go somewhere, Solo off."
             )
         lines.append(_WHERE_TO_CHANGE)
         return lines
+
+    def channel_midi(self, channel: int) -> Optional["ChannelMidi"]:
+        """The Performance MIDI block for a 0-based channel, if it was read."""
+        for entry in self.midi:
+            if entry.channel == channel:
+                return entry
+        return None
+
+    def selection_problem(self, channel: int) -> Optional[str]:
+        """Why a Bank Select + Program Change on this channel would not land.
+
+        ``None`` means "nothing readable is in the way", which in Patch mode
+        includes every channel but one -- that case is the caller's to know,
+        and :meth:`describes_short` already says it.
+        """
+        entry = self.channel_midi(channel)
+        return None if entry is None else entry.selection_problem()
+
+    def _selection_findings(self) -> List[str]:
+        """Channels that will not act on what rxved sends.
+
+        First in the report, ahead of anything about audibility: a part can
+        be perfectly audible and still ignore every select aimed at it, and
+        that failure is the one this program is most able to cause.
+        """
+        if not self.midi:
+            return []
+        found: List[str] = []
+        by_problem: Dict[str, List[int]] = {}
+        for entry in self.midi:
+            problem = entry.selection_problem()
+            if problem is not None:
+                by_problem.setdefault(problem, []).append(
+                    entry.channel_display)
+        for problem, channels in by_problem.items():
+            word = "Channel" if len(channels) == 1 else "Channels"
+            found.append(f"{word} {_ranges(channels)}: {problem}.")
+        return found
 
     def _part_findings(self, *, lead: str = "") -> List[str]:
         """Per-reason summary of what is silent. Empty when the parts are
@@ -1318,6 +1418,55 @@ class XvBridge:
         0x20: ("output MFX select", 0, 2),
     }
 
+    #: Performance MIDI offsets rxved will write, per channel, with ranges.
+    #: Same temporary area as the parts (``10 00 <10+channel> <offset>``) and
+    #: the same argument for why writing them is safe.
+    WRITABLE_CHANNEL_OFFSETS = {
+        0x00: ("receive program change", 0, 1),
+        0x01: ("receive bank select", 0, 1),
+        0x02: ("receive bender", 0, 1),
+        0x03: ("receive poly pressure", 0, 1),
+        0x04: ("receive channel pressure", 0, 1),
+        0x05: ("receive modulation", 0, 1),
+        0x06: ("receive volume", 0, 1),
+        0x07: ("receive pan", 0, 1),
+        0x08: ("receive expression", 0, 1),
+        0x09: ("receive hold 1", 0, 1),
+        0x0A: ("phase lock", 0, 1),
+        0x0B: ("velocity curve type", 0, 4),
+    }
+
+    def write_channel_param(self, channel: int, offset: int, value: int, *,
+                            verify: bool = True,
+                            timeout: Optional[float] = None) -> int:
+        """Set one Performance MIDI parameter for a channel.
+
+        ``channel`` is the 0-based wire channel. As with
+        :meth:`write_part_param` this goes to the temporary performance and
+        returns the value read back, not the value sent.
+        """
+        if not 0 <= channel <= 15:
+            raise ValueError(f"channel {channel} is outside 0-15")
+        if offset not in self.WRITABLE_CHANNEL_OFFSETS:
+            raise ValueError(
+                f"offset {offset:#04x} is not one of the Performance MIDI "
+                f"parameters rxved writes")
+        label, low, high = self.WRITABLE_CHANNEL_OFFSETS[offset]
+        if not low <= value <= high:
+            raise ValueError(f"{label} takes {low}-{high}, got {value}")
+
+        address = (0x10, 0x00, 0x10 + channel, offset)
+        self._send(m.dt1(address, [value], device=self.device_id))
+        time.sleep(SEND_GAP)
+        if not verify:
+            return value
+        data = self.request(address, 1, timeout=timeout)
+        if not data:
+            raise DeviceError(
+                f"wrote {label} on channel {channel + 1} but read back "
+                f"nothing")
+        return data[0]
+
     def write_part_param(self, part: int, offset: int, value: int, *,
                          verify: bool = True,
                          timeout: Optional[float] = None) -> int:
@@ -1493,6 +1642,40 @@ class XvBridge:
         return PerformanceCommon(name=name,
                                  solo=None if solo == 0 else solo)
 
+    def read_performance_midi(self, channel: int, *,
+                              timeout: Optional[float] = None
+                              ) -> "ChannelMidi":
+        """One channel's Performance MIDI block. ``10 00 <10+channel> 00``."""
+        if not 0 <= channel <= 15:
+            raise ValueError(f"channel {channel} is outside 0-15")
+        data = self.request((0x10, 0x00, 0x10 + channel, 0x00), 0x0C,
+                            timeout=timeout)
+        if len(data) < 0x0C:
+            raise DeviceError(
+                f"channel {channel + 1} MIDI read returned {len(data)} "
+                f"bytes, expected 12")
+        return ChannelMidi(
+            channel=channel,
+            program_change=bool(data[0]), bank_select=bool(data[1]),
+            bender=bool(data[2]), poly_pressure=bool(data[3]),
+            channel_pressure=bool(data[4]), modulation=bool(data[5]),
+            volume=bool(data[6]), pan=bool(data[7]),
+            expression=bool(data[8]), hold_1=bool(data[9]),
+            phase_lock=bool(data[0x0A]), velocity_curve=data[0x0B],
+        )
+
+    def read_channel_midi(self, *,
+                          on_progress: Optional[Callable[[int, int], None]] = None,
+                          timeout: Optional[float] = None
+                          ) -> Tuple["ChannelMidi", ...]:
+        """All 16 Performance MIDI blocks. Sixteen round trips, no sound."""
+        out = []
+        for channel in range(16):
+            out.append(self.read_performance_midi(channel, timeout=timeout))
+            if on_progress is not None:
+                on_progress(channel + 1, 16)
+        return tuple(out)
+
     def read_performance_fx(self, *, timeout: Optional[float] = None
                             ) -> "PerformanceFx":
         """The performance's three effects blocks. Three round trips, silent.
@@ -1555,8 +1738,12 @@ class XvBridge:
             if want_parts else None
         )
         fx = self.read_performance_fx(timeout=timeout) if want_parts else None
+        # The two bytes that decide whether anything rxved sends is even
+        # looked at. Worth sixteen round trips on a screen whose job is to
+        # explain why something did not happen.
+        midi = (self.read_channel_midi(timeout=timeout) if want_parts else ())
         state = DeviceState(setup=setup, channels=channels, parts=parts,
-                            common=common, fx=fx)
+                            common=common, fx=fx, midi=midi)
         self.state = state
         return state
 
@@ -1598,8 +1785,9 @@ class XvBridge:
         # soloed" on the next cursor move, which is worse than stale.
         common = previous.common if previous is not None else None
         fx = previous.fx if previous is not None else None
+        midi = previous.midi if previous is not None else ()
         state = DeviceState(setup=setup, channels=channels, parts=parts,
-                            common=common, fx=fx)
+                            common=common, fx=fx, midi=midi)
         self.state = state
         self.channels = channels
         return state

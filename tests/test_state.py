@@ -21,8 +21,9 @@ reads as exhaustive: one of the ways to silence a part on an XV-2020 is not
 in the parameter address map at all.
 """
 
-from xv.bridge import (DeviceState, PartState, PerformanceCommon, SetupState,
-                       SoundMode, SystemChannels)
+from xv.bridge import (ChannelMidi, DeviceState, PartState,
+                       PerformanceCommon, SetupState, SoundMode,
+                       SystemChannels)
 
 
 class TestSilenceReport:
@@ -303,3 +304,86 @@ class TestOutputAssign:
         from xv.bridge import OUTPUT_ASSIGN
 
         assert set(OUTPUT_ASSIGN) == set(range(14))
+
+
+class TestChannelReceiveSwitches:
+    """Performance MIDI: whether a channel acts on what rxved sends.
+
+    Per MIDI channel, not per part -- the manual marks these "+" where the
+    per-part parameters are marked "#" (OM p. 74), and the address map gives
+    them their own sixteen blocks at 10 00 <10+ch> 00.
+
+    This is the failure this program is most able to cause: rxved sends Bank
+    Select and Program Change, and a channel with either switch off acts on
+    neither, silently.
+    """
+
+    def _state(self, midi):
+        setup = SetupState(
+            mode=SoundMode.PERFORM, patch_msb=87, patch_lsb=0,
+            patch_program=0, performance_msb=85, performance_lsb=0,
+            performance_program=0)
+        return DeviceState(
+            setup=setup,
+            channels=SystemChannels(patch_receive=0, performance_control=14),
+            parts=(PartState(part=1, receive_channel=0, msb=87, lsb=64,
+                             program_change=0),),
+            common=PerformanceCommon(name="X", solo=None),
+            midi=tuple(midi),
+        )
+
+    def test_bank_select_off_is_called_out_as_the_wrong_patch(self):
+        """Not "it does nothing" -- the PC still lands, in the old bank."""
+        entry = ChannelMidi(channel=0, bank_select=False)
+        assert "whatever bank the part is already on" in (
+            entry.selection_problem())
+
+    def test_program_change_off_is_a_different_message(self):
+        entry = ChannelMidi(channel=0, program_change=False)
+        assert entry.selection_problem() == "ignores Program Change"
+
+    def test_both_off_is_said_once(self):
+        entry = ChannelMidi(channel=0, program_change=False,
+                            bank_select=False)
+        assert entry.selection_problem() == (
+            "ignores Program Change and Bank Select")
+
+    def test_a_healthy_channel_has_no_problem(self):
+        assert ChannelMidi(channel=0).selection_problem() is None
+        assert ChannelMidi(channel=0).accepts_selection
+
+    def test_the_report_names_the_channels(self):
+        midi = [ChannelMidi(channel=c, bank_select=c not in (2, 3, 4))
+                for c in range(16)]
+        report = " ".join(self._state(midi).silence_report())
+        assert "Channels 3-5: ignores Bank Select" in report
+
+    def test_selection_problem_is_none_when_the_blocks_are_unread(self):
+        """Unread is not "fine": say nothing rather than something false."""
+        assert self._state([]).selection_problem(0) is None
+
+    def test_unread_blocks_produce_no_findings(self):
+        report = " ".join(self._state([]).silence_report())
+        assert "ignores" not in report
+
+    def test_the_screen_and_the_bridge_agree_on_channel_offsets(self):
+        """Same trap as the part columns: offered here, refused there."""
+        from rxved.app import EDITABLE_CHANNEL_COLUMNS
+        from xv.bridge import XvBridge
+
+        offered = {offset for offset, _, _, _
+                   in EDITABLE_CHANNEL_COLUMNS.values()}
+        assert offered <= set(XvBridge.WRITABLE_CHANNEL_OFFSETS)
+
+    def test_the_demo_accepts_every_channel_offset_the_bridge_does(self):
+        from rxved.demo import DemoBridge
+        from xv.bridge import XvBridge
+
+        assert set(DemoBridge._CHANNEL_FIELDS) == set(
+            XvBridge.WRITABLE_CHANNEL_OFFSETS)
+
+    def test_channel_writes_stay_in_the_temporary_performance(self):
+        """The safety argument again: 10 00 <10+ch> <offset>, nothing else."""
+        from xv.bridge import XvBridge
+
+        assert set(XvBridge.WRITABLE_CHANNEL_OFFSETS) == set(range(0x0C))

@@ -318,6 +318,36 @@ MIDI_COLUMNS = (("ch", "ch"), ("rx", "rx"), ("lvl", "lvl"), ("PC", "pc"),
 FX_COLUMNS = (("mute", "mute"), ("dry", "dry"), ("cho", "cho"),
               ("rev", "rev"), ("out", "out"), ("mfx", "mfx"))
 
+#: Per-**channel** receive switches (Performance MIDI). Shown on the part
+#: row for the channel that part listens on, which means two parts sharing a
+#: channel show the same values -- because they genuinely share them.
+RX_COLUMNS = (("ch", "ch"), ("rxPC", "rx_pc"), ("rxBS", "rx_bs"),
+              ("bend", "rx_bend"), ("mod", "rx_mod"), ("vol", "rx_vol"),
+              ("hold", "rx_hold"))
+
+#: The three column sets `tab` cycles through.
+COLUMN_VIEWS = (("MIDI", MIDI_COLUMNS), ("FX / routing", FX_COLUMNS),
+                ("receive switches", RX_COLUMNS))
+
+#: Column key -> the ChannelMidi attribute it shows.
+_CHANNEL_FIELDS = {
+    "rx_pc": "program_change", "rx_bs": "bank_select",
+    "rx_bend": "bender", "rx_mod": "modulation",
+    "rx_vol": "volume", "rx_hold": "hold_1",
+}
+
+#: Performance MIDI columns, by column key: offset, label, range. These are
+#: written with XvBridge.write_channel_param and addressed by channel, not
+#: by part -- see EDITABLE_PART_COLUMNS for the other allowlist.
+EDITABLE_CHANNEL_COLUMNS = {
+    "rx_pc": (0x00, "receive program change", 0, 1),
+    "rx_bs": (0x01, "receive bank select", 0, 1),
+    "rx_bend": (0x02, "receive bender", 0, 1),
+    "rx_mod": (0x05, "receive modulation", 0, 1),
+    "rx_vol": (0x06, "receive volume", 0, 1),
+    "rx_hold": (0x09, "receive hold 1", 0, 1),
+}
+
 
 class MultiScreen(ModalScreen[None]):
     """Multi-mode setup: all 16 Performance Parts, editable.
@@ -371,15 +401,18 @@ class MultiScreen(ModalScreen[None]):
         for digit in range(10)
     ]
 
-    def __init__(self, state, catalog, *, on_write=None) -> None:
+    def __init__(self, state, catalog, *, on_write=None,
+                 on_write_channel=None) -> None:
         super().__init__()
         self._state = state
         self._catalog = catalog
-        #: Which column set the table shows. Toggled by `tab`.
-        self._fx_view = False
+        #: Index into COLUMN_VIEWS. Cycled by `tab`.
+        self._view = 0
         #: ``on_write(part, offset, value, adopt)``. The screen never touches
         #: MIDI: it runs on the main thread, and workers do MIDI.
         self._on_write = on_write
+        #: ``on_write_channel(channel, offset, value, adopt)``.
+        self._on_write_channel_cb = on_write_channel
 
     # --- building ------------------------------------------------------------
 
@@ -404,10 +437,10 @@ class MultiScreen(ModalScreen[None]):
         return self._state.fx.summary()
 
     def _hint_text(self) -> str:
-        which = "FX / routing" if self._fx_view else "MIDI"
-        other = "MIDI" if self._fx_view else "FX / routing"
+        which = COLUMN_VIEWS[self._view][0]
+        nxt = COLUMN_VIEWS[(self._view + 1) % len(COLUMN_VIEWS)][0]
         return (
-            f"[b]{which}[/b] columns · tab for {other} · type a number, or "
+            f"[b]{which}[/b] columns · tab for {nxt} · type a number, or "
             f"⏎ to edit · space toggles · +/- adjust · edits go to the "
             f"temporary performance, so a power cycle undoes them"
         )
@@ -415,11 +448,11 @@ class MultiScreen(ModalScreen[None]):
     def _columns(self):
         """part, the current set, then the two that are always worth seeing.
 
-        The patch name and the silence flag stay in both views: the name is
+        The patch name and the silence flag stay in every view: the name is
         the only column that says what a part *is*, and the flag is the
         answer to the question the screen was opened to ask.
         """
-        middle = FX_COLUMNS if self._fx_view else MIDI_COLUMNS
+        middle = COLUMN_VIEWS[self._view][1]
         return ((("part", "part"),) + middle
                 + (("patch", "patch"), ("", "flag")))
 
@@ -435,7 +468,7 @@ class MultiScreen(ModalScreen[None]):
             table.add_row(*self._row_cells(part), key=str(part.part))
 
     def action_toggle_view(self) -> None:
-        self._fx_view = not self._fx_view
+        self._view = (self._view + 1) % len(COLUMN_VIEWS)
         self._build_table()
         self.query_one("#hint", Static).update(self._hint_text())
 
@@ -471,6 +504,17 @@ class MultiScreen(ModalScreen[None]):
         if column == "mfx":
             name = part.output_mfx_name
             return f"[b]{name}[/b]" if name.endswith("*") else name
+        if column in EDITABLE_CHANNEL_COLUMNS:
+            entry = self._state.channel_midi(part.receive_channel)
+            if entry is None:
+                return "[dim]?[/dim]"
+            on = getattr(entry, _CHANNEL_FIELDS[column])
+            # rxPC and rxBS off are why a select does nothing, so they are
+            # bolded; the rest are ordinary settings.
+            loud = column in ("rx_pc", "rx_bs")
+            if on:
+                return "on"
+            return "[b]OFF[/b]" if loud else "off"
         return ""
 
     def _row_cells(self, part):
@@ -503,7 +547,8 @@ class MultiScreen(ModalScreen[None]):
         row_key, column_key = table.coordinate_to_cell_key(
             table.cursor_coordinate)
         column = column_key.value
-        if column not in EDITABLE_PART_COLUMNS:
+        if (column not in EDITABLE_PART_COLUMNS
+                and column not in EDITABLE_CHANNEL_COLUMNS):
             return None, column
         part = next((p for p in self._state.parts
                      if str(p.part) == row_key.value), None)
@@ -524,7 +569,14 @@ class MultiScreen(ModalScreen[None]):
             "rev": part.reverb,
             "out": part.output_assign,
             "mfx": part.output_mfx,
-        }[column]
+        }.get(column) if column not in EDITABLE_CHANNEL_COLUMNS else (
+            self._channel_value(part, column))
+
+    def _channel_value(self, part, column: str) -> int:
+        entry = self._state.channel_midi(part.receive_channel)
+        if entry is None:
+            return 0
+        return 1 if getattr(entry, _CHANNEL_FIELDS[column]) else 0
 
     def on_data_table_cell_selected(self, event) -> None:
         """Enter on a cell. This is where Enter arrives, not a binding."""
@@ -541,13 +593,12 @@ class MultiScreen(ModalScreen[None]):
         part, column = self._cursor()
         if part is None:
             return
-        if column in self._SWITCHES:
+        if self._is_switch(column):
             if digit in ("0", "1"):
                 self._apply(part, column, int(digit))
             else:
-                _o, label, _lo, _hi = EDITABLE_PART_COLUMNS[column]
                 self.app.notify_status(
-                    f"{label} is 0 or 1", refused=True)
+                    f"{self._spec(column)[1]} is 0 or 1", refused=True)
             return
         self._prompt_for_value(part, column, seed=digit)
 
@@ -558,7 +609,7 @@ class MultiScreen(ModalScreen[None]):
                 f"{column} is not editable" if column else "nothing to edit",
                 refused=True)
             return
-        if column in self._SWITCHES:
+        if self._is_switch(column):
             self.action_toggle_cell()
             return
         # Seeded with the current value, because Enter means "change this
@@ -568,7 +619,7 @@ class MultiScreen(ModalScreen[None]):
             part, column, seed=str(self._current_value(part, column)))
 
     def _prompt_for_value(self, part, column: str, *, seed: str) -> None:
-        _offset, label, low, high = EDITABLE_PART_COLUMNS[column]
+        _offset, label, low, high = self._spec(column)
 
         def done(text) -> None:
             if text is None or not text.strip():
@@ -591,24 +642,38 @@ class MultiScreen(ModalScreen[None]):
     #: because there is nothing to type into a switch.
     _SWITCHES = {"rx": "receive_switch", "mute": "mute"}
 
+    def _is_switch(self, column: str) -> bool:
+        """One-bit columns: space toggles, a digit sets, no prompt."""
+        return column in self._SWITCHES or column in _CHANNEL_FIELDS
+
+    @staticmethod
+    def _spec(column: str):
+        """``(offset, label, low, high)`` for either allowlist."""
+        if column in EDITABLE_CHANNEL_COLUMNS:
+            return EDITABLE_CHANNEL_COLUMNS[column]
+        return EDITABLE_PART_COLUMNS[column]
+
     def action_toggle_cell(self) -> None:
         part, column = self._cursor()
-        if part is None or column not in self._SWITCHES:
+        if part is None or not self._is_switch(column):
             return
-        now = getattr(part, self._SWITCHES[column])
+        if column in _CHANNEL_FIELDS:
+            now = self._channel_value(part, column)
+        else:
+            now = getattr(part, self._SWITCHES[column])
         self._apply(part, column, 0 if now else 1)
 
     def action_bump(self, delta: int) -> None:
         part, column = self._cursor()
         if part is None:
             return
-        _offset, _label, low, high = EDITABLE_PART_COLUMNS[column]
+        _offset, _label, low, high = self._spec(column)
         value = self._current_value(part, column) + delta
         if low <= value <= high:
             self._apply(part, column, value)
 
     def _apply(self, part, column: str, value: int) -> None:
-        offset, label, low, high = EDITABLE_PART_COLUMNS[column]
+        offset, label, low, high = self._spec(column)
         if not low <= value <= high:
             self.app.notify_status(
                 f"{label} takes {low}-{high}, not {value}", refused=True)
@@ -616,10 +681,40 @@ class MultiScreen(ModalScreen[None]):
         if self._on_write is None:
             self.app.notify_status("not connected to a synth", refused=True)
             return
+        if column in EDITABLE_CHANNEL_COLUMNS:
+            # Addressed by channel, not by part. Several parts can share the
+            # channel, so the write shows up on every row that does -- which
+            # is the truth, and why the whole table is rebuilt rather than
+            # one row patched.
+            self._on_write_channel(part.receive_channel, offset, value)
+            return
         # 1-16 on screen, 0-15 on the wire. Converted here, once, in the
         # open -- see xv/banks.py on why this project never does it quietly.
         wire = value - 1 if column == "ch" else value
         self._on_write(part.part, offset, wire, self._adopt_part)
+
+    def _on_write_channel(self, channel: int, offset: int,
+                          value: int) -> None:
+        if self._on_write_channel_cb is None:
+            self.app.notify_status("not connected to a synth", refused=True)
+            return
+        self._on_write_channel_cb(channel, offset, value,
+                                  self._adopt_channel)
+
+    def _adopt_channel(self, fresh) -> None:
+        """Replace one channel's MIDI block with what the device reported."""
+        self._state = replace(
+            self._state,
+            midi=tuple(fresh if e.channel == fresh.channel else e
+                       for e in self._state.midi),
+        )
+        # Every row on that channel changes at once, so rebuild rather than
+        # patch -- and keep the cursor where the user left it.
+        table = self.query_one("#part-table", DataTable)
+        where = table.cursor_coordinate
+        self._build_table()
+        table.cursor_coordinate = where
+        self.query_one("#report", Static).update(self._report_text())
 
     def _adopt_part(self, fresh) -> None:
         """Replace one part with what the device reported after a write."""
@@ -1679,8 +1774,10 @@ class RxvedApp(App):
                 "\n".join(f"· {line}" for line in state.silence_report()),
             ))
             return
-        self.push_screen(
-            MultiScreen(state, self.catalog, on_write=self._write_part_param))
+        self.push_screen(MultiScreen(
+            state, self.catalog,
+            on_write=self._write_part_param,
+            on_write_channel=self._write_channel_param))
 
     def _write_part_param(self, part: int, offset: int, value: int,
                           adopt) -> None:
@@ -1689,6 +1786,42 @@ class RxvedApp(App):
             self.notify_status("busy", refused=True)
             return
         self._write_part_worker(part, offset, value, adopt)
+
+    def _write_channel_param(self, channel: int, offset: int, value: int,
+                             adopt) -> None:
+        """Hand one Performance MIDI write to a worker. Main thread."""
+        if self._busy:
+            self.notify_status("busy", refused=True)
+            return
+        self._write_channel_worker(channel, offset, value, adopt)
+
+    @work(thread=True)
+    def _write_channel_worker(self, channel: int, offset: int, value: int,
+                              adopt) -> None:
+        """**MIDI only.** Write one byte, then re-read the channel's block."""
+        self._busy = True
+        try:
+            with self._bridge_lock:
+                landed = self.bridge.write_channel_param(
+                    channel, offset, value)
+                fresh = self.bridge.read_performance_midi(channel)
+        except Exception as exc:
+            self.call_from_thread(
+                self.notify_status, f"write: {exc}", refused=True)
+            return
+        finally:
+            self._busy = False
+        self.call_from_thread(adopt, fresh)
+        if landed != value:
+            self.call_from_thread(
+                self.notify_status,
+                f"ch {channel + 1}: wrote {value}, synth reports {landed}",
+                refused=True)
+        else:
+            self.call_from_thread(
+                self.notify_status,
+                f"ch {channel + 1}: set to {landed} in the temporary "
+                f"performance (not stored)")
 
     @work(thread=True)
     def _write_part_worker(self, part: int, offset: int, value: int,

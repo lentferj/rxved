@@ -708,3 +708,52 @@ Counts came out exactly right for all seven (79, 12, 34, 5, 11, 21, 12), and
 SRX-01 is the one worth having checked: its 79 kits are printed as four
 sub-groups (Drum Kit, Kick, Snare, Hi Hat) numbered straight through, and
 the readings at every group boundary — 1, 25, 36, 62 — match the manual.
+
+---
+
+## §12 — "It only sounds on channel 1"
+
+**Answered 2026-09-11, against the hardware,** with `rxvcli multi`. Two
+causes were present at once, and either one alone produces the symptom:
+
+- **Sound mode was PATCH.** Single-timbral: only the Patch Receive Channel
+  sounds and the Performance Parts are not consulted at all. Every part
+  parameter reads back perfectly normal in this state, which is what makes
+  it hard to spot — nothing looks wrong because nothing is wrong, the parts
+  simply are not in use.
+- **Parts 4–16 had Receive Switch off** in the loaded performance, and parts
+  1–3 all sit on channel 1 as a layer. So switching to PERFORM would have
+  changed nothing observable.
+
+The second is the one that matters for the report's design. The first
+version returned early in Patch mode, reasoning that the parts are not in
+use so there is nothing to say about them. Against this machine that would
+have sent somebody to change the mode and left them with the same symptom
+and no further information. Both halves are now reported together.
+
+### The advice was unfollowable
+
+The first version said to "check MUTE on the panel". The XV-2020 has no
+panel to check: it is a half-rack module with a three-digit LED and four
+controls. **OM p. 116, "List of Parameters That Can Be Affected Using the
+XV-2020", is the authority** on what those controls reach, and it is short.
+
+Reachable on the module: sound mode ([VALUE] until the right indicator
+lights), Part Level, Part Pan/Tune/Output/Voice Reserve/sends, Part Type,
+and a part's Receive Channel ([PATCH RX CH]/[PART]).
+
+**Not reachable on the module: Receive Switch, Mute Switch, Solo Part
+Select.** Those can only be set from the XV-2020 Editor or over SysEx —
+which also answers how a machine ends up in this state without its owner
+remembering doing it at the front panel. They could not have done it there.
+
+### What rxved can and cannot do about it
+
+Reading: all of it except the Mute Switch, which is absent from the
+parameter address map entirely and so reads back as audible no matter what
+it is set to. The report says so every time the parts are discussed.
+
+Writing: nothing, by policy. Restoring these parts means writing `01` to
+offset `00 01` of each part in Temporary Performance — the edit buffer, not
+stored memory — or using the editor. See TODO.md item 11.
+

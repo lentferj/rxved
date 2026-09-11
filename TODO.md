@@ -209,9 +209,21 @@ a SQLite file. `rxvcli fav` prints a table; a `--json` or `--csv` flag would
 make it scriptable, and an importer would make the file portable between
 machines.
 
-## 11 — Confirm why only channel 1 sounds
+## 11 — Why only channel 1 sounds
 
-**Status:** open, needs the hardware.
+**Status:** answered 2026-09-11 against the hardware. Two causes at once:
+the sound mode is PATCH (single-timbral), **and** parts 4-16 in the loaded
+performance have Receive Switch off. See docs/RESOLUTION_NOTES.md §12.
+
+What remains open is whether rxved should be able to *fix* it. Receive
+Switch is not among the parameters the module itself can reach (OM p. 116),
+so the only routes are the XV-2020 Editor or a SysEx write to Temporary
+Performance. rxved is read-only by policy. Writing offset `00 01` of a part
+touches the edit buffer rather than stored memory, but it is still a write,
+and CLAUDE.md requires any such thing behind an arm-then-fire screen that is
+never key-bound. Not built; the user's call.
+
+**Superseded notes below.**
 
 The `m` (multi-mode setup) window was written for this and has not yet been
 run against the synth. Press `m` and read the report.

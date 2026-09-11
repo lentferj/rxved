@@ -84,6 +84,8 @@ class DemoBridge:
         self.selected: Optional[banks.Slot] = None
         self.selected_log: List[banks.Slot] = []
         self.channel_log: List[Optional[int]] = []
+        #: Raw (msb, lsb, pc) triples, which is how a restore goes out.
+        self.raw_log: List[tuple] = []
         #: The demo synth answers with the factory defaults -- patch
         #: channel 1, performance control channel 16 -- so the two-channel
         #: behaviour is exercised without hardware. Deliberately *not* the
@@ -241,19 +243,28 @@ class DemoBridge:
         self.channel_log.append(channel)
         self._tick()
 
+    def select_raw(self, msb: int, lsb: int, program_change: int, *,
+                   channel: Optional[int] = None) -> None:
+        self.raw_log.append((msb, lsb, program_change))
+        self._tick()
+
     def scan_bank(self, bank_id: str, *, on_progress=None,
-                  settle: float = 0.0, timeout=None) -> Dict[int, str]:
+                  settle: float = 0.0, restore: bool = True,
+                  timeout=None) -> Dict[int, str]:
         entries = banks.slots(bank_id)
         out: Dict[int, str] = {}
+        before = (87, 0, 0) if restore else None
         for index, entry in enumerate(entries):
             self.select(entry)
             out[entry.number] = _demo_name(bank_id, entry.number)
             if on_progress is not None:
                 on_progress(index + 1, len(entries), out[entry.number])
+        if before is not None:
+            self.select_raw(*before)
         return out
 
     def probe_srx(self, *, lsb_range: Iterable[int] = range(0, 64),
-                  settle: float = 0.0, on_progress=None,
+                  settle: float = 0.0, restore: bool = True, on_progress=None,
                   timeout=None) -> Dict[int, str]:
         """Pretend an SRX-07 is fitted, so the probe path has something to find."""
         card = banks.srx_card("SRX-07")
@@ -268,4 +279,6 @@ class DemoBridge:
                 found[lsb] = expected[lsb]
             if on_progress is not None:
                 on_progress(lsb, found.get(lsb))
+        if restore:
+            self.select_raw(87, 0, 0)
         return found

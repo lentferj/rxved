@@ -334,3 +334,49 @@ class TestChannelSelector:
             await pilot.press("enter")
             await pilot.pause(0.3)
             assert app.bridge.channel_log[0] == 15
+
+
+class TestKeyLegend:
+    """The legend wraps; it never truncates. See tests/test_legend.py."""
+
+    async def test_the_app_renders_the_legend_not_a_footer(self, app):
+        from textual.widgets import Footer
+
+        from rxved.app import KeyHints
+
+        async with app.run_test(size=(80, 30)) as pilot:
+            await pilot.pause()
+            assert app.query(KeyHints)
+            assert not app.query(Footer)
+
+
+class TestSweepsPutTheSynthBack:
+    """A scan or probe must not leave the synth somewhere the user did not ask for.
+
+    rxved's own SRX probe sweeps Bank Select LSB 0-63 at MSB 93 and used to
+    stop wherever it finished — which on the author's machine left it on
+    MSB 93 / LSB 63, a triple no board in Roland's table even uses. Found by
+    reading the browser's own status line after a probe.
+    """
+
+    async def test_a_scan_restores_the_previous_patch(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            index = banks.bank_ids().index("R-USER")
+            for _ in range(index):
+                await pilot.press("down")
+            await pilot.pause()
+            app.action_scan_bank()
+            await pilot.pause()
+            await pilot.press("y")
+            await pilot.pause(0.5)
+            assert app.bridge.raw_log, "scan left the synth where it stopped"
+
+    async def test_a_probe_restores_the_previous_patch(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.action_probe_srx()
+            await pilot.pause()
+            await pilot.press("y")
+            await pilot.pause(0.6)
+            assert app.bridge.raw_log, "probe left the synth on its last LSB"

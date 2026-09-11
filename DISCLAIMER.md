@@ -98,9 +98,15 @@ It does **play the instrument**, in three places, all of which say so:
 - `Enter` in the TUI, `rxvcli select` — sends Bank Select and Program
   Change, changing the sound immediately and audibly.
 - `s` in the TUI, `rxvcli scan --yes` — the same, once per slot, up to 128
-  times in a row, leaving the synth on the last one.
+  times in a row.
 - `x` in the TUI, `rxvcli probe-srx --yes` — the same across candidate
   Bank Select LSBs.
+
+Both sweeps read the current patch first and put the synth back on it when
+they finish, so they are audible but not persistent. They did not always: the
+SRX probe used to stop wherever it ended, which left the author's machine
+sitting on MSB 93 / LSB 63 — a triple no board in Roland's table uses. It was
+found by reading rxved's own status line afterwards.
 
 The two sweeping operations ask for confirmation in the TUI and refuse to
 run without `--yes` on the command line. None of them fire from cursor

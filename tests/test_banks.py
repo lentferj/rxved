@@ -349,6 +349,20 @@ class TestDeviceState:
         assert setup.patch_slot.bank_id == "USER"
         assert setup.performance_slot.bank_id == "P-USER"
 
+    def test_an_unclaimed_triple_shows_its_numbers(self):
+        """"Unrecognised" alone is useless exactly when the bytes matter."""
+        from xv.bridge import SetupState, SoundMode, SystemChannels, DeviceState
+
+        state = DeviceState(
+            setup=SetupState(mode=SoundMode.PATCH, patch_msb=87, patch_lsb=3,
+                             patch_program=5, performance_msb=85,
+                             performance_lsb=0, performance_program=0),
+            channels=SystemChannels(patch_receive=0, performance_control=15),
+        )
+        described = state.describes_short(0)
+        assert "87" in described and "3" in described and "5" in described
+        assert "no bank claims" in described
+
     def test_an_unrecognised_bank_is_none_not_a_crash(self):
         """An SRX board rxved has no row for, or a mode it did not expect."""
         from xv.bridge import SetupState

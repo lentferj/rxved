@@ -603,6 +603,21 @@ class SetupState:
                             self.performance_program)
 
 
+def _describe_selection(slot, msb: int, lsb: int, program: int) -> str:
+    """A slot if rxved's table claims the triple, else the raw numbers.
+
+    Saying only "an unrecognised bank/PC" is the least useful thing possible
+    at exactly the moment the numbers matter most: an unclaimed triple means
+    either the synth is somewhere rxved's bank table does not cover (an SRX
+    board it has no row for, a GM variation past LSB 9) or the table is
+    wrong. Both are diagnosable from the bytes and neither is diagnosable
+    from the word "unrecognised".
+    """
+    if slot is not None:
+        return str(slot)
+    return f"MSB {msb} / LSB {lsb} / PC {program} — no bank claims this"
+
+
 @dataclass(frozen=True)
 class DeviceState:
     """Everything needed to answer "what does channel N do right now?"."""
@@ -635,24 +650,23 @@ class DeviceState:
         """As :meth:`describes`, without the leading channel number."""
         if not self.setup.multitimbral:
             if channel == self.channels.patch_receive:
-                slot = self.setup.patch_slot
-                return (f"the patch — currently "
-                        f"{slot if slot else 'an unrecognised bank/PC'}")
+                return ("the patch — currently " + _describe_selection(
+                    self.setup.patch_slot, self.setup.patch_msb,
+                    self.setup.patch_lsb, self.setup.patch_program))
             return (f"nothing — in {self.setup.mode_name} mode only the Patch "
                     f"Receive Channel ({self.channels.patch_display}) "
                     f"selects anything")
         if channel == self.channels.performance_control:
-            slot = self.setup.performance_slot
-            return (f"the whole performance — currently "
-                    f"{slot if slot else 'an unrecognised bank/PC'}")
+            return ("the whole performance — currently " + _describe_selection(
+                self.setup.performance_slot, self.setup.performance_msb,
+                self.setup.performance_lsb, self.setup.performance_program))
         here = self.parts_on(channel)
         if not here:
             return "no part listens on this channel"
         if len(here) == 1:
             part = here[0]
-            slot = part.slot
-            return (f"part {part.part} — currently "
-                    f"{slot if slot else 'an unrecognised bank/PC'}")
+            return (f"part {part.part} — currently " + _describe_selection(
+                part.slot, part.msb, part.lsb, part.program_change))
         names = ", ".join(
             f"{p.part}={p.slot if p.slot else '?'}" for p in here)
         return (f"parts {names} — layered, so a Program Change here "
@@ -1255,6 +1269,25 @@ class XvBridge:
         for message in entry.select_messages(channel):
             self._out.send_message(message)
 
+    def select_raw(self, msb: int, lsb: int, program_change: int, *,
+                   channel: Optional[int] = None) -> None:
+        """Send a Bank Select / Program Change triple by its raw numbers.
+
+        Needed because a *restore* must be able to put the synth back on a
+        triple rxved's bank table does not claim -- an SRX board it has no
+        row for, say. Restoring only the triples we happen to recognise
+        would be worse than not restoring at all, since it would silently
+        move the synth somewhere else.
+        """
+        target = self.channel if channel is None else channel
+        for value, name in ((msb, "MSB"), (lsb, "LSB"),
+                            (program_change, "program change")):
+            if not 0 <= value <= 127:
+                raise ValueError(f"{name} {value} is outside 0-127")
+        self._out.send_message([0xB0 | target, 0, msb])
+        self._out.send_message([0xB0 | target, 32, lsb])
+        self._out.send_message([0xC0 | target, program_change])
+
     def channel_for(self, kind: str) -> Optional[int]:
         """The channel a slot of this kind should be selected on.
 
@@ -1277,7 +1310,7 @@ class XvBridge:
         return self.channels
 
     def probe_srx(self, *, lsb_range: Iterable[int] = range(0, 64),
-                  settle: float = SELECT_GAP,
+                  settle: float = SELECT_GAP, restore: bool = True,
                   on_progress: Optional[Callable[[int, Optional[str]], None]] = None,
                   timeout: Optional[float] = None) -> Dict[int, str]:
         """Find which SRX Bank Select LSBs the fitted card actually answers on.
@@ -1305,6 +1338,7 @@ class XvBridge:
         """
         found: Dict[int, str] = {}
         previous: Optional[str] = None
+        before = self._remember_selection() if restore else None
         for lsb in lsb_range:
             self._out.send_message([0xB0 | self.channel, 0, banks.MSB_SRX_PATCH])
             self._out.send_message([0xB0 | self.channel, 32, lsb])
@@ -1321,11 +1355,12 @@ class XvBridge:
                 previous = name
             if on_progress is not None:
                 on_progress(lsb, found.get(lsb))
+        self._restore_selection(before)
         return found
 
     def scan_bank(self, bank_id: str, *,
                   on_progress: Optional[Callable[[int, int, str], None]] = None,
-                  settle: float = SELECT_GAP,
+                  settle: float = SELECT_GAP, restore: bool = True,
                   timeout: Optional[float] = None) -> Dict[int, str]:
         """Learn a whole bank's names by selecting each slot and reading back.
 
@@ -1347,6 +1382,7 @@ class XvBridge:
         entries = banks.slots(bank_id)
         out: Dict[int, str] = {}
         previous: Optional[str] = None
+        before = self._remember_selection() if restore else None
         for index, entry in enumerate(entries):
             self.select(entry)
             time.sleep(settle)
@@ -1360,4 +1396,25 @@ class XvBridge:
             previous = name
             if on_progress is not None:
                 on_progress(index + 1, len(entries), name)
+        self._restore_selection(before)
         return out
+
+    def _remember_selection(self) -> Optional[Tuple[int, int, int]]:
+        """The patch triple to put back after a sweep, if it can be read."""
+        try:
+            setup = self.read_setup()
+        except Exception:
+            # Not worth failing a scan over; the caller is told the synth is
+            # left on the last slot either way.
+            return None
+        return (setup.patch_msb, setup.patch_lsb, setup.patch_program)
+
+    def _restore_selection(self, before: Optional[Tuple[int, int, int]]
+                           ) -> None:
+        """Put the synth back where the sweep found it."""
+        if before is None:
+            return
+        try:
+            self.select_raw(*before, channel=self.channel_for(banks.Kind.PATCH))
+        except Exception:
+            pass

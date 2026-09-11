@@ -2,6 +2,12 @@
 # SPDX-FileCopyrightText: Copyright (C) 2026  rxved contributors
 #
 # This file is part of rxved.
+# `wrap_blocks` and `KeyHints` are ported from the sibling s3ked project's
+# s3ked/app.py, which ports them from eosed and k2kremote, all by the same
+# author and all GPL-2.0-or-later:
+#   Copyright (C) 2026  k2kremote contributors  - GPL-2.0-or-later
+#   Copyright (C) 2026  eosed contributors      - GPL-2.0-or-later
+#   Copyright (C) 2026  s3ked contributors      - GPL-2.0-or-later
 #
 # rxved is free software: you can redistribute it and/or modify it under the
 # terms of the GNU General Public License as published by the Free Software
@@ -53,7 +59,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import DataTable, Footer, Header, Input, Label, Static
+from textual.widgets import DataTable, Header, Input, Label, Static
 
 from xv import banks
 from xv import catalog as cat
@@ -165,6 +171,79 @@ class ReportScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
+#: Separator between key hints in the legend, matching k2kremote, eosed and
+#: s3ked.
+_LEGEND_SEP = " · "
+
+
+def wrap_blocks(blocks, width: int, sep: str = _LEGEND_SEP) -> str:
+    """Pack ``blocks`` into lines no wider than ``width``, joined by ``sep``.
+
+    Ported from the sibling s3ked, which ports it from eosed and k2kremote.
+    Breaks happen only *between* blocks, so a hint like ``[ ] channel`` is
+    never split mid-label; a block wider than ``width`` on its own simply
+    takes its own line rather than being cut.
+    """
+    lines, current = [], ""
+    for block in blocks:
+        candidate = block if not current else current + sep + block
+        if width and len(candidate) > width and current:
+            lines.append(current)
+            current = block
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    return "\n".join(lines)
+
+
+class KeyHints(Static):
+    """The key legend, folded to the terminal's width over as many lines as it needs.
+
+    **Replaces Textual's ``Footer``**, which is hardcoded to one line and
+    truncates rather than wrapping. rxved hit exactly the failure the sibling
+    projects document: in a 132-column window the legend wanted 251 columns,
+    and the keys that fell off the end were the channel selector -- the
+    newest and least guessable part of the interface, and the one this
+    project had just spent an afternoon establishing was necessary.
+
+    Working around it by shortening labels and hiding bindings, which is what
+    rxved tried first, only moves which keys are invisible. Wrapping is the
+    fix: one line on a wide terminal, more on a narrow one, and nothing ever
+    hidden.
+    """
+
+    DEFAULT_CSS = "KeyHints { height: auto; background: $panel; padding: 0 1; }"
+
+    def __init__(self, blocks, *, id=None):
+        super().__init__(id=id)
+        self._blocks = list(blocks)
+
+    def on_mount(self) -> None:
+        self._render_hints()
+
+    def on_resize(self, event) -> None:
+        self._render_hints()
+
+    def set_blocks(self, blocks) -> None:
+        self._blocks = list(blocks)
+        self._render_hints()
+
+    def _render_hints(self) -> None:
+        self.update(wrap_blocks(self._blocks, self.size.width))
+
+
+#: The legend. Every binding the app has, in the order somebody meets them.
+#: Nothing is omitted, because KeyHints wraps rather than truncating.
+KEY_HINTS = (
+    "↑↓ move", "tab pane", "⏎ select on synth",
+    "[ ] channel", "c set channel", "R re-read",
+    "f favourite", "F list", "t tags", "n note", "/ search",
+    "r read names", "s scan bank", "x probe SRX",
+    "i device", "? help", "q quit",
+)
+
+
 #: Short labels for the bank list's "kind" column. Spelled out rather than
 #: truncated to the column width -- "patc" and "perf" are not words, and the
 #: column is there to be read at a glance.
@@ -187,35 +266,33 @@ class RxvedApp(App):
     #banks { width: 34; border-right: solid $panel; }
     #slots { width: 1fr; }
     DataTable { height: 1fr; }
-    #status { height: 1; background: $panel; color: $text; padding: 0 1; }
+    #status { height: 1; background: $boost; color: $text; padding: 0 1; }
     #detail { height: 4; padding: 0 1; border-top: solid $panel; }
     .refused { background: $error; color: $text; }
     """
 
+    # The legend is drawn by KeyHints, not by Textual's Footer, so nothing
+    # here needs shortening to fit and nothing is hidden -- see KeyHints for
+    # why that matters. `priority` on enter is still load-bearing: a focused
+    # DataTable consumes Enter for its own row selection.
     BINDINGS = [
-        Binding("q", "quit", "Quit"),
-        Binding("tab", "switch_pane", "Switch pane"),
-        # `priority` is load-bearing: a focused DataTable consumes Enter for
-        # its own row selection, so without it this binding never fires and
-        # the one key that is supposed to select a patch does nothing. The
-        # sibling s3ked hit the same thing and worked around it by binding a
-        # different key; a priority binding keeps Enter, which is the key
-        # people will actually try.
         Binding("enter", "select_slot", "Select on synth", priority=True),
+        Binding("left_square_bracket", "channel_down", "Channel -"),
+        Binding("right_square_bracket", "channel_up", "Channel +"),
+        Binding("c", "pick_channel", "Set channel"),
+        Binding("R", "refresh_state", "Re-read the synth"),
         Binding("f", "toggle_favorite", "Favourite"),
-        Binding("F", "show_favorites", "Favourites"),
+        Binding("F", "show_favorites", "List favourites"),
         Binding("t", "edit_tags", "Tags"),
         Binding("n", "edit_note", "Note"),
+        Binding("slash", "search", "Search"),
         Binding("r", "read_bank", "Read names"),
         Binding("s", "scan_bank", "Scan bank"),
         Binding("x", "probe_srx", "Probe SRX"),
-        Binding("/", "search", "Search"),
-        Binding("left_square_bracket", "channel_down", "Ch -"),
-        Binding("right_square_bracket", "channel_up", "Ch +"),
-        Binding("c", "pick_channel", "Channel"),
-        Binding("R", "refresh_state", "Refresh"),
         Binding("i", "device_info", "Device"),
-        Binding("?", "help", "Help"),
+        Binding("question_mark", "help", "Help"),
+        Binding("tab", "switch_pane", "Switch pane"),
+        Binding("q", "quit", "Quit"),
     ]
 
     def __init__(self, bridge, *, favorites, catalog=None,
@@ -256,7 +333,7 @@ class RxvedApp(App):
                 yield DataTable(id="slot-table", cursor_type="row")
         yield Static("", id="detail")
         yield Static("", id="status")
-        yield Footer()
+        yield KeyHints(KEY_HINTS, id="hints")
 
     def on_mount(self) -> None:
         self.title = "rxved"
@@ -372,7 +449,10 @@ class RxvedApp(App):
             self._filling = False
         plural = {"patch": "patches", "rhythm": "rhythm sets",
                   "performance": "performances"}[entry.kind]
-        self.sub_title = f"{entry.label} ({bank_id}) — {entry.count} {plural}"
+        self.sub_title = (
+            f"{entry.label} ({bank_id}) — {entry.count} {plural}   ·   "
+            f"ch {self.target_channel + 1}"
+        )
         self._update_detail(0)
 
     def _update_detail(self, row: int) -> None:
@@ -691,8 +771,10 @@ class RxvedApp(App):
                 f"This is the only way to read preset and expansion names -- "
                 f"they have no address in the parameter map -- but it "
                 f"[b]plays the synth[/b]: it sends {entry.count} program "
-                f"changes on MIDI channel {self.channel + 1} and leaves it on "
-                f"the last one. Not what you want mid-take."
+                f"changes on MIDI channel {self.target_channel + 1}. rxved puts "
+                f"the synth back on the patch it was on when the scan "
+                f"finishes, but everything in between is audible — not what "
+                f"you want mid-take."
             ),
             go,
         )
@@ -749,8 +831,9 @@ class RxvedApp(App):
                 "manual it has read (SRX-07, SRX-08). This finds any card by "
                 "selecting patch 1 at each candidate LSB and reading back "
                 "what the synth says it is now playing.\n\n"
-                "It [b]plays the synth[/b] -- 64 program changes -- and "
-                "leaves it on the last one that answered."
+                "It [b]plays the synth[/b] — 64 program changes — though "
+                "rxved puts it back on the patch it was on when the probe "
+                "finishes."
             ),
             go,
         )
@@ -838,6 +921,7 @@ class RxvedApp(App):
         """
         self.target_channel = channel
         self.channel_is_from_device = True
+        self._fill_slots(self._current_bank)   # refresh the title's channel
         self._update_detail(
             self.query_one("#slot-table", DataTable).cursor_row)
         if self._busy:

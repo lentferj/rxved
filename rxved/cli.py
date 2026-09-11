@@ -329,10 +329,14 @@ def _cmd_channels(bridge, args) -> None:
     else:
         print(f"performance control channel      "
               f"{state.channels.performance_display}")
-    print(f"current patch                    "
-          f"{setup.patch_slot or 'unrecognised bank/PC'}")
-    print(f"current performance              "
-          f"{setup.performance_slot or 'unrecognised bank/PC'}")
+    from xv.bridge import _describe_selection
+
+    print(f"current patch                    " + _describe_selection(
+        setup.patch_slot, setup.patch_msb, setup.patch_lsb,
+        setup.patch_program))
+    print(f"current performance              " + _describe_selection(
+        setup.performance_slot, setup.performance_msb,
+        setup.performance_lsb, setup.performance_program))
 
     if state.parts:
         print()
@@ -353,8 +357,9 @@ def _cmd_scan(bridge, args) -> None:
     if not args.yes:
         raise SystemExit(
             f"error: scanning {args.bank} sends {entry.count} program "
-            f"changes and leaves the synth on the last one -- it plays the "
-            f"instrument. Re-run with --yes if that is what you want."
+            f"changes -- it plays the instrument, audibly, for as long as it "
+            f"takes. (The patch it was on is restored at the end.) Re-run "
+            f"with --yes if that is what you want."
         )
 
     def progress(done: int, total: int, name: str) -> None:
@@ -373,9 +378,9 @@ def _cmd_scan(bridge, args) -> None:
 def _cmd_probe_srx(bridge, args) -> None:
     if not args.yes:
         raise SystemExit(
-            "error: probing sends a program change per candidate LSB and "
-            "leaves the synth on the last one that answered -- it plays the "
-            "instrument. Re-run with --yes."
+            "error: probing sends a program change per candidate LSB -- it "
+            "plays the instrument. (The patch it was on is restored at the "
+            "end.) Re-run with --yes."
         )
     found = bridge.probe_srx(lsb_range=range(args.first_lsb, args.last_lsb + 1))
     if not found:

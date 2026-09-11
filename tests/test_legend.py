@@ -72,3 +72,41 @@ class TestKeyLegend:
         narrow = len(wrap_blocks(KEY_HINTS, 60).splitlines())
         assert narrow > wide
 
+
+
+class TestWorkersStayOffTheStore:
+    """A worker touching the SQLite store kills the app; see CLAUDE.md.
+
+    Checked structurally rather than by exercising every worker, because the
+    failure only appears when a particular key is pressed with a particular
+    store open — which is how it reached a user in the first place.
+    """
+
+    def test_no_worker_reaches_favorites_or_catalog_directly(self):
+        import ast
+        import pathlib
+
+        tree = ast.parse(pathlib.Path("rxved/app.py").read_text())
+        app = next(n for n in tree.body
+                   if isinstance(n, ast.ClassDef) and n.name == "RxvedApp")
+        offenders = []
+        for fn in app.body:
+            if not isinstance(fn, ast.FunctionDef):
+                continue
+            if not any(
+                (isinstance(d, ast.Call) and getattr(d.func, "id", "") == "work")
+                or getattr(d, "id", "") == "work"
+                for d in fn.decorator_list
+            ):
+                continue
+            for node in ast.walk(fn):
+                if (isinstance(node, ast.Attribute)
+                        and isinstance(node.value, ast.Attribute)
+                        and isinstance(node.value.value, ast.Name)
+                        and node.value.value.id == "self"
+                        and node.value.attr in ("favorites", "catalog")):
+                    offenders.append(f"{fn.name}: self.{node.value.attr}."
+                                     f"{node.attr}")
+        assert not offenders, (
+            "workers must do MIDI only and hand off with call_from_thread: "
+            + ", ".join(offenders))

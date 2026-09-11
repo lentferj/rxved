@@ -974,6 +974,15 @@ class RxvedApp(App):
 
     @work(thread=True)
     def _device_info_worker(self) -> None:
+        """Ask the synth who it is. **MIDI only** -- see _show_device_info.
+
+        This worker deliberately touches nothing but the bridge. Building the
+        report needs the favourites database, and that is a SQLite connection
+        opened on the main thread, which refuses cross-thread use; doing it
+        here crashed the whole application the first time anybody pressed
+        `i`. The rule the rest of the app already followed and this one broke:
+        a worker does the MIDI, the main thread does everything else.
+        """
         try:
             with self._bridge_lock:
                 identity = self.bridge.identify()
@@ -981,16 +990,19 @@ class RxvedApp(App):
             self.call_from_thread(
                 self.notify_status, f"identify: {exc}", refused=True)
             return
+        self.call_from_thread(self._show_device_info, identity)
+
+    def _show_device_info(self, identity) -> None:
+        """Build and show the device report. Main thread only."""
         if identity is None:
-            self.call_from_thread(
-                self.notify_status,
+            self.notify_status(
                 "no Identity Reply. The XV-2020 answers a request it cannot "
                 "serve with silence, so this means powered off, wrong port, "
                 "Rx Exclusive off -- or simply busy.",
                 refused=True,
             )
             return
-        body = "\n".join([
+        rows = [
             f"connection        {getattr(self.bridge, 'description', '?')}",
             f"device ID         {identity.device_display} "
             f"(wire byte {identity.device_id:#04x})",
@@ -999,15 +1011,38 @@ class RxvedApp(App):
             f"family number     {identity.family_number[0]:#04x} "
             f"{identity.family_number[1]:#04x}",
             f"software revision {identity.revision_text}",
-            f"MIDI channel      {self.channel + 1} (rxved sends here)",
+        ]
+        state = getattr(self.bridge, "state", None)
+        if state is not None:
+            rows += [
+                "",
+                f"sound mode        {state.setup.mode_name}",
+                f"patch channel     {state.channels.patch_display}",
+                f"performance chan  "
+                + (str(state.channels.performance_display)
+                   if state.channels.performance_display is not None
+                   else "OFF"),
+                f"rxved sends on    ch {self.target_channel + 1}"
+                f"  ({state.describes_short(self.target_channel)})",
+            ]
+            if state.parts:
+                rows.append("")
+                rows.append("part  ch   slot")
+                for part in state.parts:
+                    rows.append(
+                        f"{part.part:>4}  {part.channel_display:>2}   "
+                        f"{part.slot if part.slot else '?'}")
+        else:
+            rows.append(f"rxved sends on    ch {self.target_channel + 1} "
+                        f"(synth state not read)")
+        rows += [
             "",
             f"catalog           {len(self.catalog)} names"
             + (f" from {self.catalog.source}" if self.catalog.source else ""),
             f"favourites        {len(self.favorites)} "
             f"in {self.favorites.path}",
-        ])
-        self.call_from_thread(
-            self.push_screen, ReportScreen("Device", body))
+        ]
+        self.push_screen(ReportScreen("Device", "\n".join(rows)))
 
     def action_help(self) -> None:
         self.push_screen(ReportScreen("rxved", _HELP))

@@ -47,6 +47,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -137,6 +138,74 @@ def default_path() -> str:
     return os.path.join(data_dir(), DB_NAME)
 
 
+class _Result:
+    """The rows of one statement, already fetched.
+
+    :class:`_LockedConnection` hands this back instead of a live cursor,
+    because a cursor iterated *after* the lock is released is exactly the
+    interleaving the lock exists to prevent. Everything is read inside the
+    lock; what comes out is an ordinary list.
+    """
+
+    __slots__ = ("rows", "rowcount")
+
+    def __init__(self, rows, rowcount: int) -> None:
+        self.rows = rows
+        self.rowcount = rowcount
+
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
+
+    def fetchall(self):
+        return self.rows
+
+    def __iter__(self):
+        return iter(self.rows)
+
+
+class _LockedConnection:
+    """A SQLite connection usable from more than one thread.
+
+    SQLite refuses cross-thread use of a connection by default, and that
+    default is a silent mine in a Textual application: the store is opened on
+    the main thread, and any background worker that so much as asks for
+    ``len()`` raises ``ProgrammingError`` *out of the worker*, which takes the
+    whole application down. That is not hypothetical -- it is what pressing
+    `i` did, the first time anybody pressed it, because the device-info
+    worker built its report on the wrong thread.
+
+    The structural fix was to move that work back to the main thread. This is
+    the belt to that's braces: one lock, held across each statement and its
+    fetch, so the next worker to reach for the database finds it safe rather
+    than fatal. SQLite is content with a connection shared between threads as
+    long as the calls do not overlap, and serialising operations this small
+    costs nothing at this size.
+    """
+
+    def __init__(self, path: str) -> None:
+        self._lock = threading.RLock()
+        self._db = sqlite3.connect(path, check_same_thread=False)
+        self._db.row_factory = sqlite3.Row
+
+    def execute(self, sql: str, parameters=()) -> _Result:
+        with self._lock:
+            cursor = self._db.execute(sql, parameters)
+            rows = cursor.fetchall()
+            return _Result(rows, cursor.rowcount)
+
+    def executescript(self, sql: str) -> None:
+        with self._lock:
+            self._db.executescript(sql)
+
+    def commit(self) -> None:
+        with self._lock:
+            self._db.commit()
+
+    def close(self) -> None:
+        with self._lock:
+            self._db.close()
+
+
 @dataclass(frozen=True)
 class Favorite:
     """One favourited slot."""
@@ -172,10 +241,8 @@ class Favorites:
         if self.path != ":memory:":
             os.makedirs(os.path.dirname(os.path.abspath(self.path)),
                         exist_ok=True)
-        self._db = sqlite3.connect(self.path)
-        self._db.row_factory = sqlite3.Row
-        # Without this SQLite does not enforce the primary key on conflict
-        # resolution the way the upsert below expects on very old builds.
+        # Shared across threads on purpose; see _LockedConnection.
+        self._db = _LockedConnection(self.path)
         self._db.execute("PRAGMA journal_mode=WAL")
         self._migrate()
 

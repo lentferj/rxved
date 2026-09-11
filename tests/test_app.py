@@ -23,7 +23,7 @@ one you cannot.
 
 import pytest
 
-from rxved.app import RxvedApp
+from rxved.app import ReportScreen, RxvedApp
 from rxved.demo import DemoBridge
 from rxved.favorites import Favorites
 from xv import banks
@@ -380,3 +380,38 @@ class TestSweepsPutTheSynthBack:
             await pilot.press("y")
             await pilot.pause(0.6)
             assert app.bridge.raw_log, "probe left the synth on its last LSB"
+
+
+class TestDeviceInfo:
+    """`i` crashed the app: its worker touched the SQLite store off-thread."""
+
+    async def test_i_opens_the_report_instead_of_crashing(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            await pilot.press("i")
+            await pilot.pause(0.5)
+            assert isinstance(app.screen, ReportScreen)
+
+    async def test_the_report_carries_the_device_and_local_state(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.favorites.add("USER", 1, name="Velvet Bell")
+            await pilot.press("i")
+            await pilot.pause(0.5)
+            body = app.screen._body
+            assert "device ID" in body
+            assert "favourites" in body
+            assert "sound mode" in body
+            assert "rxved sends on" in body
+
+    async def test_a_silent_synth_is_reported_not_raised(self, app):
+        async def nothing(*_a, **_k):
+            return None
+
+        app.bridge.identify = lambda **_k: None
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            await pilot.press("i")
+            await pilot.pause(0.5)
+            assert "no Identity Reply" in app.last_status
+            assert app.last_status_refused

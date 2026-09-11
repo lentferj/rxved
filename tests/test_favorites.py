@@ -307,3 +307,51 @@ class TestWhereItLives:
         path = str(tmp_path / "elsewhere.db")
         with Favorites(path) as store:
             assert store.path == path
+
+
+class TestThreadSafety:
+    """The store is opened on one thread and read from others.
+
+    A Textual worker asking `len()` of a default SQLite connection raises
+    ProgrammingError *out of the worker*, which ends the application. That is
+    what pressing `i` did the first time anybody pressed it.
+    """
+
+    def test_usable_from_another_thread(self, favorites):
+        import concurrent.futures as cf
+
+        favorites.add("USER", 1, name="Velvet Bell")
+        with cf.ThreadPoolExecutor(1) as pool:
+            assert pool.submit(lambda: len(favorites)).result() == 1
+            assert pool.submit(
+                lambda: favorites.get("USER", 1).name).result() == "Velvet Bell"
+
+    def test_concurrent_writes_all_land(self, favorites):
+        import concurrent.futures as cf
+
+        def add(number):
+            favorites.add("PST-A", number, name=f"slot {number}")
+
+        with cf.ThreadPoolExecutor(8) as pool:
+            list(pool.map(add, range(1, 65)))
+        assert len(favorites) == 64
+
+    def test_reads_are_not_torn_by_a_concurrent_write(self, favorites):
+        """A cursor iterated after the lock is released would interleave."""
+        import concurrent.futures as cf
+
+        for number in range(1, 33):
+            favorites.add("PST-A", number)
+
+        def read():
+            return len(favorites.all(order="bank"))
+
+        def write(number):
+            favorites.add("PST-B", number)
+
+        with cf.ThreadPoolExecutor(8) as pool:
+            futures = [pool.submit(read) for _ in range(20)]
+            futures += [pool.submit(write, n) for n in range(1, 21)]
+            counts = [f.result() for f in futures if f.result() is not None]
+        # Every read returned a whole, self-consistent row set.
+        assert all(isinstance(c, int) and c >= 32 for c in counts)

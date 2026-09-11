@@ -518,12 +518,20 @@ Its header reads "(BANK SELECT MSB:93; LSB:23)" and it runs to 100 patches,
 which is a third independent confirmation of SN 132's row for that board and
 of rxved's table.
 
-**This is the least trustworthy route in the pipeline and is marked as
+**This is the least trustworthy route in the pipeline and was marked as
 such.** Everything else is read out of a file Roland shipped and most of it
-is checked against a second one; this has been through a human eye. The
+is checked against a second one; this had been through a human eye. The
 count is still checked against the board's documented total, so a missing or
-duplicated row is caught — but a mistyped *name* on the right number passes
-silently, and nothing in the project can find it.
+duplicated row is caught — but a mistyped *name* on the right number would
+pass silently, and nothing in the project could have found it.
+
+**Settled afterwards: SRX-10_OM.pdf turned up and all 100 transcribed names
+matched it exactly**, and the manual agrees every patch on the board is
+AC.BRASS. rxved now reads the manual, and `SRX-10-names.txt` is kept only as
+the record of that comparison. Worth keeping in mind what it does and does
+not show: the transcription route can be accurate, and it was unverifiable
+until something arrived to verify it. That is the argument for a document,
+not against transcription.
 
 ### The second-list trap is in the listings too
 

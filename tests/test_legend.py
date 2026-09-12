@@ -162,3 +162,28 @@ class TestTheChannelIsRemembered:
                 os.listdir(tmp_path)
         finally:
             store.close()
+
+
+class TestTheLegendIsComplete:
+    """A legend that omits a key teaches the user the key does not exist.
+
+    The sibling projects carry the same test. Textual's key names are not
+    what a legend prints, so they are translated rather than the test being
+    loosened.
+    """
+
+    SHOWN_AS = {"left_square_bracket": "[", "right_square_bracket": "]",
+                "slash": "/", "question_mark": "?"}
+    IMPLIED = {"enter", "tab"}
+
+    def test_every_binding_appears(self):
+        from rxved.app import KEY_HINTS, RxvedApp
+        legend = " ".join(KEY_HINTS)
+        missing = []
+        for binding in RxvedApp.BINDINGS:
+            if binding.key in self.IMPLIED:
+                continue
+            shown = self.SHOWN_AS.get(binding.key, binding.key)
+            if f"{shown} " not in legend:
+                missing.append(binding.key)
+        assert not missing, f"bound but missing from the legend: {missing}"

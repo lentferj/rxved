@@ -1040,7 +1040,15 @@ class RxvedApp(App):
     CSS = """
     Screen { layers: base; }
     #panes { height: 1fr; }
-    #banks { width: 34; border-right: solid $panel; }
+    /* Sized to its content like the sibling projects', not to a number.
+       These bank labels are short enough for a fixed width today, but a
+       fixed one does not truncate the end of a label -- the table scrolls
+       sideways and clips the *start*, which reads as corruption rather
+       than as narrow. p2ked hit exactly that. */
+    #banks {
+        width: auto; min-width: 24; max-width: 52;
+        border-right: solid $panel;
+    }
     #slots { width: 1fr; }
     DataTable { height: 1fr; }
     #status { height: 1; background: $boost; color: $text; padding: 0 1; }

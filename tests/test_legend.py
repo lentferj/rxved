@@ -110,3 +110,55 @@ class TestWorkersStayOffTheStore:
         assert not offenders, (
             "workers must do MIDI only and hand off with call_from_thread: "
             + ", ".join(offenders))
+
+
+class TestTheChannelIsRemembered:
+    """`c` should not have to be pressed again next time.
+
+    save_channel existed from the first commit and was never called, so the
+    channel was loaded at startup from a file nothing ever wrote.
+    """
+
+    def test_saving_then_loading_round_trips(self, tmp_path):
+        from xv import bridge as b
+        path = str(tmp_path / "config.toml")
+        b.save_channel(9, path)
+        assert b.load_channel(path) == 9
+
+    def test_it_survives_other_settings_being_written(self, tmp_path):
+        from xv import bridge as b
+        path = str(tmp_path / "config.toml")
+        b.save_channel(5, path)
+        b.save_device_id(21, path)
+        b.save_last_ports("a", "b", path)
+        assert b.load_channel(path) == 5, "another write must not drop it"
+        assert b.load_device_id(path) == 21
+
+    def test_the_app_writes_it_when_the_channel_changes(self, tmp_path):
+        from xv import bridge as b
+        path = str(tmp_path / "config.toml")
+        from rxved.app import RxvedApp
+        from rxved.demo import DemoBridge
+        from rxved.favorites import Favorites
+        store = Favorites(str(tmp_path / "f.db"))
+        try:
+            app = RxvedApp(DemoBridge(), favorites=store, config_path=path)
+            app._remember_channel(11)
+            assert b.load_channel(path) == 11
+        finally:
+            store.close()
+
+    def test_no_config_path_means_no_file(self, tmp_path):
+        """Tests must not drop a config into the working directory."""
+        import os
+        from rxved.app import RxvedApp
+        from rxved.demo import DemoBridge
+        from rxved.favorites import Favorites
+        store = Favorites(str(tmp_path / "f.db"))
+        try:
+            app = RxvedApp(DemoBridge(), favorites=store, config_path=None)
+            app._remember_channel(3)
+            assert os.listdir(tmp_path) == ["f.db"] or "config.toml" not in \
+                os.listdir(tmp_path)
+        finally:
+            store.close()

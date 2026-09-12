@@ -1080,9 +1080,14 @@ class RxvedApp(App):
     ]
 
     def __init__(self, bridge, *, favorites, catalog=None,
-                 channel: int = 0, backup_dir: Optional[str] = None) -> None:
+                 channel: int = 0, backup_dir: Optional[str] = None,
+                 config_path: Optional[str] = None) -> None:
         super().__init__()
         self.bridge = bridge
+        #: Where the send channel is remembered between runs. Injected, and
+        #: None in tests, so a test cannot write a config into the working
+        #: directory -- the same reason backup_dir is injected.
+        self._config_path = config_path
         self.favorites = favorites
         #: Where performance backups are written. Injected rather than
         #: looked up inside the worker so that tests -- which exercise the
@@ -1862,6 +1867,25 @@ class RxvedApp(App):
     def action_channel_up(self) -> None:
         self._set_channel((self.target_channel + 1) % 16)
 
+    def _remember_channel(self, channel: int) -> None:
+        """Save the send channel for next time.
+
+        Only **OSError** is swallowed -- a read-only directory or a full
+        disk, where forgetting the channel is better than refusing to run.
+        A broader ``except`` is what hid the first version of this method
+        failing outright: the bridge module was imported inside ``main``
+        only, so every call raised NameError into a bare handler and the
+        file was silently never written.
+        """
+        if self._config_path is None:
+            return
+        from xv import bridge as bridge_module
+
+        try:
+            bridge_module.save_channel(channel, self._config_path)
+        except OSError:
+            pass
+
     def action_pick_channel(self) -> None:
         def apply(value):
             if value is None:
@@ -1894,6 +1918,7 @@ class RxvedApp(App):
         """
         self.target_channel = channel
         self.channel_is_from_device = True
+        self._remember_channel(channel)
         self._update_subtitle()
         self._update_detail(
             self.query_one("#slot-table", DataTable).cursor_row)
@@ -2369,7 +2394,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     favorites = Favorites(args.favorites)
 
     app = RxvedApp(bridge, favorites=favorites, catalog=catalog,
-                   channel=channel or 0, backup_dir=args.backup_dir)
+                   channel=channel or 0, backup_dir=args.backup_dir,
+                   config_path=config_path)
     try:
         app.run()
     finally:

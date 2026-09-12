@@ -82,7 +82,12 @@ class TestTheThreeNumbers:
             await pilot.pause()
             table = app.query_one("#slot-table", DataTable)
             labels = [str(column.label) for column in table.columns.values()]
-            assert labels == ["#", "name", "PC", "LSB", "MSB", "cat", "fav"]
+            # The favourite marker leads the row; PC, LSB and MSB stay in
+            # the order an MPC's MIDI track asks for them, which is the
+            # whole point of this test.
+            assert labels == ["♥", "#", "name", "PC", "LSB", "MSB", "cat"]
+            assert labels[labels.index("PC"):labels.index("PC") + 3] == \
+                ["PC", "LSB", "MSB"]
 
     async def test_each_number_is_under_its_own_label(self, app):
         async with app.run_test() as pilot:

@@ -1147,9 +1147,14 @@ class RxvedApp(App):
         # PC, LSB, MSB -- least significant first. Not the order the
         # manual's tables print, but the order a sequencer's MIDI track
         # asks for the three, which is where these numbers get typed.
-        for label, key in (("#", "num"), ("name", "name"), ("PC", "pc"),
-                           ("LSB", "lsb"), ("MSB", "msb"), ("cat", "cat"),
-                           ("fav", "fav")):
+        # The favourite marker leads the row rather than trailing it, and
+        # is a heart rather than an asterisk. Leading, because it is a
+        # gutter mark the eye runs down; a heart, because an asterisk
+        # already means "this name disagrees with the catalog" two columns
+        # over, and one glyph should not mean two things in one table.
+        for label, key in (("♥", "fav"), ("#", "num"), ("name", "name"),
+                           ("PC", "pc"), ("LSB", "lsb"), ("MSB", "msb"),
+                           ("cat", "cat")):
             slot_table.add_column(label, key=key)
         self._fill_slots(self._current_bank)
 
@@ -1284,6 +1289,7 @@ class RxvedApp(App):
                     shown = name
                 catalog_entry = self.catalog.entry(slot.bank_id, slot.number)
                 table.add_row(
+                    "[b]♥[/b]" if slot.key in favorited else "",
                     (f"{slot.bank_id} {slot.number:03d}" if across_banks
                      else f"{slot.number:03d}"),
                     shown,
@@ -1291,7 +1297,6 @@ class RxvedApp(App):
                     str(slot.lsb),
                     str(slot.msb),
                     (catalog_entry.category or "") if catalog_entry else "",
-                    "*" if slot.key in favorited else "",
                     key=slot.key,
                 )
         finally:
@@ -1469,7 +1474,8 @@ class RxvedApp(App):
             return
 
         try:
-            slot_table.update_cell(slot.key, "fav", "*" if now else "")
+            slot_table.update_cell(slot.key, "fav",
+                                   "[b]♥[/b]" if now else "")
         except Exception:
             # The row is gone (the bank changed under us); a full rebuild is
             # the honest fallback and costs one frame.

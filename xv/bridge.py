@@ -321,8 +321,20 @@ def save_last_ports(send_port: str, recv_port: str,
 
 
 def load_device_id(path: str = DEFAULT_CONFIG_PATH) -> Optional[int]:
+    """The remembered device ID, as the **panel** numbers it: 17-32.
+
+    Two guards, both about this project's oldest trap. `isinstance(True,
+    int)` is True, so a hand-edited ``device_id = true`` would come back
+    as 1 -- and 1 is not even a panel number, which is the point: the
+    panel range is 17-32 and the wire range is 0x10-0x1F, they overlap,
+    and a value from the wrong one is answered with silence. Anything
+    outside 17-32 is refused here rather than handed to
+    :func:`device_id_byte`, which takes panel numbers only.
+    """
     value = _read_config_dict(path).get("device_id")
-    return value if isinstance(value, int) else None
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if 17 <= value <= 32 else None
 
 
 def save_device_id(device_id: int, path: str = DEFAULT_CONFIG_PATH) -> None:

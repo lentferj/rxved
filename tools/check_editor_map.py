@@ -68,7 +68,8 @@ def load(path: str) -> ET.Element:
     that is right until somebody's patch name has a multi-byte character in
     it.
     """
-    raw = open(path, "rb").read()
+    with open(path, "rb") as handle:
+        raw = handle.read()
     text = raw.decode("shift_jis", errors="replace")
     text = text.replace('encoding="Shift_JIS"', 'encoding="utf-8"', 1)
     return ET.fromstring(text)

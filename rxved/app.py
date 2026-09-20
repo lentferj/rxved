@@ -1717,11 +1717,15 @@ class RxvedApp(App):
         if self._busy:
             self.notify_status("already talking to the synth", refused=True)
             return
+        # Set on the main thread, not in the worker. A
+        # @work(thread=True) method returns at once and would set the
+        # flag on its own thread, so two quick presses both passed the
+        # check above before either worker ran -- two of whatever the
+        # worker does, from one intent.
         self._read_bank_worker(bank_id)
 
     @work(thread=True)
     def _read_bank_worker(self, bank_id: str) -> None:
-        self._busy = True
         try:
             def progress(done: int, total: int) -> None:
                 self.call_from_thread(
@@ -1748,6 +1752,11 @@ class RxvedApp(App):
 
         def go(confirmed: bool) -> None:
             if confirmed:
+        # Set on the main thread, not in the worker. A
+        # @work(thread=True) method returns at once and would set the
+        # flag on its own thread, so two quick presses both passed the
+        # check above before either worker ran -- two of whatever the
+        # worker does, from one intent.
                 self._scan_bank_worker(bank_id)
 
         self.push_screen(
@@ -1767,7 +1776,6 @@ class RxvedApp(App):
 
     @work(thread=True)
     def _scan_bank_worker(self, bank_id: str) -> None:
-        self._busy = True
         try:
             def progress(done: int, total: int, name: str) -> None:
                 self.call_from_thread(
@@ -1808,6 +1816,11 @@ class RxvedApp(App):
 
         def go(confirmed: bool) -> None:
             if confirmed:
+        # Set on the main thread, not in the worker. A
+        # @work(thread=True) method returns at once and would set the
+        # flag on its own thread, so two quick presses both passed the
+        # check above before either worker ran -- two of whatever the
+        # worker does, from one intent.
                 self._probe_srx_worker()
 
         self.push_screen(
@@ -1826,7 +1839,6 @@ class RxvedApp(App):
 
     @work(thread=True)
     def _probe_srx_worker(self) -> None:
-        self._busy = True
         try:
             def progress(lsb: int, name: Optional[str]) -> None:
                 self.call_from_thread(
@@ -1954,11 +1966,15 @@ class RxvedApp(App):
         if self._busy:
             self.notify_status("already talking to the synth", refused=True)
             return
+        # Set on the main thread, not in the worker. A
+        # @work(thread=True) method returns at once and would set the
+        # flag on its own thread, so two quick presses both passed the
+        # check above before either worker ran -- two of whatever the
+        # worker does, from one intent.
         self._refresh_state_worker()
 
     @work(thread=True)
     def _refresh_state_worker(self) -> None:
-        self._busy = True
         try:
             def progress(done, total):
                 self.call_from_thread(
@@ -1986,12 +2002,16 @@ class RxvedApp(App):
         if self._busy:
             self.notify_status("busy", refused=True)
             return
+        # Set on the main thread, not in the worker. A
+        # @work(thread=True) method returns at once and would set the
+        # flag on its own thread, so two quick presses both passed the
+        # check above before either worker ran -- two of whatever the
+        # worker does, from one intent.
         self._multi_setup_worker()
 
     @work(thread=True)
     def _multi_setup_worker(self) -> None:
         """**MIDI only** -- the screen is built on the main thread."""
-        self._busy = True
         try:
             def progress(done, total):
                 self.call_from_thread(
@@ -2029,6 +2049,11 @@ class RxvedApp(App):
         if self._busy:
             self.notify_status("busy", refused=True)
             return
+        # Set on the main thread, not in the worker. A
+        # @work(thread=True) method returns at once and would set the
+        # flag on its own thread, so two quick presses both passed the
+        # check above before either worker ran -- two of whatever the
+        # worker does, from one intent.
         self._write_part_worker(part, offset, value, adopt)
 
     def backup_dir(self) -> str:
@@ -2061,6 +2086,11 @@ class RxvedApp(App):
         if self._busy:
             self.notify_status("busy", refused=True)
             return
+        # Set on the main thread, not in the worker. A
+        # @work(thread=True) method returns at once and would set the
+        # flag on its own thread, so two quick presses both passed the
+        # check above before either worker ran -- two of whatever the
+        # worker does, from one intent.
         self._store_worker(slot)
 
     @work(thread=True)
@@ -2074,7 +2104,6 @@ class RxvedApp(App):
         """
         from xv import backup as bk
 
-        self._busy = True
         try:
             def progress(done, total):
                 self.call_from_thread(
@@ -2113,13 +2142,17 @@ class RxvedApp(App):
         if self._busy:
             self.notify_status("busy", refused=True)
             return
+        # Set on the main thread, not in the worker. A
+        # @work(thread=True) method returns at once and would set the
+        # flag on its own thread, so two quick presses both passed the
+        # check above before either worker ran -- two of whatever the
+        # worker does, from one intent.
         self._write_channel_worker(channel, offset, value, adopt)
 
     @work(thread=True)
     def _write_channel_worker(self, channel: int, offset: int, value: int,
                               adopt) -> None:
         """**MIDI only.** Write one byte, then re-read the channel's block."""
-        self._busy = True
         try:
             with self._bridge_lock:
                 landed = self.bridge.write_channel_param(
@@ -2153,7 +2186,6 @@ class RxvedApp(App):
         something rxved knows -- so re-reading only what was sent could leave
         the rest of the row saying something that stopped being true.
         """
-        self._busy = True
         try:
             with self._bridge_lock:
                 landed = self.bridge.write_part_param(part, offset, value)
@@ -2399,7 +2431,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     from rxved.favorites import Favorites
 
     catalog = cat.load(args.catalog)
-    favorites = Favorites(args.favorites)
+    try:
+        favorites = Favorites(args.favorites)
+    except Exception as exc:
+        # _migrate refuses a database written by a newer build, which is the
+        # right refusal, and sqlite3 raises on a file that is not a database
+        # at all. Every other startup failure here leaves by sys.exit; these
+        # two used to print a traceback.
+        raise SystemExit(f"error: {exc}")
 
     app = RxvedApp(bridge, favorites=favorites, catalog=catalog,
                    channel=channel or 0, backup_dir=args.backup_dir,

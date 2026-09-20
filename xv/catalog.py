@@ -51,6 +51,7 @@ arithmetic, and only the names go missing. See README.md.
 from __future__ import annotations
 
 import json
+import sys
 import os
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -287,17 +288,29 @@ def load(path: Optional[str] = None) -> Catalog:
     with open(target, "r", encoding="utf-8") as handle:
         raw = json.load(handle)
     entries = []
+    skipped = 0
     for bank_id, rows in raw.get("banks", {}).items():
         for row in rows:
-            entries.append(
-                Entry(
-                    bank_id=bank_id,
-                    number=int(row["n"]),
-                    name=row["name"],
-                    category=row.get("category"),
-                    voices=row.get("voices"),
+            # One bad row must not cost the whole catalog. A missing
+            # catalog is already normal here -- the program runs on numbers
+            # alone and a connected unit can supply every name -- so a
+            # corrupt one taking the program down with it is the odd
+            # behaviour, not skipping the row.
+            try:
+                entries.append(
+                    Entry(
+                        bank_id=bank_id,
+                        number=int(row["n"]),
+                        name=row["name"],
+                        category=row.get("category"),
+                        voices=row.get("voices"),
+                    )
                 )
-            )
+            except (KeyError, TypeError, ValueError):
+                skipped += 1
+    if skipped:
+        print(f"warning: {target} has {skipped} unreadable row(s), skipped; "
+              f"regenerate it with tools/extract_catalog.py", file=sys.stderr)
     return Catalog(
         entries,
         source=raw.get("source", ""),

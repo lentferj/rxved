@@ -20,6 +20,7 @@ import os
 import pytest
 
 from rxved.favorites import Favorites, SCHEMA_VERSION
+from xv import bridge
 
 
 @pytest.fixture
@@ -425,3 +426,63 @@ class TestUnfavouritingKeepsWhatTheUserTyped:
             kept = store.get("BANK", 7)
             assert kept is not None, "an existing row must stay a favourite"
             assert kept.rating == 5
+
+
+class TestAPortNameCannotPoisonTheConfig:
+    """A quote in a port name made the file unparsable, and it never healed.
+
+    ALSA client names are arbitrary strings, so this is reachable. `_update`
+    refuses to overwrite a file it cannot parse -- the right refusal, and
+    also why the cache stayed broken until somebody deleted it by hand.
+    Found by an audit of the sibling x5ded, where nothing was escaped at
+    all; here only backslash and quote were handled.
+    """
+
+    def test_a_quoted_port_name_round_trips(self, tmp_path):
+        path = str(tmp_path / "config.toml")
+        nasty = 'Odd "quoted"\tport\\with slash'
+        bridge.save_last_ports(nasty, nasty, path)
+        assert bridge.load_last_ports(path)[0] == nasty
+
+    def test_the_cache_still_heals(self, tmp_path):
+        path = str(tmp_path / "config.toml")
+        bridge.save_last_ports('has a " in it', 'x', path)
+        bridge.save_last_ports('a sane port', 'x', path)
+        assert bridge.load_last_ports(path)[0] == "a sane port"
+
+
+class TestSearchWildcardsAreLiteral:
+    """% and _ are LIKE wildcards, and were not escaped.
+
+    A search for "%" matched every favourite and one for "_" matched every
+    name of any length -- silently, as a result that looks like a real hit.
+    """
+
+    def test_a_percent_matches_only_a_percent(self, tmp_path):
+        with Favorites(str(tmp_path / "f.db")) as store:
+            store.add("PR-A", 1, name="Invented One")
+            store.add("PR-A", 2, name="Ten % Off")
+            assert [f.number for f in store.search("%")] == [2]
+
+    def test_an_underscore_matches_only_an_underscore(self, tmp_path):
+        with Favorites(str(tmp_path / "f.db")) as store:
+            store.add("PR-A", 1, name="Invented One")
+            store.add("PR-A", 2, name="under_score")
+            assert [f.number for f in store.search("_")] == [2]
+
+
+class TestOneBadCatalogRowDoesNotCostTheOthers:
+    """The convention here is "degrade, don't crash"; this path did not."""
+
+    def test_the_good_rows_survive(self, tmp_path):
+        import json
+
+        from xv.catalog import load as _load
+
+        path = str(tmp_path / "cat.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump({"banks": {"PR-A": [
+                {"n": "not a number", "name": "Bad"},
+                {"n": 1, "name": "Invented"},
+            ]}}, handle)
+        assert len(_load(path)) == 1

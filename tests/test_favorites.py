@@ -355,3 +355,73 @@ class TestThreadSafety:
             counts = [f.result() for f in futures if f.result() is not None]
         # Every read returned a whole, self-consistent row set.
         assert all(isinstance(c, int) and c >= 32 for c in counts)
+
+
+class TestUnfavouritingKeepsWhatTheUserTyped:
+    """Un-favouriting used to delete the row, annotations and all.
+
+    `f` in the browser unfavourites without asking, so a rating, tags, a
+    note and the date it was first favourited were one keystroke from
+    destruction -- on the one store this project calls the user's own. The
+    row is now kept with its `active` flag cleared, and the same keystroke
+    brings it back.
+    """
+
+    def test_a_toggle_cycle_keeps_rating_tags_and_note(self, tmp_path):
+        with Favorites(str(tmp_path / "f.db")) as store:
+            store.add("BANK", 5, name="Invented",
+                      rating=4, tags="a, b", note="hello")
+            before = store.get("BANK", 5)
+
+            assert store.toggle("BANK", 5) is False
+            assert store.get("BANK", 5) is None
+            assert store.toggle("BANK", 5) is True
+
+            after = store.get("BANK", 5)
+            assert (after.rating, after.tags, after.note) == (4, "a, b",
+                                                              "hello")
+            assert after.added == before.added
+
+    def test_an_unfavourited_slot_is_not_a_favourite(self, tmp_path):
+        with Favorites(str(tmp_path / "f.db")) as store:
+            store.add("BANK", 5, name="Invented", rating=3)
+            store.remove("BANK", 5)
+            assert len(store) == 0
+            assert store.keys() == set()
+            assert store.all() == []
+            assert store.search("Invented") == []
+
+    def test_forget_really_deletes(self, tmp_path):
+        with Favorites(str(tmp_path / "f.db")) as store:
+            store.add("BANK", 5, name="Invented", rating=3)
+            store.remove("BANK", 5)
+            assert [f.rating for f in store.dormant()] == [3]
+            assert store.forget("BANK", 5) is True
+            assert store.dormant() == []
+
+    def test_a_v1_database_upgrades_without_losing_rows(self, tmp_path):
+        import sqlite3
+
+        path = str(tmp_path / "old.db")
+        db = sqlite3.connect(path)
+        db.executescript(
+            """
+            CREATE TABLE favorites (
+                bank_id TEXT NOT NULL, number INTEGER NOT NULL,
+                name TEXT NOT NULL DEFAULT '',
+                rating INTEGER NOT NULL DEFAULT 0,
+                tags TEXT NOT NULL DEFAULT '',
+                note TEXT NOT NULL DEFAULT '',
+                added REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY (bank_id, number));
+            """)
+        db.execute("INSERT INTO favorites (bank_id, number, name, rating) "
+                   "VALUES ('BANK', 7, 'Invented', 5)")
+        db.execute("PRAGMA user_version = 1")
+        db.commit()
+        db.close()
+
+        with Favorites(path) as store:
+            kept = store.get("BANK", 7)
+            assert kept is not None, "an existing row must stay a favourite"
+            assert kept.rating == 5

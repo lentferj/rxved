@@ -342,8 +342,21 @@ def save_device_id(device_id: int, path: str = DEFAULT_CONFIG_PATH) -> None:
 
 
 def load_channel(path: str = DEFAULT_CONFIG_PATH) -> Optional[int]:
+    """The channel last sent on, zero-based, or None.
+
+    Two guards where there were none. `isinstance(True, int)` is True, so
+    a hand-edited ``channel = true`` came back as ``True`` and `0xC0 |
+    True` is `0xC1` -- MIDI channel 2 when channel 1 was asked for. And
+    there was no range check at all, so ``channel = 99`` came back as 99
+    and produced a status byte belonging to another message entirely.
+
+    A wrong channel is not an error anywhere: the instrument plays
+    nothing, or something else does.
+    """
     value = _read_config_dict(path).get("channel")
-    return value if isinstance(value, int) else None
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if 0 <= value <= 15 else None
 
 
 def save_channel(channel: int, path: str = DEFAULT_CONFIG_PATH) -> None:

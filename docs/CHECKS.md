@@ -19,9 +19,10 @@ line numbers, so a new `B905` in a module that does not already ignore
 ## Running it
 
 ```sh
-make check            # everything, in order: lint, typecheck, test, audit
-make lint             # ruff check           (no autofix)
-make format           # ruff format + --fix  (rewrites files)
+make check            # everything: lint, format-check, typecheck, test, audit
+make lint             # ruff check             (no autofix)
+make format           # ruff format + --fix    (rewrites files)
+make format-check     # ruff format --check    (in `check`)
 make typecheck        # mypy, non-strict
 make typecheck-strict # per-module strict error counts
 make test             # pytest + coverage
@@ -30,15 +31,12 @@ make baseline         # regenerate .secrets.baseline and diff it
 make help             # every target
 ```
 
-`make format-check` exists but is deliberately **not** in `check`: ruff
-would reformat 25 of 27 files, so gating on it today would mean either
-reformatting the tree or suppressing it, and neither is my call.
-
 ## What each tool is doing
 
 | Tool | Scope | Enforcing? |
 |---|---|---|
-| ruff | `E F I B S SIM UP C4 PL RUF C901`, max-complexity 10 | yes, minus the list below |
+| ruff lint | `E F I B S SIM UP C4 PL RUF C901`, max-complexity 10 | yes, minus the list below |
+| ruff format | 88 columns, double quotes, all 27 files | yes, in `check` and as a hook |
 | mypy | `rxved`, `xv`, `tools` | yes, minus per-module disables |
 | pytest-cov | `xv`, `rxved`, branch coverage | yes, no threshold |
 | pip-audit | this venv's site-packages only | yes, minus 3 ignored IDs |
@@ -185,7 +183,23 @@ the string `detect-secrets` in a `pyproject.toml` comment — the tool's
 own name is in its keyword denylist. Suppressed with the tool's own
 `# pragma: allowlist secret`, which records that it was looked at.
 
-## The three real fixes
+### The baseline check does not dirty the tree
+
+`make audit-secrets` does **not** run the obvious
+`detect-secrets scan --baseline .secrets.baseline`. That rewrites
+`generated_at` on every run even when it finds nothing, so every
+`make check` left the working tree dirty and every later commit carried a
+one-line diff that meant nothing.
+
+Instead it scans into a scratch copy and compares with
+`tools/diff_secrets_baseline.py`, which ignores `generated_at` and fails
+on anything else — a new finding, a removed one, or a changed plugin or
+filter list. A clean scan now touches nothing.
+
+This is deliberately stricter than letting detect-secrets update the
+baseline in place, which would silently accept every new finding.
+
+## The real fixes
 
 1. **`tests/test_favorites.py:504`** — removed an unused `import inspect`
    in a local helper. This was the single vulture finding at 90%
@@ -195,6 +209,8 @@ own name is in its keyword denylist. Suppressed with the tool's own
    listed under deptry above.
 3. **`tests/test_app.py`** — replaced 23 fixed-duration waits with a
    `settle()` helper that polls the app's `_busy` flag. See below.
+4. **`Makefile`** — `audit-secrets` no longer rewrites `.secrets.baseline`
+   on every run. See above.
 
 ### Why the tests changed
 
@@ -233,36 +249,35 @@ what the first version of this helper did, and it still failed.
 Only test code and configuration were touched. No application source was
 edited.
 
-## Known limitation: ruff-format is not enforced
+## ruff-format: adopted, and enforced
 
-`make format-check` reports **14 of 27 files** unformatted. Nothing in
-`check` gates on it, and `ruff-format` is **not** a pre-commit hook.
+Formatting is **ruff-format's**, at default settings (88 columns, double
+quotes), and it is now enforced three ways: `make format-check` in
+`check`, and a pre-commit hook.
 
-The reason is not an oversight. Enabling the hook reformats ~3,700 lines
-across 23 files in one commit, which is unreviewable and hides whatever
-real change rode along with it. It also does not compose with "do not
-mass-modify existing code": the first run of `pre-commit run
---all-files` reformatted files this task had no business touching.
+This was not always true, and the path there is worth recording because
+it is the one place where this task broke its own rule.
 
-A partial revert was attempted: the 12 files whose diff was *purely*
-formatting churn were restored with `git checkout`. The remainder could
-not be reverted cleanly, because they carry real edits from the earlier
-code-review work alongside the formatter's changes, and separating the
-two by hand would have risked losing the edits.
+Enabling the `ruff-format` hook straight away reformatted ~3,700 lines
+across 23 files — unreviewable, and it violated "do not mass-modify
+existing code". A partial revert restored the 12 files whose diff was
+*purely* churn; the rest could not be reverted cleanly, because they
+carried real edits alongside the formatter's changes. The tree was left
+in a mixed state: 14 files formatted, 13 not, with the divergence
+invisible to CI.
 
-What that means in practice: **14 files are formatted, 13 are not.** The
-tree is in a mixed state and `ruff check` still passes on all of them, so
-nothing is broken — but the divergence is invisible to CI.
+The fix was to **land the formatting as its own commit** rather than to
+suppress the hook:
 
-Two ways out, both a deliberate decision rather than something to settle
-by accident:
+- `b13e1c0` `style: apply ruff formatting` — 23 files, ~3,600 lines,
+  formatting only. Verified by comparing the parsed AST of every file
+  against `HEAD`: all identical except three test docstrings beginning
+  with a quote character, where ruff inserted a leading space so the
+  string is not read as a triple-quote terminator.
+- `f5046d5` — the actual code changes, on top of a formatted tree.
 
-- **Adopt ruff-format.** Run `make format` once and commit the result as
-  its own change, reviewable on its own. Then re-enable the hook and add
-  `format-check` to `check`.
-- **Drop it.** Remove `ruff format` from the Makefile and the
-  configuration, and keep the hand formatting as the project style.
+Order mattered. Putting the checks *after* the formatting means the
+commit that introduces `ruff check` lands on a tree that already passes
+it, rather than one that fails on arrival.
 
-Until one of those happens, `ruff format` is configured but not
-enforced, and the rule is: if a commit reformats a file, it reformats
-*every* file.
+`make format-check` now reports **27 of 27 files already formatted**.

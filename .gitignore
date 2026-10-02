@@ -35,5 +35,8 @@ xv/data/
 .coverage.*
 coverage.xml
 htmlcov/
-# Written by `make baseline`, kept only long enough to diff against.
+# Written by `make baseline` and `make audit-secrets`, kept only long
+# enough to diff against. Belt and braces: both remove them, but a
+# crashed run should not leave one for `git add -A` to pick up.
 .secrets.baseline.prev
+.secrets.baseline.tmp

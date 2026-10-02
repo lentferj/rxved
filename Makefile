@@ -19,6 +19,11 @@ VULTURE     := $(VENV_BIN)/vulture
 DEPTRY      := $(VENV_BIN)/deptry
 DETECT_SECRETS := $(VENV_BIN)/detect-secrets
 
+# detect-secrets baseline handling: a scratch copy, and a comparator that
+# ignores `generated_at` so a clean scan does not dirty the tree.
+SECRETS_TMP   := .secrets.baseline.tmp
+SECRETS_DIFF  := tools/diff_secrets_baseline.py
+
 # Dead code: 80% is vulture's own suggestion and the point at which it stops
 # reporting Textual's dispatch methods (on_mount, action_*, CSS, BINDINGS) as
 # unused. Lower it and every framework callback becomes a finding.
@@ -39,11 +44,15 @@ help:  ## List the targets
 
 # --- the whole pipeline ------------------------------------------------------
 
-check: lint typecheck test audit  ## Run everything, failing on any error
+check: lint format-check typecheck test audit  ## Run everything, failing on any error
 	@echo
 	@echo "all checks passed"
 
 # --- lint and format ---------------------------------------------------------
+#
+# format-check is part of `check`, not optional: the point of landing the
+# formatting as its own commit (b13e1c0) was to be able to enforce it
+# afterwards, without a gate that fails on arrival.
 
 lint: ## ruff: lint (no autofix)
 	$(RUFF) check $(SOURCES)
@@ -52,7 +61,7 @@ format: ## ruff: format in place
 	$(RUFF) format $(SOURCES)
 	$(RUFF) check --fix $(SOURCES)
 
-format-check: ## ruff: would reformat anything? (not part of `check`)
+format-check: ## ruff: is anything unformatted?
 	$(RUFF) format --check $(SOURCES)
 
 # --- types -------------------------------------------------------------------
@@ -111,8 +120,20 @@ audit-dead: ## vulture + deptry: unreachable code, unused/missing deps
 	$(VULTURE) --min-confidence $(VULTURE_CONFIDENCE) $(SOURCES)
 	$(DEPTRY) .
 
+# Runs against a *copy* of the baseline and diffs it, rather than letting
+# detect-secrets rewrite the tracked one. `scan --baseline` refreshes
+# `generated_at` on every run even when nothing was found, so the obvious
+# spelling leaves the working tree dirty after every `make check` and
+# turns every subsequent commit into a one-line diff that means nothing.
+#
+# Exits non-zero only on a real difference: a new secret, a removed
+# finding, or a changed plugin/filter list. `generated_at` is ignored.
 audit-secrets: ## detect-secrets against .secrets.baseline
-	$(DETECT_SECRETS) scan --baseline .secrets.baseline
+	@set -e; \
+	trap 'rm -f $(SECRETS_TMP)' EXIT; \
+	cp .secrets.baseline $(SECRETS_TMP); \
+	$(DETECT_SECRETS) scan --baseline $(SECRETS_TMP) >/dev/null; \
+	$(PYTHON) $(SECRETS_DIFF) .secrets.baseline $(SECRETS_TMP)
 
 # --- maintaining the baseline ------------------------------------------------
 

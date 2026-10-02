@@ -17,18 +17,15 @@ default_language_version:
   python: python3.11
 
 repos:
-  # --- ruff: lint ----------------------------------------------------------
+  # --- ruff: lint and format ----------------------------------------------
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.5
     hooks:
+      # Runs first, so a fixable lint is reported rather than being
+      # silently reformatted around.
       - id: ruff-check
         args: [--fix, --exit-non-zero-on-fix]
-
-  # ruff-format is deliberately NOT hooked. The tree has never been
-  # formatted with it, so enabling the hook rewrites ~3,700 lines across
-  # 23 files in a single unrelated commit -- unreviewable, and exactly the
-  # kind of churn that hides a real change. `make format` runs it when
-  # that is the point of the commit. See docs/CHECKS.md.
+      - id: ruff-format
 
   # --- mypy ----------------------------------------------------------------
   # Uses the config in pyproject.toml, including which modules are strict.

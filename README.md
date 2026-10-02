@@ -346,6 +346,7 @@ make check            # lint, types, tests, audit — fails on any error
 |---|---|
 | `make lint` | **ruff** — lint. Replaces flake8, isort, black and pyupgrade |
 | `make format` | **ruff** — format in place, then apply safe lint fixes |
+| `make format-check` | **ruff** — is anything unformatted? Runs in `check` |
 | `make typecheck` | **mypy** — non-strict; `typecheck-strict` counts per module |
 | `make test` | **pytest** + **pytest-cov** — term-missing, no threshold yet |
 | `make audit` | **pip-audit**, **vulture**, **deptry**, **detect-secrets** |
@@ -361,17 +362,17 @@ anything *new* still fails. `docs/CHECKS.md` lists every suppression and
 why it exists, and is the place to look before adding a rule or removing
 one.
 
-Two things worth knowing before you trust the green:
+Formatting is ruff-format's and is enforced — `make format-check` runs in
+`check`, and there is a hook for it. It landed as its own commit rather
+than mixed into a code change, which is the only way a formatter this
+opinionated can be adopted without losing whatever rode along with it.
 
-- **`ruff format` is not enforced.** It would reformat 14 of 27 files,
-  and doing that in an unrelated commit is how a real change gets lost.
-  It is not a pre-commit hook and `make check` does not gate on it;
-  `make format` runs it when formatting is the point of the commit.
-  `docs/CHECKS.md` explains the two ways to resolve this properly.
-- **Three setuptools advisories are ignored** in `pip-audit`. That copy
-  is a Debian build dependency, never imported at runtime, and cannot be
-  upgraded in place — the venv shares site-packages with the system.
-  Reasoning is in `docs/CHECKS.md`.
+One thing to know before you trust the green: **three setuptools
+advisories are ignored** in `pip-audit`. That copy is a Debian build
+dependency, never imported at runtime, and cannot be upgraded in place —
+the venv shares site-packages with the system, whose `jaraco.functools`
+predates the `splat()` that setuptools ≥70 needs. Reasoning is in
+`docs/CHECKS.md`.
 
 shellcheck and shfmt are wired into pre-commit but currently match
 nothing: rxved has no shell scripts, and `make` calls the tools directly.

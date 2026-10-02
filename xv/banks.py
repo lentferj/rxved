@@ -57,7 +57,7 @@ exactly the kind of thing a hardware session should settle -- see TODO.md.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Tuple
 
 __all__ = [
     "Kind",

@@ -50,7 +50,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Tuple
 
 __all__ = [
     "Favorite",

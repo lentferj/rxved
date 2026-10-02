@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import replace
-from typing import Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional
 
 from xv import banks
 from xv import messages as m

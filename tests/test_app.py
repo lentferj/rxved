@@ -42,6 +42,34 @@ from xv import catalog as cat
 pytestmark = pytest.mark.asyncio
 
 
+async def settle(pilot, seconds: float = 5.0) -> None:
+    """Wait until the app's bridge is idle, rather than for a fixed time.
+
+    ``pilot.pause(0.3)`` was the idiom here, and it is a wall-clock guess at
+    how long a worker thread takes. That is a coin flip rather than a test:
+    the suite runs under coverage, which roughly doubles it, and the read
+    tests below wait on a worker doing 128 round trips against the demo
+    synth. Three of them failed intermittently once coverage was on, with
+    an assertion that looked like a real bug and was not.
+
+    ``_busy`` is set on the main thread before a worker starts and cleared
+    in the worker's ``finally``, so polling it waits on the actual
+    condition. The timeout stays, so a worker that never finishes still
+    fails the test rather than hanging it.
+
+    One extra pause after ``_busy`` clears, because that is not the same as
+    "the result is on screen": the workers clear the flag in a ``finally``
+    and *then* post their result to the main thread with ``call_from_thread``.
+    Without this the helper returns in the window between the two and the
+    assertion below reads the pre-worker state.
+    """
+    waited = 0.0
+    while pilot.app._busy and waited < seconds:
+        await pilot.pause(0.05)
+        waited += 0.05
+    await pilot.pause(0.05)
+
+
 @pytest.fixture
 def app(tmp_path):
     catalog = cat.Catalog(
@@ -216,14 +244,14 @@ class TestReadingNames:
         async with app.run_test() as pilot:
             await pilot.pause()
             app.action_read_bank()
-            await pilot.pause(0.3)
+            await settle(pilot)
             assert app.catalog.is_live("USER", 1)
 
     async def test_a_read_marks_names_that_disagree_with_print(self, app):
         async with app.run_test() as pilot:
             await pilot.pause()
             app.action_read_bank()
-            await pilot.pause(0.3)
+            await settle(pilot)
             # The demo's invented names are nothing like the fixture's.
             assert app.catalog.differs("USER", 1)
 
@@ -245,7 +273,7 @@ class TestReadingNames:
             await pilot.pause()
             app.favorites.add("USER", 1, name="Velvet Bell")
             app.action_read_bank()
-            await pilot.pause(0.3)
+            await settle(pilot)
             assert app.favorites.get("USER", 1).name != "Velvet Bell"
 
 
@@ -564,7 +592,7 @@ class TestCursorStaysPut:
                 await pilot.press("down")
             await pilot.pause()
             app.action_read_bank()
-            await pilot.pause(0.5)
+            await settle(pilot)
             assert app.query_one("#slot-table").cursor_row == 20
             assert app._current_bank == "USER"
 
@@ -932,12 +960,10 @@ class TestMultiEditing:
             await self._cell(screen, pilot, 1, "rx")
             assert app.bridge.read_part(1).receive_switch is True
             await pilot.press("space")
-            for _ in range(6):
-                await pilot.pause()
+            await settle(pilot)
             assert app.bridge.read_part(1).receive_switch is False
             await pilot.press("space")
-            for _ in range(6):
-                await pilot.pause()
+            await settle(pilot)
             assert app.bridge.read_part(1).receive_switch is True
 
     async def test_it_can_switch_a_silenced_part_back_on(self, app):
@@ -947,8 +973,7 @@ class TestMultiEditing:
             assert app.bridge.read_part(5).receive_switch is False
             await self._cell(screen, pilot, 5, "rx")
             await pilot.press("space")
-            for _ in range(6):
-                await pilot.pause()
+            await settle(pilot)
             assert app.bridge.read_part(5).receive_switch is True
 
     async def test_the_channel_column_converts_to_the_wire(self, app):
@@ -959,8 +984,7 @@ class TestMultiEditing:
             # Part 3 starts on wire channel 2, shown as 3.
             assert app.bridge.read_part(3).receive_channel == 2
             await pilot.press("minus")
-            for _ in range(6):
-                await pilot.pause()
+            await settle(pilot)
             # Display 3 -> 2, wire 2 -> 1.
             assert app.bridge.read_part(3).receive_channel == 1
 
@@ -970,8 +994,7 @@ class TestMultiEditing:
             await self._cell(screen, pilot, 6, "lvl")
             assert app.bridge.read_part(6).level == 0
             await pilot.press("minus")  # already at the floor
-            for _ in range(4):
-                await pilot.pause()
+            await settle(pilot)
             assert app.bridge.read_part(6).level == 0
 
     async def test_the_row_shows_what_the_device_reports(self, app):
@@ -979,8 +1002,7 @@ class TestMultiEditing:
             screen = await self._open(app, pilot)
             table = await self._cell(screen, pilot, 5, "rx")
             await pilot.press("space")
-            for _ in range(6):
-                await pilot.pause()
+            await settle(pilot)
             keys = [c.key.value for c in table.columns.values()]
             row = table.get_row("5")
             assert "on" in str(row[keys.index("rx")])
@@ -1016,8 +1038,7 @@ class TestMultiEditing:
             await pilot.press("1", "2")
             await pilot.pause()
             await pilot.press("enter")
-            for _ in range(8):
-                await pilot.pause()
+            await settle(pilot)
             assert app.bridge.read_part(1).level == 12
 
     async def test_enter_seeds_the_prompt_with_the_current_value(self, app):
@@ -1036,8 +1057,7 @@ class TestMultiEditing:
             await self._cell(screen, pilot, 5, "rx")
             assert app.bridge.read_part(5).receive_switch is False
             await pilot.press("1")
-            for _ in range(8):
-                await pilot.pause()
+            await settle(pilot)
             assert isinstance(app.screen, MultiScreen)  # no prompt opened
             assert app.bridge.read_part(5).receive_switch is True
 
@@ -1050,8 +1070,7 @@ class TestMultiEditing:
             await pilot.press("9", "9")
             await pilot.pause()
             await pilot.press("enter")
-            for _ in range(8):
-                await pilot.pause()
+            await settle(pilot)
             assert app.bridge.read_part(1).receive_channel == before
 
     async def test_digits_do_nothing_on_a_non_editable_cell(self, app):
@@ -1113,8 +1132,7 @@ class TestMultiEditing:
             await self._cell(screen, pilot, 7, "mute")
             assert app.bridge.read_part(7).mute is True
             await pilot.press("space")
-            for _ in range(8):
-                await pilot.pause()
+            await settle(pilot)
             assert app.bridge.read_part(7).mute is False
 
     async def test_a_send_level_can_be_typed(self, app):
@@ -1126,8 +1144,7 @@ class TestMultiEditing:
             await pilot.press("6", "4")
             await pilot.pause()
             await pilot.press("enter")
-            for _ in range(8):
-                await pilot.pause()
+            await settle(pilot)
             assert app.bridge.read_part(1).reverb == 64
 
     async def test_the_effects_summary_is_shown(self, app):
@@ -1181,8 +1198,7 @@ class TestMultiEditing:
             await self._cell(screen, pilot, 3, "rx_bs")
             assert app.bridge.read_performance_midi(2).bank_select is False
             await pilot.press("space")
-            for _ in range(10):
-                await pilot.pause()
+            await settle(pilot)
             assert app.bridge.read_performance_midi(2).bank_select is True
 
     async def test_a_channel_write_updates_every_part_sharing_it(self, app):
@@ -1191,8 +1207,7 @@ class TestMultiEditing:
             screen = await self._rx_view(app, pilot)
             await self._cell(screen, pilot, 1, "rx_pc")
             await pilot.press("space")
-            for _ in range(10):
-                await pilot.pause()
+            await settle(pilot)
             table = screen.query_one("#part-table", DataTable)
             keys = [c.key.value for c in table.columns.values()]
             first = str(table.get_row("1")[keys.index("rx_pc")])
@@ -1217,8 +1232,7 @@ class TestMultiEditing:
             await pilot.press("-", "2", "0")
             await pilot.pause()
             await pilot.press("enter")
-            for _ in range(10):
-                await pilot.pause()
+            await settle(pilot)
             assert app.bridge.read_part(1).pan == 44  # -20 + 64
 
     async def test_key_ranges_show_note_names(self, app):
@@ -1244,8 +1258,7 @@ class TestMultiEditing:
             await pilot.press("9")
             await pilot.pause()
             await pilot.press("enter")
-            for _ in range(8):
-                await pilot.pause()
+            await settle(pilot)
             assert app.bridge.read_part(1).octave == before
 
 
@@ -1276,8 +1289,7 @@ class TestStoreIsHardToFireByAccident:
         async with app.run_test() as pilot:
             await self._open_store(app, pilot)
             await pilot.press("w")
-            for _ in range(6):
-                await pilot.pause()
+            await settle(pilot)
             assert app.bridge._performances == {}
 
     async def test_arming_alone_writes_nothing(self, app):
@@ -1300,8 +1312,7 @@ class TestStoreIsHardToFireByAccident:
             await pilot.pause()
             assert screen._armed is None
             await pilot.press("w")
-            for _ in range(6):
-                await pilot.pause()
+            await settle(pilot)
             assert app.bridge._performances == {}
 
     async def test_arm_then_fire_writes_the_armed_slot(self, app):
@@ -1312,8 +1323,7 @@ class TestStoreIsHardToFireByAccident:
             await pilot.press("a")
             await pilot.pause()
             await pilot.press("w")
-            for _ in range(12):
-                await pilot.pause()
+            await settle(pilot)
             from xv.bridge import TEMPORARY_PERFORMANCE, user_performance_base
 
             written = app.bridge._performances
@@ -1326,8 +1336,7 @@ class TestStoreIsHardToFireByAccident:
         async with app.run_test() as pilot:
             await self._open_store(app, pilot)
             await pilot.press("a", "w")
-            for _ in range(12):
-                await pilot.pause()
+            await settle(pilot)
             from xv import backup as bk
 
             saved = bk.list_backups(app.backup_dir())

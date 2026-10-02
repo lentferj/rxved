@@ -959,7 +959,14 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     try:
         bridge = _build_bridge(args)
-    except Exception as exc:
+    except (
+        LookupError,
+        TimeoutError,
+        ValueError,
+        RuntimeError,
+        OSError,
+        SystemError,
+    ) as exc:
         sys.exit(f"error: {exc}")
 
     try:

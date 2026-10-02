@@ -94,6 +94,23 @@ python3 -m venv --system-site-packages .venv
 Needs Python 3.11+, `python-rtmidi` and `textual`. On Linux you also need an
 ALSA sequencer — `rxvcli ports` will tell you plainly if there isn't one.
 
+`--system-site-packages` is deliberate: `python-rtmidi` needs ALSA headers
+that are awkward to build in a bare venv. The cost is that `pip-audit`
+sees the whole system site-packages, so `make audit-deps` scopes it with
+`--path` — see `docs/CHECKS.md`.
+
+For development, add the checks:
+
+```sh
+.venv/bin/pip install -e '.[dev]'
+```
+
+And `tools/read_marked_list.py` additionally needs numpy and Pillow:
+
+```sh
+.venv/bin/pip install -e '.[tools]'
+```
+
 ## Run
 
 ```sh
@@ -290,8 +307,10 @@ against real hardware to find. `DISCLAIMER.md` has the full account.
 ## Development
 
 ```sh
-.venv/bin/python -m pytest      # 187 tests, all synthetic, no hardware
+make check                       # everything: lint, types, tests, audit
 ```
+
+See **Development checks** below.
 
 Project layout follows the author's sibling **eosed** and **s3ked**
 projects — a device-domain package and a UI package that knows nothing about
@@ -309,6 +328,53 @@ MIDI:
 
 `TODO.md` is what's open; `docs/RESOLUTION_NOTES.md` is how each thing was
 resolved and where every transcribed number came from.
+
+### Development checks
+
+```sh
+python3 -m venv --system-site-packages .venv
+.venv/bin/pip install -e '.[dev]'
+pre-commit install
+
+make check            # lint, types, tests, audit — fails on any error
+```
+
+`make check` is the whole pipeline; each piece also runs on its own
+(`make help` lists them all):
+
+| | |
+|---|---|
+| `make lint` | **ruff** — lint. Replaces flake8, isort, black and pyupgrade |
+| `make format` | **ruff** — format in place, then apply safe lint fixes |
+| `make typecheck` | **mypy** — non-strict; `typecheck-strict` counts per module |
+| `make test` | **pytest** + **pytest-cov** — term-missing, no threshold yet |
+| `make audit` | **pip-audit**, **vulture**, **deptry**, **detect-secrets** |
+
+The same checks run as pre-commit hooks on the files you touched, pinned
+to the same tool versions as the `dev` extra so a hook and `make check`
+can never disagree.
+
+Everything is configured in `pyproject.toml`. **No existing finding was
+mass-fixed to get here**: 856 ruff findings and 222 mypy findings are
+suppressed with a reason written beside each one, scoped so that
+anything *new* still fails. `docs/CHECKS.md` lists every suppression and
+why it exists, and is the place to look before adding a rule or removing
+one.
+
+Two things worth knowing before you trust the green:
+
+- **`ruff format` is not enforced.** It would reformat 14 of 27 files,
+  and doing that in an unrelated commit is how a real change gets lost.
+  It is not a pre-commit hook and `make check` does not gate on it;
+  `make format` runs it when formatting is the point of the commit.
+  `docs/CHECKS.md` explains the two ways to resolve this properly.
+- **Three setuptools advisories are ignored** in `pip-audit`. That copy
+  is a Debian build dependency, never imported at runtime, and cannot be
+  upgraded in place — the venv shares site-packages with the system.
+  Reasoning is in `docs/CHECKS.md`.
+
+shellcheck and shfmt are wired into pre-commit but currently match
+nothing: rxved has no shell scripts, and `make` calls the tools directly.
 
 ## License and third-party sources
 

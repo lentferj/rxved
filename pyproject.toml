@@ -31,15 +31,42 @@ classifiers = [
 dependencies = [
     "textual>=0.80",
     "python-rtmidi>=1.5",
+    # rxved/app.py imports rich.text.Text directly for the DataTable column
+    # labels. It arrives with textual, but depending on it transitively and
+    # importing it directly is how a textual upgrade breaks rxved.
+    "rich>=13",
+]
+
+[project.optional-dependencies]
+# Pinned exactly, not ranged: `make check` is only reproducible if the
+# linters that decide whether a commit is acceptable are the same ones
+# every time. Each line says how to upgrade it.
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov==7.0.0",
+    "ruff==0.14.5",           # ruff: upgrade with `pip install -U ruff`
+    "mypy==1.18.2",           # mypy: upgrade with `pip install -U mypy`
+    "pip-audit==2.9.0",       # pip-audit: upgrade with `pip install -U pip-audit`
+    "vulture==2.14",          # vulture: upgrade with `pip install -U vulture`
+    "deptry==0.23.0",         # deptry: upgrade with `pip install -U deptry`
+    # The scanner's keyword denylist contains this tool's own name, so the
+    # upgrade hint below reads as a secret to it. The pragma records that we
+    # looked and it is not one.
+    "detect-secrets==1.5.0",  # pragma: allowlist secret
+]
+# What tools/read_marked_list.py needs. Optional: only that one script
+# reads a scanned page, and rxved itself never imports numpy or Pillow.
+# Install with `pip install -e '.[tools]'`.
+tools = [
+    "numpy",
+    "pillow",
 ]
 
 [project.urls]
 Homepage = "https://github.com/lentferj/rxved"
 Source = "https://github.com/lentferj/rxved"
 Issues = "https://github.com/lentferj/rxved/issues"
-
-[project.optional-dependencies]
-dev = ["pytest>=7", "pytest-asyncio>=0.23"]
 
 [project.scripts]
 rxved = "rxved.app:main"
@@ -55,3 +82,320 @@ license-files = ["LICENSE", "COPYING"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# No coverage threshold yet (see Makefile): the suite is all synthetic and
+# fast, so a number would be easy to set and would mean little. The report
+# is here to show what the tests do and do not reach.
+addopts = "--cov=xv --cov=rxved --cov-report=term-missing --cov-report=xml"
+
+[tool.coverage.run]
+branch = true
+source = ["xv", "rxved"]
+# The tools/ scripts are one-shot CLI entry points, not importable modules;
+# they are measured by reading, not by the test suite.
+omit = ["*/tools/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+# --- ruff: linting and formatting ------------------------------------------
+# ruff replaces flake8, isort, black and pyupgrade. Rule sets are exactly the
+# ones this project wants; see the per-file-ignores below for what is
+# pre-existing and deliberately left alone.
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+extend-exclude = [".venv", "xv/data"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle
+    "F",     # pyflakes
+    "I",     # isort
+    "B",     # bugbear
+    "S",     # bandit
+    "SIM",   # simplify
+    "UP",    # pyupgrade
+    "C4",    # comprehensions
+    "PL",    # pylint
+    "RUF",   # ruff-specific
+    "C901",  # mccabe complexity, max-complexity 10 above
+]
+ignore = [
+    # --- Pre-existing, suppressed deliberately rather than mass-fixed.
+    # Counts are the ones measured on 2026-10-02; see docs/CHECKS.md for
+    # the full list and the reasoning. Each of these is a style choice
+    # the codebase already makes consistently across every module.
+    "UP006",   # typing.List -> list: 243. The codebase targets 3.11 but
+               # was written with typing.List throughout; converting is
+               # a mechanical sweep, not a fix.
+    "UP035",   # typing.Dict -> dict (import source): 38
+    "UP037",   # quoted annotations: 19
+    "UP045",   # Optional[X] -> X | None: 125
+    "PLR2004", # magic values: 174. This is a MIDI/SysEx codebase full
+               # of wire bytes and offsets; naming every one of them
+               # would be noise, not clarity.
+    "PLC0415", # import outside top-level: 112. Deliberate, and the
+               # reason xv/params.py exists at all -- see its module
+               # docstring. Three tools also import from xv after a
+               # sys.path insert.
+    "PLR0913", # too many arguments: 13. Dataclass __init__s and Textual
+               # callbacks; splitting them would change the API.
+    "PLR0912", # too many branches: 7. Dispatch tables.
+    "PLR0915", # too many statements: 6
+    "PLR0911", # too many returns: 3
+    "RUF012",  # mutable class attr without ClassVar: 15. Textual's
+               # BINDINGS and CSS are the framework's API.
+    "RUF022",  # unsorted __all__: 13
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests: assert() is how a test asserts, so S101 is allowed here and
+# nowhere else. The rest are one-offs in existing tests.
+"tests/*" = [
+    "S101",   # assert
+    "B007",   # unused loop control var -- 1, test_state.py
+    "B017",   # assert blind Exception -- 1, test_catalog.py
+    "B905",   # zip without strict -- 1
+    "C408",   # dict() instead of a literal -- 1
+    "F401",   # unused import -- 4
+    "I001",   # unsorted imports -- 6
+]
+"tools/*" = [
+    # Deliberate and reviewed, not overlooked:
+    #   S603/S607 -- pdftotext/pdftoppm are invoked from a fixed argv list
+    #     with shell=False. There is no user data in the argv.
+    #   S314 -- xml.etree on Roland's own Shift_JIS script file, supplied
+    #     by the user and read locally. The stdlib parser is the point:
+    #     no network input reaches it.
+    #   RUF001 -- a PDF text layer is full of curly quotes and an "ambiguous"
+    #     character inside a patch name is still a patch name.
+    "S603", "S607", "S314",
+    "RUF001",  # 1, in a _PDF_FIXUPS mapping
+    "B034",    # re.split positional args -- 1. maxsplit=/flags= read worse
+    "B904",    # raise without from -- 3
+    "B905",    # zip without strict -- 2
+    "B007",    # unused loop control var -- 1
+    "C901",    # complexity -- 6, all PDF/table parsers
+    "F841",    # unused variable -- 1
+    "I001",    # unsorted imports -- 2
+    "PLR0912", # branches -- 4
+    "PLR0913", # arguments -- 1
+    "PLR0915", # statements -- 4
+    "RUF007",  # zip vs itertools.pairwise -- 1
+    "RUF100",  # stale noqa -- 3
+    "UP015",   # redundant open mode -- 2
+]
+"xv/*" = [
+    # S608: both SQL string interpolations are parameterised except the
+    # ORDER BY clause, which a placeholder cannot carry -- that one is
+    # validated against a fixed dict instead. See Favorites.all.
+    "S608",
+    "B905",   # zip without strict -- 0 today, but the parser is a zip of
+              # three sequences whose lengths are asserted above it
+    "F401",   # unused import -- 1 (bridge re-exports xv.params tables)
+    "I001",   # unsorted imports -- 4
+    "SIM105", # contextlib.suppress -- 4; the try/except/pass pairs are
+              # documented individually and name a specific tuple
+    "RUF005", # literal concatenation -- 4, the PERFORMANCE_BLOCKS tables
+    "RUF100", # stale noqa -- 1
+    "UP015",  # redundant open mode -- 1
+]
+"rxved/*" = [
+    "B904",   # raise without from -- 1
+    "B905",   # zip without strict -- 1
+    "C901",   # complexity -- 1 (_cell_text, a column dispatch table)
+    "F401",   # unused import -- 2 (re-exports; see app.py __all__)
+    "F541",   # f-string without placeholders -- 3
+    "F841",   # unused variable -- 1
+    "I001",   # unsorted imports -- 5
+    "SIM105", # contextlib.suppress -- 2
+    "RUF005", # literal concatenation -- 2
+]
+# Two files need their own, because their findings are one deliberate
+# construct each rather than a style the whole codebase shares.
+"rxved/favorites.py" = [
+    "E501",   # 97 cols: a SQL triple that reads as one statement when
+              # kept on one line is clearer than when split
+    "RUF023", # __slots__ order is not alphabetical here
+    # The ORDER BY clause is the one thing a placeholder cannot carry,
+    # which is why `order` is validated against a fixed dict. See
+    # Favorites.all.
+    "S608",
+]
+"xv/config.py" = [
+    # "%04X" is a TOML escape, not a message: an f-string would need the
+    # backslash doubled and reads worse.
+    "UP031",
+    # The warn-once flag is deliberately module-global: the point is to
+    # print once per process, not once per save.
+    "PLW0603",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["xv", "rxved"]
+
+[tool.ruff.format]
+# Matches the existing hand formatting: 88 columns, double quotes.
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = false
+
+# --- deptry ----------------------------------------------------------------
+# DEP002 is "declared but never imported", which is simply false for the
+# dev extras: pytest, ruff and the rest are invoked by the Makefile and by
+# pre-commit, not imported by application code. Naming them here keeps the
+# real DEP001/DEP002 findings (a *runtime* dependency nothing uses) visible.
+[tool.deptry.per_rule_ignores]
+DEP002 = [
+    "pytest", "pytest-asyncio", "pytest-cov", "ruff", "mypy",
+    "pip-audit", "vulture", "deptry", "detect-secrets",
+]
+
+# --- mypy ------------------------------------------------------------------
+# Non-strict to start: the codebase predates these checks and `strict`
+# would be several hundred errors. `--strict` is on for the modules that
+# are purely typed already; add a module there as it is cleaned up.
+[tool.mypy]
+python_version = "3.11"
+files = ["rxved", "xv", "tools"]
+exclude = ["^\\.venv/", "^xv/data/"]
+# The default is non-strict and mostly silent on the legacy shape of the
+# codebase. What is left enabled is the part that catches real bugs:
+# arg-type, assignment, return-value, comparison-overlap, union-attr,
+# misc and the rest of the correctness codes.
+#
+# A NEW module gets the full non-strict default, because the per-module
+# disables below name modules, not rule sets. Strict is on for the three
+# already-clean modules and `make typecheck-strict` counts the rest.
+disable_error_code = [
+    # 97 existing: most functions here are annotated, but ~100 are not,
+    # mostly Textual callbacks and the tools' small helpers.
+    "no-untyped-def",
+    # 48 existing: bare `dict`/`set`/`DataTable` where the type
+    # parameter would be noise.
+    "type-arg",
+    # 30 existing: calling into the untyped parts of the above.
+    "no-untyped-call",
+    # 19 existing: mostly Textual resolving a widget by id at runtime.
+    "attr-defined",
+    # 19 existing: dataclass fields assigned dynamically (bilingual).
+    "has-type",
+    # A few existing: deliberate (`XvBridge` assigned where `DemoBridge`
+    # was declared -- DemoBridge is a deliberate stand-in, not a subclass).
+    "assignment",
+]
+
+# rtmidi is a C extension with no stubs; the bridge is the only module
+# that imports it.
+[[tool.mypy.overrides]]
+module = ["rtmidi.*"]
+ignore_missing_imports = true
+# textual ships its own types, but reaches into them loosely.
+[[tool.mypy.overrides]]
+module = ["textual.*", "rich.*"]
+ignore_missing_imports = true
+warn_unused_ignores = false
+
+# --- pre-existing, suppressed per module. Counts are as measured on
+# 2026-10-02; see docs/CHECKS.md. These are the codes a new module would
+# still be checked against, because each override names modules.
+[[tool.mypy.overrides]]
+# The TUI: Textual resolves widgets and actions by name at runtime, so
+# most of this is genuinely dynamic.
+module = ["rxved.app", "rxved.screens"]
+disable_error_code = [
+    "no-untyped-def", "type-arg", "no-untyped-call", "attr-defined",
+    "has-type", "assignment", "arg-type", "misc", "no-any-return",
+    "return-value", "var-annotated", "union-attr", "call-overload",
+    # CategoryScreen.action_toggle() shadows a Textual DOMNode method of
+    # the same name with a different signature. Pre-existing: 1. The key
+    # binding is what reaches it; renaming would be an application change.
+    "override",
+]
+disallow_untyped_defs = false
+warn_return_any = false
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+# DemoBridge mirrors XvBridge's interface without inheriting from it --
+# that is the point: xv.bridge imports rtmidi at module scope, and the
+# fake must work where that import fails. So the deliberate interface
+# duplication is not an error to report.
+module = ["rxved.demo"]
+disable_error_code = [
+    "no-untyped-def", "type-arg", "no-untyped-call", "attr-defined",
+    "assignment", "misc", "override", "arg-type",
+]
+disallow_untyped_defs = false
+warn_return_any = false
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+# One-shot scripts: parsed tables, printed reports, argparse plumbing.
+# Named without the `tools.` prefix because tools/ has no __init__.py, so
+# mypy sees them as top-level modules.
+module = ["extract_catalog", "check_editor_map", "read_marked_list"]
+disable_error_code = [
+    "no-untyped-def", "type-arg", "no-untyped-call", "attr-defined",
+    "misc", "no-any-return", "return-value", "var-annotated",
+    # The tools index nested dicts by heterogeneous keys and unpack
+    # 3-tuples inside loops mypy cannot follow. Pre-existing:
+    # extract_catalog 2, check_editor_map 3, read_marked_list 3.
+    "arg-type",
+    "comparison-overlap",
+]
+disallow_untyped_defs = false
+warn_return_any = false
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = ["rxved.cli"]
+disable_error_code = [
+    "no-untyped-def", "type-arg", "no-untyped-call", "attr-defined",
+    "assignment", "misc", "arg-type", "no-any-return",
+]
+disallow_untyped_defs = false
+warn_return_any = false
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = ["rxved.favorites"]
+disable_error_code = [
+    "no-untyped-def", "type-arg", "no-untyped-call", "misc",
+    "no-any-return", "var-annotated",
+]
+disallow_untyped_defs = false
+warn_return_any = false
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = ["xv.bridge", "xv.config", "xv.backup"]
+disable_error_code = [
+    "no-untyped-def", "no-untyped-call", "type-arg", "misc",
+    "no-any-return",
+]
+disallow_untyped_defs = false
+warn_return_any = false
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = ["xv.catalog"]
+disable_error_code = ["no-untyped-def", "no-untyped-call", "var-annotated"]
+disallow_untyped_defs = false
+warn_unused_ignores = false
+
+# numpy and Pillow are imported by tools/read_marked_list.py only, and only
+# for image arithmetic the project does itself. Neither ships stubs.
+[[tool.mypy.overrides]]
+module = ["numpy.*", "PIL.*"]
+ignore_missing_imports = true

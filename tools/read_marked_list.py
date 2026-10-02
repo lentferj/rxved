@@ -69,7 +69,7 @@ import os
 import subprocess
 import sys
 import tempfile
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     import numpy as np
@@ -154,7 +154,7 @@ def render(pdf: str, outdir: str) -> List[str]:
 
 
 def _centres(
-    a, x0: int, x1: int, ytop: int = 440, ybot: int = 3350, minh: int = 10
+    a: Any, x0: int, x1: int, ytop: int = 440, ybot: int = 3350, minh: int = 10
 ) -> List[int]:
     """y centre of every run of ink in a number cell."""
     dark = (a[:, :, 0] < 150) & (a[:, :, 1] < 150) & (a[:, :, 2] < 150)
@@ -182,7 +182,7 @@ def _centres(
 RULE_FRACTIONS = (0.75, 0.6, 0.5, 0.4, 0.3, 0.22)
 
 
-def _rule_groups(a, x0: int, x1: int, fraction: float) -> List[int]:
+def _rule_groups(a: Any, x0: int, x1: int, fraction: float) -> List[int]:
     dark = (a[:, :, 0] < 170) & (a[:, :, 1] < 170) & (a[:, :, 2] < 170)
     width = x1 - x0
     hits = np.nonzero(dark[:, x0:x1].sum(axis=1) > width * fraction)[0]
@@ -199,7 +199,7 @@ def _rule_groups(a, x0: int, x1: int, fraction: float) -> List[int]:
     return groups
 
 
-def _rule_rows(a, x0: int, x1: int, rows: int):
+def _rule_rows(a: Any, x0: int, x1: int, rows: int) -> Optional[List[float]]:
     """Row centres from the table's own horizontal rules, or ``None``.
 
     The expansion-board pages rule every row, and a rule is the only feature
@@ -237,7 +237,7 @@ def _rule_rows(a, x0: int, x1: int, rows: int):
     return None
 
 
-def fit_grid(a, x0: int, x1: int, rows: int) -> Tuple[List[float], int]:
+def fit_grid(a: Any, x0: int, x1: int, rows: int) -> Tuple[List[float], int]:
     """Row centres for a column of ``rows`` rows, and how many were accounted.
 
     Finding the table's real extent is the whole problem, and the obvious
@@ -298,7 +298,6 @@ def fit_grid(a, x0: int, x1: int, rows: int) -> Tuple[List[float], int]:
     accounted = best_len + 1
     pitch = (last - first) / (accounted - 1)
     return [last - (rows - 1 - n) * pitch for n in range(rows)], accounted
-    return [first + n * pitch for n in range(rows)], accounted
 
 
 def score_page(
@@ -368,10 +367,10 @@ def auto_threshold(scores: Dict[int, int]) -> int:
     return cut
 
 
-def parse_pages(values: List[str]) -> Dict[int, Tuple[str, List[int]]]:
+def parse_pages(values: List[str] | None) -> Dict[int, Tuple[str, List[int]]]:
     """``--page 1=SRX-07:1,91,181`` -> ``{1: ("SRX-07", [1, 91, 181])}``."""
     out: Dict[int, Tuple[str, List[int]]] = {}
-    for item in values:
+    for item in values or []:
         page, _, rest = item.partition("=")
         card, _, starts = rest.partition(":")
         try:
@@ -389,7 +388,9 @@ def parse_pages(values: List[str]) -> Dict[int, Tuple[str, List[int]]]:
     return out
 
 
-def resolve(pages, totals: Dict[str, int]):
+def resolve(
+    pages: Dict[int, Tuple[str, List[int]]], totals: Dict[str, int]
+) -> Dict[int, List[int]]:
     """Work out how many rows each column holds, and check the arithmetic.
 
     Each column runs from its own first number to just before the next
@@ -440,7 +441,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--page",
         action="append",
-        default=[],
+        default=None,
         metavar="N=BANK:first,first",
         help="a page: its bank and the first patch number in each of its "
         "columns, e.g. --page 1=SRX-07:1,91,181 or --page 5=PST-B:1,65",
@@ -477,7 +478,7 @@ def _bank_for(card: str, number: int) -> Tuple[str, int]:
     return f"{card}-{page + 1}", slot + 1
 
 
-def main(argv=None) -> int:
+def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     pages = parse_pages(args.page)
     if not pages:

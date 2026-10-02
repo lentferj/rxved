@@ -27,3 +27,13 @@ xv/data/
 *.bak
 *.orig
 *~
+
+# Quality-check pipeline.
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+# Written by `make baseline`, kept only long enough to diff against.
+.secrets.baseline.prev

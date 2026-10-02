@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Copyright (C) 2026  rxved contributors
+#
+# rxved's quality checks as pre-commit hooks. `make check` runs the same
+# tools over the whole tree; these run the fast ones over what you changed.
+#
+# Install:  pre-commit install
+# By hand:  .venv/bin/pre-commit run --all-files
+#
+# Hook revisions are pinned to the exact versions in
+# pyproject.toml's [project.optional-dependencies].dev, so a hook and
+# `make check` can never disagree about what a finding is. Upgrading a tool
+# means upgrading both in the same commit.
+
+minimum_pre_commit_version: "3.0.0"
+default_language_version:
+  python: python3.11
+
+repos:
+  # --- ruff: lint ----------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.5
+    hooks:
+      - id: ruff-check
+        args: [--fix, --exit-non-zero-on-fix]
+
+  # ruff-format is deliberately NOT hooked. The tree has never been
+  # formatted with it, so enabling the hook rewrites ~3,700 lines across
+  # 23 files in a single unrelated commit -- unreviewable, and exactly the
+  # kind of churn that hides a real change. `make format` runs it when
+  # that is the point of the commit. See docs/CHECKS.md.
+
+  # --- mypy ----------------------------------------------------------------
+  # Uses the config in pyproject.toml, including which modules are strict.
+  # additional_dependencies keeps the hook's own environment aligned with
+  # the pinned dev extra so a type error cannot differ between here and CI.
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.18.2
+    hooks:
+      - id: mypy
+        files: ^(rxved|xv|tools)/
+        args: [--strict, --no-error-summary]
+        # Pinned to the versions actually installed in .venv, so this hook
+        # and `make typecheck` see the same stubs. python-rtmidi is absent
+        # deliberately: it ships no stubs, and pyproject.toml already tells
+        # mypy to ignore its import, so installing it would only add build
+        # time to every commit.
+        additional_dependencies:
+          - pytest==9.1.1
+          - pytest-asyncio==1.4.0
+          - pytest-cov==7.0.0
+          - rich==15.0.0
+          - textual==8.2.8
+          - typing_extensions==4.16.0
+
+  # --- secrets -------------------------------------------------------------
+  # Fails on anything new since .secrets.baseline. To adopt a finding as
+  # intentional, run `make baseline` and commit the regenerated file.
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: [--baseline, .secrets.baseline]
+
+  # --- shell ---------------------------------------------------------------
+  # rxved has no shell scripts today (Makefile targets call the tools
+  # directly), so these two match nothing yet. They are here so that the
+  # first *.sh that lands is checked from the start rather than after
+  # somebody remembers. Both are apt-installed on the dev host; the hooks
+  # use their own pinned copies.
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.11.0
+    hooks:
+      - id: shellcheck
+        args: [--severity=style]
+  # rev is the newest that still declares the legacy `commit` stage rather
+  # than `pre-commit`. From v3.11.0-1 the manifest uses the newer stage
+  # names and pre-commit refuses to load it (InvalidManifestError), which
+  # fails the whole config, not just this hook. Raise this when pre-commit
+  # itself goes past 3.3.
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.10.0-1
+    hooks:
+      - id: shfmt
+        args: [-i, "2", -ci, -w]

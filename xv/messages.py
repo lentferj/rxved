@@ -62,7 +62,7 @@ not treat one timed-out read as proof of anything.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Iterable, Optional, Sequence, Tuple
 
 __all__ = [
     "SYSEX_START",

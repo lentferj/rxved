@@ -28,6 +28,9 @@ projects:
   name read from a book and one read from the hardware.
 * :mod:`xv.bridge` -- how the bytes get there. MIDI transport, throttling,
   port discovery by Identity Request, and the read operations.
+* :mod:`xv.config` -- the local ``config.toml`` cache (last ports, device
+  ID, channel), split out of the bridge so transport and settings stop
+  sharing a file.
 
 Two facts shape everything here. The XV-2020's **preset banks have no
 addresses** in the parameter map -- they are ROM, and the only way to read a
@@ -36,4 +39,4 @@ makes it play. And a **request the device cannot serve is answered with
 silence**, so a timeout never distinguishes "absent" from "busy".
 """
 
-__all__ = ["messages", "banks", "catalog", "bridge"]
+__all__ = ["messages", "banks", "catalog", "bridge", "config"]

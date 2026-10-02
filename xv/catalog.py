@@ -41,7 +41,7 @@ user has overwritten would be actively misleading about the one bank they
 can change.
 
 **The generated catalog file is not distributed with rxved.** It is built
-from the owner's manual by ``tools/extract_patchlist.py`` and written to
+from the owner's manual by ``tools/extract_catalog.py`` and written to
 ``xv/data/catalog.json``, which is gitignored -- the sibling eosed and s3ked
 projects do not commit manufacturer content either. Everything here works
 without it: banks, numbers, MSB, LSB and program change are rxved's own
@@ -53,7 +53,7 @@ from __future__ import annotations
 import json
 import sys
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from xv import banks
@@ -70,7 +70,7 @@ __all__ = [
     "empty",
 ]
 
-#: Where ``tools/extract_patchlist.py`` writes, and where :func:`load` looks.
+#: Where ``tools/extract_catalog.py`` writes, and where :func:`load` looks.
 DEFAULT_CATALOG_PATH = os.path.join(os.path.dirname(__file__), "data", "catalog.json")
 
 #: The patch categories, in the order the XV-2020's own category byte

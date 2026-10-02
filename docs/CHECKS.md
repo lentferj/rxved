@@ -58,12 +58,17 @@ every pre-commit hook over every file.
 The matrix is platforms, not Python versions. This program opens a MIDI
 port; where it runs matters more than which interpreter runs it.
 
-**3.13 is listed in pyproject's classifiers but is not tested.** As of
-2026-10-02 `python-rtmidi` publishes wheels for cp38–cp312 only, so on
-3.13 `pip install` falls back to a source build needing ALSA headers on
-Linux, Xcode CLT on macOS and a C toolchain on Windows. That is a
-five-minute job on a laptop and a source-build dependency in CI, so it is
-left out deliberately rather than by oversight.
+**3.13 is claimed nowhere.** It used to be in pyproject's classifiers
+while CI could not test it, which is the aspirational kind of claim this
+project is careful about elsewhere. As of 2026-10-02 `python-rtmidi`
+publishes wheels for cp38–cp312 only, so on 3.13 `pip install` falls back
+to a source build needing ALSA headers, Xcode CLT and a C toolchain. The
+classifier is gone; re-add it and add "3.13" to the matrix in the same
+commit, when rtmidi ships a cp313 wheel.
+
+The OS classifiers were corrected at the same time: rxved is tested on all
+three platforms, and `favorites.data_dir()` has a branch for each, but
+only Linux was declared.
 
 Two notes on making the same `make check` run everywhere:
 
@@ -188,23 +193,39 @@ the Makefile and pre-commit, never imported — which is what DEP002 says.
 - `numpy`/`Pillow` are imported by `tools/read_marked_list.py` but
   declared nowhere. Now an explicit `[tools]` extra.
 
-## pip-audit: 3 findings suppressed
+## pip-audit: 3 findings suppressed, and only in one venv
 
 `PYSEC-2025-49`, `PYSEC-2026-1918`, `PYSEC-2026-3447`, all against
-`setuptools 66.1.1`. That copy is a **build** dependency from Debian,
-never imported at runtime, and it cannot be upgraded in place: the venv
-shares site-packages with the system, whose `jaraco.functools` predates
-the `splat()` that setuptools ≥70 imports, so an upgrade installs and
-then breaks the interpreter. Fixing that means rebuilding the venv
-without `--system-site-packages`, which is a separate decision for the
-maintainer.
+`setuptools 66.1.1` — and they are passed **only when the venv shares
+site-packages with the OS**. The Makefile tests
+`include-system-site-packages` in `.venv/pyvenv.cfg`:
 
-pip-audit is also scoped with `--path $(SITE_PACKAGES)`. The venv was
-created with `--system-site-packages` (README, *Install*), so an
-unscoped run audits the whole Debian userland and reports CVEs in
-`brlapi`, `terminator`, `libtorrent` and two dozen other packages that
-have nothing to do with rxved. That is 30+ findings of noise, silenced by
-scoping rather than by ignoring IDs.
+- **The author's venv** (`--system-site-packages`, per the README): the
+  three advisories are ignored. setuptools comes from Debian there and
+  **cannot** be upgraded — setuptools ≥70 imports `splat` from
+  `jaraco.functools`, and `/usr/lib/python3/dist-packages` wins over the
+  venv's own site-packages, so installing a newer `jaraco.functools` does
+  not shadow it and the upgrade installs and then breaks the interpreter.
+  Verified, not assumed.
+- **CI, and any clean venv**: the flag is empty and pip-audit runs with
+  nothing suppressed at all, because the workflow upgrades pip and
+  setuptools before installing anything. Confirmed: a clean venv reports
+  *"No known vulnerabilities found"*.
+
+That asymmetry is the point. The alternative — passing the three IDs
+unconditionally — means every CI run audits with three permanent blind
+spots, including for packages that have nothing to do with setuptools.
+Rebuild the venv without `--system-site-packages` and the ignores stop
+applying on their own.
+
+Re-check those IDs rather than trusting the list: they are pinned to a
+Debian version that moves under you.
+
+pip-audit is also scoped with `--path $(SITE_PACKAGES)`. In a
+`--system-site-packages` venv an unscoped run audits the whole Debian
+userland and reports CVEs in `brlapi`, `terminator`, `libtorrent` and two
+dozen other packages unrelated to rxved. That is 30+ findings of noise,
+silenced by scoping rather than by ignoring IDs.
 
 ## vulture and detect-secrets: nothing suppressed
 

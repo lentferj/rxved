@@ -367,12 +367,15 @@ Formatting is ruff-format's and is enforced — `make format-check` runs in
 than mixed into a code change, which is the only way a formatter this
 opinionated can be adopted without losing whatever rode along with it.
 
-One thing to know before you trust the green: **three setuptools
-advisories are ignored** in `pip-audit`. That copy is a Debian build
-dependency, never imported at runtime, and cannot be upgraded in place —
-the venv shares site-packages with the system, whose `jaraco.functools`
-predates the `splat()` that setuptools ≥70 needs. Reasoning is in
-`docs/CHECKS.md`.
+One thing to know before you trust the green: in a venv built with
+`--system-site-packages`, `pip-audit` ignores **three setuptools
+advisories**. That copy comes from the OS and cannot be upgraded — a
+newer setuptools needs a newer `jaraco.functools`, and the system copy
+wins over the venv's. CI builds a clean venv, upgrades pip and setuptools,
+and suppresses nothing at all. Reasoning is in `docs/CHECKS.md`.
+
+Python 3.13 is not claimed and not tested: `python-rtmidi` has no cp313
+wheel, so installing there means a source build.
 
 shellcheck and shfmt are wired into pre-commit but currently match
 nothing: rxved has no shell scripts, and `make` calls the tools directly.

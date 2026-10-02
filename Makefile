@@ -101,18 +101,30 @@ audit: audit-deps audit-dead audit-secrets  ## Dependencies, dead code, secrets
 SITE_PACKAGES := $(shell $(PYTHON) -c \
 	'import sysconfig; print(sysconfig.get_paths()["purelib"])')
 
-# Three setuptools advisories, all suppressed deliberately and for the same
-# reason: setuptools is a *build* dependency here, never imported at runtime,
-# and this copy (66.1.1) comes from Debian rather than from our dev extras.
-# Upgrading it in place is not possible on this host -- the venv shares
-# site-packages with the system, whose jaraco.functools predates the splat()
-# that setuptools>=70 requires, so the upgrade installs and then breaks the
-# interpreter. Fixing that means rebuilding the venv without
-# --system-site-packages, which is a separate decision. Re-check these IDs
-# rather than trusting the list to stay valid.
+# Three setuptools advisories, ignored ONLY in a --system-site-packages
+# venv, and only for that package's sake. In such a venv setuptools comes
+# from Debian (66.1.1 here) and cannot be upgraded: setuptools>=70 imports
+# `splat` from jaraco.functools, and /usr/lib/python3/dist-packages wins
+# over the venv's own site-packages, so installing a newer jaraco.functools
+# does not shadow it and the upgrade installs and then breaks the
+# interpreter. Verified, not assumed.
+#
+# Scoped to the flag rather than passed unconditionally on purpose: a CI
+# runner builds a clean venv, has a modern setuptools, needs no ignores at
+# all, and so audits with nothing suppressed. Rebuild the venv without
+# --system-site-packages and these stop applying by themselves.
+#
+# Re-check these IDs rather than trusting the list: they are pinned to a
+# version that moves under Debian.
+SHARES_SYSTEM_SITE := $(shell grep -q '^include-system-site-packages = true' \
+	.venv/pyvenv.cfg 2>/dev/null && echo yes || echo no)
+ifeq ($(SHARES_SYSTEM_SITE),yes)
 PIP_AUDIT_IGNORES := --ignore-vuln PYSEC-2025-49 \
                      --ignore-vuln PYSEC-2026-1918 \
                      --ignore-vuln PYSEC-2026-3447
+else
+PIP_AUDIT_IGNORES :=
+endif
 
 audit-deps: ## pip-audit: known CVEs in this project's dependencies
 	$(PIP_AUDIT) --progress-spinner off \

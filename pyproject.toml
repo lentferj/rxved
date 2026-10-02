@@ -2,6 +2,10 @@
 # SPDX-FileCopyrightText: Copyright (C) 2026  rxved contributors
 
 [build-system]
+# The floor is 61 because that is the first release with PEP 621 `[project]`
+# support. Deliberately not capped: whether this resolves to a version with
+# an open advisory is a property of the *installed* copy, and is handled
+# where it can be measured -- see the Makefile's pip-audit target.
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
@@ -16,15 +20,27 @@ authors = [{ name = "Jan Lentfer", email = "jan.lentfer@web.de" }]
 keywords = ["midi", "sysex", "synthesizer", "roland", "xv-2020", "srx", "tui"]
 # No "License :: OSI Approved :: ..." classifier: the `license` field above
 # already carries the SPDX expression, and PEP 639 deprecates stating it twice.
+#
+# 3.13 is deliberately absent. python-rtmidi publishes wheels for
+# cp38-cp312 only, so installing on 3.13 falls back to a source build
+# needing ALSA headers, Xcode CLT or a C toolchain. Claiming it here
+# while CI cannot test it would be the aspirational kind of claim this
+# project is careful about elsewhere. Re-add the line when rtmidi ships a
+# cp313 wheel, and add "3.13" to the CI matrix at the same time.
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
+    # All three are tested in CI (see .github/workflows/checks.yml), and
+    # favorites.py has a data_dir branch for each. The MIDI port itself
+    # needs whatever the host provides -- an ALSA sequencer on Linux,
+    # a CoreMIDI or WinMM port elsewhere -- but rxved runs on all three.
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Topic :: Multimedia :: Sound/Audio :: MIDI",
     "Topic :: System :: Hardware",
 ]

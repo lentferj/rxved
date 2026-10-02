@@ -34,10 +34,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         # 3.11 is the floor in pyproject.toml and 3.12 is the next one up.
-        # 3.13 is listed as supported but is deliberately NOT tested here:
-        # python-rtmidi ships no cp313 wheel, so `pip install` would fall
-        # back to a source build needing ALSA headers (Linux), Xcode CLT
-        # (macOS) and a C toolchain (Windows). See docs/CHECKS.md.
+        # 3.13 is deliberately absent from both: python-rtmidi publishes
+        # wheels for cp38-cp312 only, so `pip install` there falls back to a
+        # source build needing ALSA headers (Linux), Xcode CLT (macOS) and a
+        # C toolchain (Windows). The classifier is not claimed either --
+        # see the note in pyproject.toml and docs/CHECKS.md.
         python: ["3.11", "3.12"]
 
     steps:
@@ -75,7 +76,14 @@ jobs:
         shell: bash
         run: |
           if [ -x .venv/Scripts/python.exe ]; then PY=.venv/Scripts/python.exe; else PY=.venv/bin/python; fi
-          "$PY" -m pip install --upgrade pip
+          # Upgrade pip and setuptools before anything else. A venv seeded
+          # from an older interpreter carries older copies of both, and
+          # pip-audit audits the whole venv -- so without this the audit
+          # reports the packaging tools' own advisories rather than
+          # anything about rxved. This is the CI counterpart of the
+          # conditional ignores in the Makefile: CI upgrades instead of
+          # suppressing, and suppresses nothing.
+          "$PY" -m pip install --upgrade pip setuptools
           "$PY" -m pip install -e '.[dev]'
 
       # The whole pipeline, exactly as a developer runs it locally.

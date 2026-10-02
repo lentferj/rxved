@@ -46,13 +46,40 @@ DEMO_DEVICE_ID = m.DEFAULT_DEVICE_ID
 #: while being obviously not Roland's -- no real instrument trademarks, per
 #: the sibling projects' rule.
 _ADJECTIVES = (
-    "Velvet", "Rusty", "Glass", "Hollow", "Bright", "Distant", "Warm",
-    "Folded", "Iron", "Paper", "Amber", "Quiet", "Sharp", "Drifting",
-    "Static", "Woven",
+    "Velvet",
+    "Rusty",
+    "Glass",
+    "Hollow",
+    "Bright",
+    "Distant",
+    "Warm",
+    "Folded",
+    "Iron",
+    "Paper",
+    "Amber",
+    "Quiet",
+    "Sharp",
+    "Drifting",
+    "Static",
+    "Woven",
 )
 _NOUNS = (
-    "Bell", "Pad", "Bass", "Lead", "Choir", "Pluck", "Sweep", "Stack",
-    "Drone", "Keys", "Brass", "Wash", "Spike", "Hum", "Comb", "Grain",
+    "Bell",
+    "Pad",
+    "Bass",
+    "Lead",
+    "Choir",
+    "Pluck",
+    "Sweep",
+    "Stack",
+    "Drone",
+    "Keys",
+    "Brass",
+    "Wash",
+    "Spike",
+    "Hum",
+    "Comb",
+    "Grain",
 )
 
 
@@ -61,7 +88,7 @@ def _demo_name(bank_id: str, number: int) -> str:
     seed = sum(ord(c) for c in bank_id) * 31 + number * 17
     adjective = _ADJECTIVES[seed % len(_ADJECTIVES)]
     noun = _NOUNS[(seed // len(_ADJECTIVES)) % len(_NOUNS)]
-    return f"{adjective} {noun}"[:m.PATCH_NAME_LEN]
+    return f"{adjective} {noun}"[: m.PATCH_NAME_LEN]
 
 
 class DemoBridge:
@@ -119,8 +146,11 @@ class DemoBridge:
 
         self._tick()
         return DeviceIdentity(
-            send_port="demo", recv_port="demo", device_id=DEMO_DEVICE_ID,
-            family=m.IDENTITY_FAMILY, family_number=m.IDENTITY_FAMILY_NUMBER,
+            send_port="demo",
+            recv_port="demo",
+            device_id=DEMO_DEVICE_ID,
+            family=m.IDENTITY_FAMILY,
+            family_number=m.IDENTITY_FAMILY_NUMBER,
             revision=(0, 0, 0, 0),
         )
 
@@ -153,8 +183,9 @@ class DemoBridge:
             return "Demo Init"
         return _demo_name(self.selected.bank_id, self.selected.number)
 
-    def read_user_bank(self, bank_id: str, *, on_progress=None,
-                       timeout=None) -> Dict[int, str]:
+    def read_user_bank(
+        self, bank_id: str, *, on_progress=None, timeout=None
+    ) -> Dict[int, str]:
         readers = {
             "USER": self.user_patch_name,
             "P-USER": self.user_performance_name,
@@ -201,8 +232,12 @@ class DemoBridge:
         # are the ones with anything to get wrong -- are the ones exercised.
         return SetupState(
             mode=SoundMode.PERFORM,
-            performance_msb=85, performance_lsb=0, performance_program=4,
-            patch_msb=87, patch_lsb=0, patch_program=0,
+            performance_msb=85,
+            performance_lsb=0,
+            performance_program=4,
+            patch_msb=87,
+            patch_lsb=0,
+            patch_program=0,
         )
 
     def read_part(self, part: int, *, timeout=None):
@@ -218,28 +253,33 @@ class DemoBridge:
         # Two deliberately silenced parts, one by each readable mechanism,
         # so the silence report has something real to find in demo mode.
         # Both of these are what a channel that has "gone quiet" usually is.
-        state = PartState(part=part, receive_channel=channel,
-                          receive_switch=part != 5,
-                          level=0 if part == 6 else 100,
-                          msb=87, lsb=64, program_change=part - 1,
-                          # Part 7 is muted and part 8 has every send at
-                          # zero, so each readable cause of silence appears
-                          # once in demo mode.
-                          mute=part == 7,
-                          dry=0 if part == 8 else 127,
-                          chorus=0 if part in (1, 8) else 20,
-                          reverb=0 if part == 8 else 40,
-                          # Part 9 carries an output assign this model
-                          # ignores, as a performance from a bigger sibling
-                          # would.
-                          output_assign=10 if part == 9 else 0,
-                          output_mfx=0,
-                          # A split across two parts on channel 1, so the
-                          # keyboard-range columns have something real in
-                          # them and the note-name rendering is exercised.
-                          key_lower=0 if part != 2 else 60,
-                          key_upper=59 if part == 1 else 127,
-                          pan=64 + (part - 8) * 4)
+        state = PartState(
+            part=part,
+            receive_channel=channel,
+            receive_switch=part != 5,
+            level=0 if part == 6 else 100,
+            msb=87,
+            lsb=64,
+            program_change=part - 1,
+            # Part 7 is muted and part 8 has every send at
+            # zero, so each readable cause of silence appears
+            # once in demo mode.
+            mute=part == 7,
+            dry=0 if part == 8 else 127,
+            chorus=0 if part in (1, 8) else 20,
+            reverb=0 if part == 8 else 40,
+            # Part 9 carries an output assign this model
+            # ignores, as a performance from a bigger sibling
+            # would.
+            output_assign=10 if part == 9 else 0,
+            output_mfx=0,
+            # A split across two parts on channel 1, so the
+            # keyboard-range columns have something real in
+            # them and the note-name rendering is exercised.
+            key_lower=0 if part != 2 else 60,
+            key_upper=59 if part == 1 else 127,
+            pan=64 + (part - 8) * 4,
+        )
         return replace(state, **self._part_edits.get(part, {}))
 
     #: Offsets this fake accepts, mapped to the PartState field they set.
@@ -251,9 +291,15 @@ class DemoBridge:
         0x05: "lsb",
         0x06: "program_change",
         0x07: "level",
-        0x08: "pan", 0x09: "coarse", 0x0A: "fine", 0x0B: "mono_poly",
-        0x0D: "bend_range", 0x15: "octave", 0x16: "velocity_sens",
-        0x17: "key_lower", 0x18: "key_upper",
+        0x08: "pan",
+        0x09: "coarse",
+        0x0A: "fine",
+        0x0B: "mono_poly",
+        0x0D: "bend_range",
+        0x15: "octave",
+        0x16: "velocity_sens",
+        0x17: "key_lower",
+        0x18: "key_upper",
         0x1B: "mute",
         0x1C: "dry",
         0x1D: "chorus",
@@ -265,8 +311,9 @@ class DemoBridge:
     #: Fields the fake stores as booleans, matching PartState.
     _PART_FLAGS = ("receive_switch", "mute")
 
-    def write_part_param(self, part: int, offset: int, value: int, *,
-                         verify=True, timeout=None):
+    def write_part_param(
+        self, part: int, offset: int, value: int, *, verify=True, timeout=None
+    ):
         """Remember an edit, the way the temporary area would hold it.
 
         Kept in memory and never written anywhere, so a demo session is
@@ -282,8 +329,7 @@ class DemoBridge:
         self._part_edits.setdefault(part, {})[field] = stored
         return value
 
-    def read_performance_blocks(self, base, *, on_progress=None,
-                                timeout=None):
+    def read_performance_blocks(self, base, *, on_progress=None, timeout=None):
         from xv.bridge import PERFORMANCE_BLOCKS
 
         self._tick()
@@ -302,15 +348,16 @@ class DemoBridge:
                 on_progress(i, len(PERFORMANCE_BLOCKS))
         return out
 
-    def write_performance_blocks(self, base, blocks, *, on_progress=None,
-                                 verify=True, timeout=None):
+    def write_performance_blocks(
+        self, base, blocks, *, on_progress=None, verify=True, timeout=None
+    ):
         from xv.bridge import PERFORMANCE_BLOCKS
 
         missing = [n for n, _a, _s in PERFORMANCE_BLOCKS if n not in blocks]
         if missing:
             raise ValueError(
-                f"refusing to write a partial performance; missing "
-                f"{', '.join(missing)}")
+                f"refusing to write a partial performance; missing {', '.join(missing)}"
+            )
         self._tick()
         self._performances[tuple(base)] = dict(blocks)
         if on_progress is not None:
@@ -318,15 +365,15 @@ class DemoBridge:
                 on_progress(i, len(PERFORMANCE_BLOCKS))
         return []
 
-    def store_temporary_to_slot(self, slot: int, *, on_progress=None,
-                                timeout=None):
+    def store_temporary_to_slot(self, slot: int, *, on_progress=None, timeout=None):
         from xv.bridge import TEMPORARY_PERFORMANCE, user_performance_base
 
         base = user_performance_base(slot)
         previous = self.read_performance_blocks(base)
         blocks = self.read_performance_blocks(TEMPORARY_PERFORMANCE)
         mismatched = self.write_performance_blocks(
-            base, blocks, on_progress=on_progress)
+            base, blocks, on_progress=on_progress
+        )
         return previous, mismatched
 
     def read_performance_midi(self, channel: int, *, timeout=None):
@@ -338,21 +385,29 @@ class DemoBridge:
         # Channel 3 ignores Bank Select: a select there changes the patch to
         # the wrong one rather than failing, which is the nastiest of the
         # failures this screen exists to surface, so the demo has one.
-        base = ChannelMidi(channel=channel,
-                           bank_select=channel != 2,
-                           program_change=channel != 11)
+        base = ChannelMidi(
+            channel=channel, bank_select=channel != 2, program_change=channel != 11
+        )
         return replace(base, **self._channel_edits.get(channel, {}))
 
     _CHANNEL_FIELDS = {
-        0x00: "program_change", 0x01: "bank_select", 0x02: "bender",
-        0x03: "poly_pressure", 0x04: "channel_pressure",
-        0x05: "modulation", 0x06: "volume", 0x07: "pan",
-        0x08: "expression", 0x09: "hold_1", 0x0A: "phase_lock",
+        0x00: "program_change",
+        0x01: "bank_select",
+        0x02: "bender",
+        0x03: "poly_pressure",
+        0x04: "channel_pressure",
+        0x05: "modulation",
+        0x06: "volume",
+        0x07: "pan",
+        0x08: "expression",
+        0x09: "hold_1",
+        0x0A: "phase_lock",
         0x0B: "velocity_curve",
     }
 
-    def write_channel_param(self, channel: int, offset: int, value: int, *,
-                            verify=True, timeout=None):
+    def write_channel_param(
+        self, channel: int, offset: int, value: int, *, verify=True, timeout=None
+    ):
         if not 0 <= channel <= 15:
             raise ValueError(f"channel {channel} is outside 0-15")
         if offset not in self._CHANNEL_FIELDS:
@@ -376,11 +431,18 @@ class DemoBridge:
 
         self._tick()
         return PerformanceFx(
-            mfx_type=12, mfx_dry=127, mfx_chorus=0, mfx_reverb=40,
+            mfx_type=12,
+            mfx_dry=127,
+            mfx_chorus=0,
+            mfx_reverb=40,
             mfx_output=1,
-            chorus_type=1, chorus_level=64, chorus_output=1,
+            chorus_type=1,
+            chorus_level=64,
+            chorus_output=1,
             chorus_output_select=0,
-            reverb_type=1, reverb_level=80, reverb_output=1,
+            reverb_type=1,
+            reverb_level=80,
+            reverb_output=1,
         )
 
     def read_performance_common(self, *, timeout=None):
@@ -410,15 +472,15 @@ class DemoBridge:
         common = self.read_performance_common() if want else None
         fx = self.read_performance_fx() if want else None
         midi = self.read_channel_midi() if want else ()
-        self.state = DeviceState(setup=setup, channels=channels, parts=parts,
-                                 common=common, fx=fx, midi=midi)
+        self.state = DeviceState(
+            setup=setup, channels=channels, parts=parts, common=common, fx=fx, midi=midi
+        )
         return self.state
 
     def refresh_channel(self, channel: int, *, timeout=None):
         return self.read_state()
 
-    def select(self, entry: banks.Slot, *, channel: Optional[int] = None
-               ) -> None:
+    def select(self, entry: banks.Slot, *, channel: Optional[int] = None) -> None:
         if channel is None:
             channel = self.channel_for(entry.kind)
         #: Recorded alongside the slot so a test can assert which channel a
@@ -428,14 +490,21 @@ class DemoBridge:
         self.channel_log.append(channel)
         self._tick()
 
-    def select_raw(self, msb: int, lsb: int, program_change: int, *,
-                   channel: Optional[int] = None) -> None:
+    def select_raw(
+        self, msb: int, lsb: int, program_change: int, *, channel: Optional[int] = None
+    ) -> None:
         self.raw_log.append((msb, lsb, program_change))
         self._tick()
 
-    def scan_bank(self, bank_id: str, *, on_progress=None,
-                  settle: float = 0.0, restore: bool = True,
-                  timeout=None) -> Dict[int, str]:
+    def scan_bank(
+        self,
+        bank_id: str,
+        *,
+        on_progress=None,
+        settle: float = 0.0,
+        restore: bool = True,
+        timeout=None,
+    ) -> Dict[int, str]:
         entries = banks.slots(bank_id)
         out: Dict[int, str] = {}
         before = (87, 0, 0) if restore else None
@@ -448,9 +517,15 @@ class DemoBridge:
             self.select_raw(*before)
         return out
 
-    def probe_srx(self, *, lsb_range: Iterable[int] = range(0, 64),
-                  settle: float = 0.0, restore: bool = True, on_progress=None,
-                  timeout=None) -> Dict[int, str]:
+    def probe_srx(
+        self,
+        *,
+        lsb_range: Iterable[int] = range(0, 64),
+        settle: float = 0.0,
+        restore: bool = True,
+        on_progress=None,
+        timeout=None,
+    ) -> Dict[int, str]:
         """Pretend an SRX-07 is fitted, so the probe path has something to find."""
         card = banks.srx_card("SRX-07")
         expected = {

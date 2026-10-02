@@ -136,7 +136,7 @@ class TestTags:
         assert favorites.get("USER", 1).tags == "pad, warm"
 
     def test_with_tag_does_not_match_a_substring(self, favorites):
-        """"pad" must not match "padded", nor "lead" "misleading"."""
+        """ "pad" must not match "padded", nor "lead" "misleading"."""
         favorites.add("USER", 1, tags="padded")
         favorites.add("USER", 2, tags="pad")
         hits = favorites.with_tag("pad")
@@ -164,7 +164,10 @@ class TestOrdering:
         favorites.add("PST-A", 2)
         rows = favorites.all(order="bank")
         assert [(f.bank_id, f.number) for f in rows] == [
-            ("PST-A", 2), ("PST-A", 9), ("USER", 1)]
+            ("PST-A", 2),
+            ("PST-A", 9),
+            ("USER", 1),
+        ]
 
 
 class TestSearchAndRefresh:
@@ -178,8 +181,7 @@ class TestSearchAndRefresh:
         favorites.add("USER", 1, name="Velvet Bell")
         favorites.add("USER", 2, name="Amber Wash")
         names = {1: "Quiet Grain", 2: "Amber Wash"}
-        changed = favorites.refresh_names(
-            lambda bank, number: names.get(number))
+        changed = favorites.refresh_names(lambda bank, number: names.get(number))
         assert changed == 1
         assert favorites.get("USER", 1).name == "Quiet Grain"
 
@@ -262,8 +264,7 @@ class TestWhereItLives:
 
         monkeypatch.setattr(mod.sys, "platform", "darwin")
         monkeypatch.setenv("HOME", "/Users/someone")
-        assert mod.data_dir() == (
-            "/Users/someone/Library/Application Support/rxved")
+        assert mod.data_dir() == ("/Users/someone/Library/Application Support/rxved")
 
     def test_windows_uses_local_appdata_not_roaming(self, monkeypatch):
         """Roaming syncs the file; a synced SQLite database is a corrupt one."""
@@ -301,8 +302,7 @@ class TestWhereItLives:
 
         monkeypatch.setattr(mod.sys, "platform", "linux")
         monkeypatch.setenv("XDG_DATA_HOME", "/data/xdg")
-        assert mod.default_path() == os.path.join(
-            "/data/xdg", "rxved", "favorites.db")
+        assert mod.default_path() == os.path.join("/data/xdg", "rxved", "favorites.db")
 
     def test_an_explicit_path_overrides_the_platform_default(self, tmp_path):
         path = str(tmp_path / "elsewhere.db")
@@ -324,8 +324,10 @@ class TestThreadSafety:
         favorites.add("USER", 1, name="Velvet Bell")
         with cf.ThreadPoolExecutor(1) as pool:
             assert pool.submit(lambda: len(favorites)).result() == 1
-            assert pool.submit(
-                lambda: favorites.get("USER", 1).name).result() == "Velvet Bell"
+            assert (
+                pool.submit(lambda: favorites.get("USER", 1).name).result()
+                == "Velvet Bell"
+            )
 
     def test_concurrent_writes_all_land(self, favorites):
         import concurrent.futures as cf
@@ -370,8 +372,7 @@ class TestUnfavouritingKeepsWhatTheUserTyped:
 
     def test_a_toggle_cycle_keeps_rating_tags_and_note(self, tmp_path):
         with Favorites(str(tmp_path / "f.db")) as store:
-            store.add("BANK", 5, name="Invented",
-                      rating=4, tags="a, b", note="hello")
+            store.add("BANK", 5, name="Invented", rating=4, tags="a, b", note="hello")
             before = store.get("BANK", 5)
 
             assert store.toggle("BANK", 5) is False
@@ -379,8 +380,7 @@ class TestUnfavouritingKeepsWhatTheUserTyped:
             assert store.toggle("BANK", 5) is True
 
             after = store.get("BANK", 5)
-            assert (after.rating, after.tags, after.note) == (4, "a, b",
-                                                              "hello")
+            assert (after.rating, after.tags, after.note) == (4, "a, b", "hello")
             assert after.added == before.added
 
     def test_an_unfavourited_slot_is_not_a_favourite(self, tmp_path):
@@ -415,9 +415,12 @@ class TestUnfavouritingKeepsWhatTheUserTyped:
                 note TEXT NOT NULL DEFAULT '',
                 added REAL NOT NULL DEFAULT 0,
                 PRIMARY KEY (bank_id, number));
-            """)
-        db.execute("INSERT INTO favorites (bank_id, number, name, rating) "
-                   "VALUES ('BANK', 7, 'Invented', 5)")
+            """
+        )
+        db.execute(
+            "INSERT INTO favorites (bank_id, number, name, rating) "
+            "VALUES ('BANK', 7, 'Invented', 5)"
+        )
         db.execute("PRAGMA user_version = 1")
         db.commit()
         db.close()
@@ -446,8 +449,8 @@ class TestAPortNameCannotPoisonTheConfig:
 
     def test_the_cache_still_heals(self, tmp_path):
         path = str(tmp_path / "config.toml")
-        bridge.save_last_ports('has a " in it', 'x', path)
-        bridge.save_last_ports('a sane port', 'x', path)
+        bridge.save_last_ports('has a " in it', "x", path)
+        bridge.save_last_ports("a sane port", "x", path)
         assert bridge.load_last_ports(path)[0] == "a sane port"
 
 
@@ -481,10 +484,17 @@ class TestOneBadCatalogRowDoesNotCostTheOthers:
 
         path = str(tmp_path / "cat.json")
         with open(path, "w", encoding="utf-8") as handle:
-            json.dump({"banks": {"PR-A": [
-                {"n": "not a number", "name": "Bad"},
-                {"n": 1, "name": "Invented"},
-            ]}}, handle)
+            json.dump(
+                {
+                    "banks": {
+                        "PR-A": [
+                            {"n": "not a number", "name": "Bad"},
+                            {"n": 1, "name": "Invented"},
+                        ]
+                    }
+                },
+                handle,
+            )
         assert len(_load(path)) == 1
 
 
@@ -519,19 +529,18 @@ class TestABoolIsNotANumber:
     def test_no_numeric_loader_accepts_true(self, tmp_path):
         offenders = []
         for name, fn in self._loaders():
-            key = name[len("load_"):]
+            key = name[len("load_") :]
             path = str(tmp_path / f"{key}.toml")
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write(f"{key} = true\n")
             if fn(path) is not None:
                 offenders.append(name)
-        assert not offenders, (
-            f"{offenders} accept a TOML boolean as a number")
+        assert not offenders, f"{offenders} accept a TOML boolean as a number"
 
     def test_no_numeric_loader_accepts_an_absurd_value(self, tmp_path):
         offenders = []
         for name, fn in self._loaders():
-            key = name[len("load_"):]
+            key = name[len("load_") :]
             path = str(tmp_path / f"{key}.toml")
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write(f"{key} = 9999\n")

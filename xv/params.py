@@ -45,16 +45,14 @@ __all__ = [
 #: because this project's rule is that a displayed number and a wire byte
 #: are never silently the same thing -- the same rule as program numbers in
 #: :mod:`xv.banks`.
-SIGNED_PART_FIELDS = frozenset({"pan", "coarse", "fine", "octave",
-                                "velocity_sens"})
+SIGNED_PART_FIELDS = frozenset({"pan", "coarse", "fine", "octave", "velocity_sens"})
 
 #: Part Mono/Poly (offset ``00 0B``).
 MONO_POLY = {0: "MONO", 1: "POLY", 2: "PATCH"}
 
 #: Note names for the keyboard-range columns. The XV-2020 counts C-1 as note
 #: 0, so note 60 is C4 (OM p. 73's range column).
-_NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#",
-               "B")
+_NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 
 
 def note_name(number: int) -> str:
@@ -73,10 +71,19 @@ def note_name(number: int) -> str:
 #: arrive carrying one, and "output 6" explains a silent part where a blank
 #: does not.
 OUTPUT_ASSIGN = {
-    0: "MFX", 1: "A",
-    2: "B*", 3: "C*", 4: "D*",
-    5: "1", 6: "2",
-    7: "3*", 8: "4*", 9: "5*", 10: "6*", 11: "7*", 12: "8*",
+    0: "MFX",
+    1: "A",
+    2: "B*",
+    3: "C*",
+    4: "D*",
+    5: "1",
+    6: "2",
+    7: "3*",
+    8: "4*",
+    9: "5*",
+    10: "6*",
+    11: "7*",
+    12: "8*",
     13: "PATCH",
 }
 
@@ -103,14 +110,14 @@ OUTPUT_MFX = {0: "MFXA", 1: "MFXB*", 2: "MFXC*"}
 #: explicit that saving a performance saves "only the Performance settings",
 #: not the patches its parts point at (OM p. 92).
 PERFORMANCE_BLOCKS: Tuple[Tuple[str, Tuple[int, int], int], ...] = (
-    ("common", (0x00, 0x00), 53),
-    ("mfx", (0x02, 0x00), 145),
-    ("chorus", (0x04, 0x00), 52),
-    ("reverb", (0x06, 0x00), 83),
-) + tuple(
-    (f"midi{channel + 1}", (0x10 + channel, 0x00), 12) for channel in range(16)
-) + tuple(
-    (f"part{part + 1}", (0x20 + part, 0x00), 49) for part in range(16)
+    (
+        ("common", (0x00, 0x00), 53),
+        ("mfx", (0x02, 0x00), 145),
+        ("chorus", (0x04, 0x00), 52),
+        ("reverb", (0x06, 0x00), 83),
+    )
+    + tuple((f"midi{channel + 1}", (0x10 + channel, 0x00), 12) for channel in range(16))
+    + tuple((f"part{part + 1}", (0x20 + part, 0x00), 49) for part in range(16))
 )
 
 #: Address prefix of the temporary performance -- the edit buffer.
@@ -129,6 +136,6 @@ def user_performance_base(slot: int) -> Tuple[int, int]:
     """
     if not 1 <= slot <= USER_PERFORMANCE_SLOTS:
         raise ValueError(
-            f"user performance slot {slot} is outside "
-            f"1-{USER_PERFORMANCE_SLOTS}")
+            f"user performance slot {slot} is outside 1-{USER_PERFORMANCE_SLOTS}"
+        )
     return (0x20, slot - 1)

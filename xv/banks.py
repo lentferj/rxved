@@ -192,8 +192,7 @@ RHYTHM_BANKS: Tuple[Bank, ...] = (
 )
 
 PERFORMANCE_BANKS: Tuple[Bank, ...] = (
-    Bank("P-USER", "USER", Kind.PERFORMANCE, MSB_PERFORMANCE, 0, 64,
-         writable=True),
+    Bank("P-USER", "USER", Kind.PERFORMANCE, MSB_PERFORMANCE, 0, 64, writable=True),
     Bank("P-PST-A", "PRESET A", Kind.PERFORMANCE, MSB_PERFORMANCE, 64, 32),
     Bank("P-PST-B", "PRESET B", Kind.PERFORMANCE, MSB_PERFORMANCE, 65, 32),
 )
@@ -305,8 +304,7 @@ class SrxCard:
             out.append(
                 Bank(
                     id=f"{self.id}-{page + 1}",
-                    label=f"{self.label} {page * 128 + 1}-"
-                          f"{page * 128 + size}",
+                    label=f"{self.label} {page * 128 + 1}-{page * 128 + size}",
                     kind=Kind.PATCH,
                     msb=MSB_SRX_PATCH,
                     lsb=self.patch_lsb_base + page,
@@ -323,8 +321,12 @@ class SrxCard:
         if self.rhythm_lsb is None or not self.rhythm_count:
             return None
         return Bank(
-            id=f"{self.id}-R", label=f"{self.label} rhythm", kind=Kind.RHYTHM,
-            msb=MSB_SRX_RHYTHM, lsb=self.rhythm_lsb, count=self.rhythm_count,
+            id=f"{self.id}-R",
+            label=f"{self.label} rhythm",
+            kind=Kind.RHYTHM,
+            msb=MSB_SRX_RHYTHM,
+            lsb=self.rhythm_lsb,
+            count=self.rhythm_count,
             expansion=True,
         )
 
@@ -363,16 +365,16 @@ SRX_CARDS: Tuple[SrxCard, ...] = (
     # listing found for it names the XV-2020 either -- but its manual is not
     # to hand, so that is inference rather than a quotation, and it is
     # marked as such here rather than presented as established.
-    SrxCard("SRX-97", "SRX-97", 97, 12, rhythm_lsb=None, rhythm_count=0,
-            xv2020=False),
-    SrxCard("SRX-98", "SRX-98", 98, 78, rhythm_lsb=None, rhythm_count=0,
-            xv2020=False),
+    SrxCard("SRX-97", "SRX-97", 97, 12, rhythm_lsb=None, rhythm_count=0, xv2020=False),
+    SrxCard("SRX-98", "SRX-98", 98, 78, rhythm_lsb=None, rhythm_count=0, xv2020=False),
 )
 
 #: The single source every row above came from, for the README's attribution
 #: table and for anyone checking a number against the original.
-SRX_SOURCE = ("Roland Supplemental Note SN 132 v3.00 (Summer 2007), "
-              "\u201cSelecting Internal and SRX-Series Sounds Via MIDI\u201d")
+SRX_SOURCE = (
+    "Roland Supplemental Note SN 132 v3.00 (Summer 2007), "
+    "\u201cSelecting Internal and SRX-Series Sounds Via MIDI\u201d"
+)
 
 _CARDS_BY_ID: Dict[str, SrxCard] = {c.id: c for c in SRX_CARDS}
 
@@ -389,7 +391,9 @@ def srx_card(card_id: str) -> SrxCard:
 
 
 SRX_BANKS: Tuple[Bank, ...] = tuple(
-    b for card in SRX_CARDS if card.xv2020
+    b
+    for card in SRX_CARDS
+    if card.xv2020
     for b in (*card.patch_banks(), card.rhythm_bank())
     if b is not None
 )
@@ -398,13 +402,14 @@ SRX_BANKS: Tuple[Bank, ...] = tuple(
 #: :data:`GM_RHYTHM_PROGRAMS`, not at 1-9 -- so this one bank cannot be
 #: described by ``first_number`` and ``count`` and is special-cased in
 #: :func:`slots`.
-GM_RHYTHM = Bank("R-GM", "GM2", Kind.RHYTHM, MSB_GM_RHYTHM, 0,
-                 len(GM_RHYTHM_PROGRAMS))
+GM_RHYTHM = Bank("R-GM", "GM2", Kind.RHYTHM, MSB_GM_RHYTHM, 0, len(GM_RHYTHM_PROGRAMS))
 
 BANKS: Tuple[Bank, ...] = (
-    PATCH_BANKS + GM_PATCH
+    PATCH_BANKS
+    + GM_PATCH
     + tuple(b for b in SRX_BANKS if b.kind == Kind.PATCH)
-    + RHYTHM_BANKS + (GM_RHYTHM,)
+    + RHYTHM_BANKS
+    + (GM_RHYTHM,)
     + tuple(b for b in SRX_BANKS if b.kind == Kind.RHYTHM)
     + PERFORMANCE_BANKS
 )
@@ -500,9 +505,7 @@ def slots(bank_id: str) -> List[Slot]:
             Slot(target, index + 1, program - 1)
             for index, program in enumerate(GM_RHYTHM_PROGRAMS)
         ]
-    return [
-        Slot(target, number, number - 1) for number in target.numbers()
-    ]
+    return [Slot(target, number, number - 1) for number in target.numbers()]
 
 
 def slot(bank_id: str, number: int) -> Slot:

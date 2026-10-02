@@ -19,6 +19,7 @@ Separate from test_app.py because these are pure functions and need no event
 loop -- that module marks everything asyncio.
 """
 
+
 class TestKeyLegend:
     """The legend wraps; it never truncates.
 
@@ -73,7 +74,6 @@ class TestKeyLegend:
         assert narrow > wide
 
 
-
 class TestWorkersStayOffTheStore:
     """A worker touching the SQLite store kills the app; see CLAUDE.md.
 
@@ -87,8 +87,9 @@ class TestWorkersStayOffTheStore:
         import pathlib
 
         tree = ast.parse(pathlib.Path("rxved/app.py").read_text())
-        app = next(n for n in tree.body
-                   if isinstance(n, ast.ClassDef) and n.name == "RxvedApp")
+        app = next(
+            n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "RxvedApp"
+        )
         offenders = []
         for fn in app.body:
             if not isinstance(fn, ast.FunctionDef):
@@ -100,16 +101,18 @@ class TestWorkersStayOffTheStore:
             ):
                 continue
             for node in ast.walk(fn):
-                if (isinstance(node, ast.Attribute)
-                        and isinstance(node.value, ast.Attribute)
-                        and isinstance(node.value.value, ast.Name)
-                        and node.value.value.id == "self"
-                        and node.value.attr in ("favorites", "catalog")):
-                    offenders.append(f"{fn.name}: self.{node.value.attr}."
-                                     f"{node.attr}")
+                if (
+                    isinstance(node, ast.Attribute)
+                    and isinstance(node.value, ast.Attribute)
+                    and isinstance(node.value.value, ast.Name)
+                    and node.value.value.id == "self"
+                    and node.value.attr in ("favorites", "catalog")
+                ):
+                    offenders.append(f"{fn.name}: self.{node.value.attr}.{node.attr}")
         assert not offenders, (
             "workers must do MIDI only and hand off with call_from_thread: "
-            + ", ".join(offenders))
+            + ", ".join(offenders)
+        )
 
 
 class TestTheChannelIsRemembered:
@@ -121,12 +124,14 @@ class TestTheChannelIsRemembered:
 
     def test_saving_then_loading_round_trips(self, tmp_path):
         from xv import bridge as b
+
         path = str(tmp_path / "config.toml")
         b.save_channel(9, path)
         assert b.load_channel(path) == 9
 
     def test_it_survives_other_settings_being_written(self, tmp_path):
         from xv import bridge as b
+
         path = str(tmp_path / "config.toml")
         b.save_channel(5, path)
         b.save_device_id(21, path)
@@ -136,10 +141,12 @@ class TestTheChannelIsRemembered:
 
     def test_the_app_writes_it_when_the_channel_changes(self, tmp_path):
         from xv import bridge as b
+
         path = str(tmp_path / "config.toml")
         from rxved.app import RxvedApp
         from rxved.demo import DemoBridge
         from rxved.favorites import Favorites
+
         store = Favorites(str(tmp_path / "f.db"))
         try:
             app = RxvedApp(DemoBridge(), favorites=store, config_path=path)
@@ -154,12 +161,14 @@ class TestTheChannelIsRemembered:
         from rxved.app import RxvedApp
         from rxved.demo import DemoBridge
         from rxved.favorites import Favorites
+
         store = Favorites(str(tmp_path / "f.db"))
         try:
             app = RxvedApp(DemoBridge(), favorites=store, config_path=None)
             app._remember_channel(3)
-            assert os.listdir(tmp_path) == ["f.db"] or "config.toml" not in \
-                os.listdir(tmp_path)
+            assert os.listdir(tmp_path) == ["f.db"] or "config.toml" not in os.listdir(
+                tmp_path
+            )
         finally:
             store.close()
 
@@ -172,12 +181,17 @@ class TestTheLegendIsComplete:
     loosened.
     """
 
-    SHOWN_AS = {"left_square_bracket": "[", "right_square_bracket": "]",
-                "slash": "/", "question_mark": "?"}
+    SHOWN_AS = {
+        "left_square_bracket": "[",
+        "right_square_bracket": "]",
+        "slash": "/",
+        "question_mark": "?",
+    }
     IMPLIED = {"enter", "tab"}
 
     def test_every_binding_appears(self):
         from rxved.app import KEY_HINTS, RxvedApp
+
         legend = " ".join(KEY_HINTS)
         missing = []
         for binding in RxvedApp.BINDINGS:

@@ -26,8 +26,14 @@ from textual.widgets import DataTable, Input, Static
 
 from textual.coordinate import Coordinate
 
-from rxved.app import (CategoryScreen, MultiScreen, ReportScreen,
-                       RxvedApp, StoreScreen, TextPromptScreen)
+from rxved.app import (
+    CategoryScreen,
+    MultiScreen,
+    ReportScreen,
+    RxvedApp,
+    StoreScreen,
+    TextPromptScreen,
+)
 from rxved.demo import DemoBridge
 from rxved.favorites import Favorites
 from xv import banks
@@ -38,17 +44,23 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.fixture
 def app(tmp_path):
-    catalog = cat.Catalog([
-        cat.Entry("USER", 1, "Velvet Bell"),
-        cat.Entry("USER", 2, "Rusty Pad"),
-    ])
+    catalog = cat.Catalog(
+        [
+            cat.Entry("USER", 1, "Velvet Bell"),
+            cat.Entry("USER", 2, "Rusty Pad"),
+        ]
+    )
     bridge = DemoBridge()
     favorites = Favorites(str(tmp_path / "f.db"))
     # backup_dir is not optional in tests: the store worker writes real
     # files, and without this the suite leaves performance backups in the
     # user's own data directory. It did.
-    application = RxvedApp(bridge, favorites=favorites, catalog=catalog,
-                           backup_dir=str(tmp_path / "backups"))
+    application = RxvedApp(
+        bridge,
+        favorites=favorites,
+        catalog=catalog,
+        backup_dir=str(tmp_path / "backups"),
+    )
     yield application
     favorites.close()
 
@@ -57,8 +69,7 @@ class TestStartup:
     async def test_starts_and_shows_both_tables(self, app):
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert app.query_one("#bank-table").row_count == len(
-                banks.bank_ids())
+            assert app.query_one("#bank-table").row_count == len(banks.bank_ids())
             assert app.query_one("#slot-table").row_count == 128
 
     async def test_first_bank_is_selected(self, app):
@@ -86,8 +97,11 @@ class TestTheThreeNumbers:
             # the order an MPC's MIDI track asks for them, which is the
             # whole point of this test.
             assert labels == ["♥", "#", "name", "PC", "LSB", "MSB", "cat"]
-            assert labels[labels.index("PC"):labels.index("PC") + 3] == \
-                ["PC", "LSB", "MSB"]
+            assert labels[labels.index("PC") : labels.index("PC") + 3] == [
+                "PC",
+                "LSB",
+                "MSB",
+            ]
 
     async def test_each_number_is_under_its_own_label(self, app):
         async with app.run_test() as pilot:
@@ -177,7 +191,7 @@ class TestFavorites:
             assert app.favorites.get("USER", 1).name == "Velvet Bell"
 
     async def test_an_unnamed_slot_stores_no_placeholder(self, app):
-        """"--" is a rendering choice, not a name to persist."""
+        """ "--" is a rendering choice, not a name to persist."""
         async with app.run_test() as pilot:
             await pilot.pause()
             await pilot.press("tab")
@@ -597,8 +611,7 @@ class TestFavouritesView:
             await pilot.press("F")
             await pilot.pause(0.3)
             assert app.view_mode == "all-favourites"
-            assert {s.bank_id for s in app._current_slots} == {
-                "USER", "PST-B", "GM"}
+            assert {s.bank_id for s in app._current_slots} == {"USER", "PST-B", "GM"}
 
     async def test_a_third_press_returns_to_the_full_bank(self, app):
         async with app.run_test() as pilot:
@@ -674,7 +687,7 @@ class TestFavouritesView:
         """One keypress must land in the same view regardless of data."""
         async with app.run_test() as pilot:
             await pilot.pause(0.4)
-            app.favorites.add("PST-B", 29)     # nothing in the current bank
+            app.favorites.add("PST-B", 29)  # nothing in the current bank
             await pilot.press("F")
             await pilot.pause(0.3)
             assert app.view_mode == "bank-favourites"
@@ -695,12 +708,14 @@ class TestCategoryFilter:
 
     @staticmethod
     def _catalog():
-        return cat.Catalog([
-            cat.Entry("USER", 1, "Velvet Bell", category="BEL"),
-            cat.Entry("USER", 2, "Rusty Pad", category="SPD"),
-            cat.Entry("USER", 3, "Glass Pad", category="SPD"),
-            cat.Entry("USER", 4, "Iron Bass", category="SBS"),
-        ])
+        return cat.Catalog(
+            [
+                cat.Entry("USER", 1, "Velvet Bell", category="BEL"),
+                cat.Entry("USER", 2, "Rusty Pad", category="SPD"),
+                cat.Entry("USER", 3, "Glass Pad", category="SPD"),
+                cat.Entry("USER", 4, "Iron Bass", category="SBS"),
+            ]
+        )
 
     async def test_it_narrows_the_full_bank(self, app):
         app.catalog = self._catalog()
@@ -802,8 +817,9 @@ class TestCategoryFilter:
             await pilot.press("space")
             await pilot.press("enter")
             await pilot.pause(0.4)
-            assert not isinstance(app.screen, CategoryScreen), \
+            assert not isinstance(app.screen, CategoryScreen), (
                 "enter did not close the picker"
+            )
             assert app.categories == {"SPD"}
             assert [s.number for s in app._current_slots] == [2, 3]
 
@@ -811,8 +827,8 @@ class TestCategoryFilter:
         app.catalog = self._catalog()
         async with app.run_test() as pilot:
             await pilot.pause(0.4)
-            app.categories = {"SPD"}       # start from a real filter, so
-            app._fill_slots("USER")        # clearing it is an observable change
+            app.categories = {"SPD"}  # start from a real filter, so
+            app._fill_slots("USER")  # clearing it is an observable change
             await pilot.pause()
             app.action_pick_categories()
             await pilot.pause(0.2)
@@ -953,7 +969,7 @@ class TestMultiEditing:
             screen = await self._open(app, pilot)
             await self._cell(screen, pilot, 6, "lvl")
             assert app.bridge.read_part(6).level == 0
-            await pilot.press("minus")          # already at the floor
+            await pilot.press("minus")  # already at the floor
             for _ in range(4):
                 await pilot.pause()
             assert app.bridge.read_part(6).level == 0
@@ -1022,7 +1038,7 @@ class TestMultiEditing:
             await pilot.press("1")
             for _ in range(8):
                 await pilot.pause()
-            assert isinstance(app.screen, MultiScreen)   # no prompt opened
+            assert isinstance(app.screen, MultiScreen)  # no prompt opened
             assert app.bridge.read_part(5).receive_switch is True
 
     async def test_an_out_of_range_number_is_refused_not_clamped(self, app):
@@ -1051,13 +1067,31 @@ class TestMultiEditing:
             screen = await self._open(app, pilot)
             table = screen.query_one("#part-table", DataTable)
             labels = [str(c.label) for c in table.columns.values()]
-            assert labels == ["part", "ch", "rx", "lvl", "PC", "LSB", "MSB",
-                              "patch", ""]
+            assert labels == [
+                "part",
+                "ch",
+                "rx",
+                "lvl",
+                "PC",
+                "LSB",
+                "MSB",
+                "patch",
+                "",
+            ]
             await pilot.press("tab")
             await pilot.pause()
             labels = [str(c.label) for c in table.columns.values()]
-            assert labels == ["part", "mute", "dry", "cho", "rev", "out",
-                              "mfx", "patch", ""]
+            assert labels == [
+                "part",
+                "mute",
+                "dry",
+                "cho",
+                "rev",
+                "out",
+                "mfx",
+                "patch",
+                "",
+            ]
 
     async def test_the_fx_view_keeps_the_patch_and_the_verdict(self, app):
         """Both views answer "what is this part" and "can it be heard"."""
@@ -1124,7 +1158,7 @@ class TestMultiEditing:
             assert "pan" in keys() and "lo" in keys()
             await pilot.press("tab")
             await pilot.pause()
-            assert "rx" in keys() and "lvl" in keys()   # back to the start
+            assert "rx" in keys() and "lvl" in keys()  # back to the start
 
     async def _rx_view(self, app, pilot):
         screen = await self._open(app, pilot)
@@ -1185,7 +1219,7 @@ class TestMultiEditing:
             await pilot.press("enter")
             for _ in range(10):
                 await pilot.pause()
-            assert app.bridge.read_part(1).pan == 44      # -20 + 64
+            assert app.bridge.read_part(1).pan == 44  # -20 + 64
 
     async def test_key_ranges_show_note_names(self, app):
         async with app.run_test() as pilot:
@@ -1273,7 +1307,7 @@ class TestStoreIsHardToFireByAccident:
     async def test_arm_then_fire_writes_the_armed_slot(self, app):
         async with app.run_test() as pilot:
             await self._open_store(app, pilot)
-            await pilot.press("down", "down")      # slot 3
+            await pilot.press("down", "down")  # slot 3
             await pilot.pause()
             await pilot.press("a")
             await pilot.pause()
@@ -1281,10 +1315,12 @@ class TestStoreIsHardToFireByAccident:
             for _ in range(12):
                 await pilot.pause()
             from xv.bridge import TEMPORARY_PERFORMANCE, user_performance_base
+
             written = app.bridge._performances
             assert set(written) == {user_performance_base(3)}
             assert written[user_performance_base(3)] == (
-                app.bridge.read_performance_blocks(TEMPORARY_PERFORMANCE))
+                app.bridge.read_performance_blocks(TEMPORARY_PERFORMANCE)
+            )
 
     async def test_the_previous_contents_are_backed_up(self, app):
         async with app.run_test() as pilot:
@@ -1293,12 +1329,12 @@ class TestStoreIsHardToFireByAccident:
             for _ in range(12):
                 await pilot.pause()
             from xv import backup as bk
+
             saved = bk.list_backups(app.backup_dir())
             assert len(saved) == 1
             assert saved[0]["slot"] == 1
 
-    async def test_the_suite_never_writes_to_the_real_data_dir(self, app,
-                                                               tmp_path):
+    async def test_the_suite_never_writes_to_the_real_data_dir(self, app, tmp_path):
         """This test exists because it happened.
 
         The store worker used to call data_dir() itself, so every test that

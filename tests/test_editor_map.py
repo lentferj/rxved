@@ -45,8 +45,8 @@ check = _tool()
 
 _HAVE_SCRIPT = os.path.exists(check.DEFAULT_SCRIPT)
 _needs_script = pytest.mark.skipif(
-    not _HAVE_SCRIPT,
-    reason="Roland's editor script is not installed on this machine")
+    not _HAVE_SCRIPT, reason="Roland's editor script is not installed on this machine"
+)
 
 
 class TestSizeNotation:
@@ -105,5 +105,4 @@ class TestAgreesWithRoland:
         ours = {name: size for name, _sub, size in b.PERFORMANCE_BLOCKS}
         assert check._size(types["PerformancePart"]["size"]) == ours["part1"]
         assert check._size(types["PerformanceMIDI"]["size"]) == ours["midi1"]
-        assert check._size(types["PerformanceCommon"]["size"]) == (
-            ours["common"])
+        assert check._size(types["PerformanceCommon"]["size"]) == (ours["common"])

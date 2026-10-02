@@ -76,12 +76,18 @@ import rtmidi  # noqa: E402
 
 from xv import banks
 from xv import messages as m
-from xv.params import (MONO_POLY, OUTPUT_ASSIGN,  # noqa: F401
-                       OUTPUT_ASSIGN_ON_XV2020, OUTPUT_MFX,
-                       PERFORMANCE_BLOCKS, SIGNED_PART_FIELDS,
-                       TEMPORARY_PERFORMANCE,
-                       USER_PERFORMANCE_SLOTS, note_name,
-                       user_performance_base)
+from xv.params import (
+    MONO_POLY,
+    OUTPUT_ASSIGN,  # noqa: F401
+    OUTPUT_ASSIGN_ON_XV2020,
+    OUTPUT_MFX,
+    PERFORMANCE_BLOCKS,
+    SIGNED_PART_FIELDS,
+    TEMPORARY_PERFORMANCE,
+    USER_PERFORMANCE_SLOTS,
+    note_name,
+    user_performance_base,
+)
 
 __all__ = [
     "SEND_GAP",
@@ -188,8 +194,7 @@ class AmbiguousDevice(RuntimeError):
     def __init__(self, found):
         self.found = list(found)
         detail = "; ".join(
-            f"{ident.send_port} -> {ident.recv_port} "
-            f"(device ID {ident.device_display})"
+            f"{ident.send_port} -> {ident.recv_port} (device ID {ident.device_display})"
             for ident in self.found
         )
         super().__init__(
@@ -240,8 +245,13 @@ def _read_config_dict(path: str) -> dict:
 
 
 _TOML_ESCAPES = {
-    "\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r",
-    "\t": "\\t", "\b": "\\b", "\f": "\\f",
+    "\\": "\\\\",
+    '"': '\\"',
+    "\n": "\\n",
+    "\r": "\\r",
+    "\t": "\\t",
+    "\b": "\\b",
+    "\f": "\\f",
 }
 
 
@@ -278,9 +288,12 @@ def _update_config(path: str, **changes) -> None:
     if status == "unreadable":
         if not _warned_unreadable:
             _warned_unreadable = True
-            print(f"rxved: {path} could not be parsed, so settings are not "
-                  f"being saved. Fix or delete it; nothing has been "
-                  f"overwritten.", file=sys.stderr)
+            print(
+                f"rxved: {path} could not be parsed, so settings are not "
+                f"being saved. Fix or delete it; nothing has been "
+                f"overwritten.",
+                file=sys.stderr,
+            )
         return
     data.update(changes)
     _write_config_dict(data, path)
@@ -304,8 +317,7 @@ def _write_config_dict(data: dict, path: str) -> None:
         pass  # the cache is a convenience, not required for correctness
 
 
-def load_last_ports(path: str = DEFAULT_CONFIG_PATH
-                    ) -> Optional[Tuple[str, str]]:
+def load_last_ports(path: str = DEFAULT_CONFIG_PATH) -> Optional[Tuple[str, str]]:
     """The send/receive pair that answered last time, if any."""
     data = _read_config_dict(path)
     send_port = data.get("send_port")
@@ -315,8 +327,9 @@ def load_last_ports(path: str = DEFAULT_CONFIG_PATH
     return None
 
 
-def save_last_ports(send_port: str, recv_port: str,
-                    path: str = DEFAULT_CONFIG_PATH) -> None:
+def save_last_ports(
+    send_port: str, recv_port: str, path: str = DEFAULT_CONFIG_PATH
+) -> None:
     _update_config(path, send_port=send_port, recv_port=recv_port)
 
 
@@ -430,7 +443,8 @@ def likely_xv_ports() -> List[str]:
     that it is powered up and listening.
     """
     return [
-        name for name in bidirectional_ports()
+        name
+        for name in bidirectional_ports()
         if any(hint in name.lower() for hint in _XV_PORT_HINTS)
     ]
 
@@ -503,8 +517,7 @@ class MultiIn:
         self.ports: List = []
         for index, port_name in enumerate(_enum_in()):
             matches = (
-                (port_name == name) if exact
-                else (name.lower() in port_name.lower())
+                (port_name == name) if exact else (name.lower() in port_name.lower())
             )
             if matches:
                 port = rtmidi.MidiIn(queue_size_limit=8192)
@@ -537,8 +550,7 @@ class MultiIn:
 #: it -- which in the sibling s3ked broke every test at collection.
 CLEAN_EXIT_SIGNALS = tuple(
     number
-    for number in (getattr(signal, name, None)
-                   for name in ("SIGTERM", "SIGHUP"))
+    for number in (getattr(signal, name, None) for name in ("SIGTERM", "SIGHUP"))
     if number is not None
 )
 
@@ -556,18 +568,17 @@ def install_clean_exit(signals=None) -> None:
     installed -- a host application with its own shutdown is better at this
     than we are.
     """
-    for number in (CLEAN_EXIT_SIGNALS if signals is None else signals):
+    for number in CLEAN_EXIT_SIGNALS if signals is None else signals:
         try:
             existing = signal.getsignal(number)
-        except (ValueError, OSError):        # not available on this platform
+        except (ValueError, OSError):  # not available on this platform
             continue
         if existing not in (signal.SIG_DFL, None):
-            continue                          # somebody else owns it
+            continue  # somebody else owns it
         try:
             signal.signal(
                 number,
-                lambda signum, _frame: (_ for _ in ()).throw(
-                    SystemExit(128 + signum)),
+                lambda signum, _frame: (_ for _ in ()).throw(SystemExit(128 + signum)),
             )
         except (ValueError, OSError):
             # signal() only works on the main thread of the main interpreter
@@ -598,8 +609,7 @@ class SoundMode:
     GM2 = 4
     GS = 5
 
-    NAMES = {PATCH: "PATCH", PERFORM: "PERFORM", GM1: "GM1", GM2: "GM2",
-             GS: "GS"}
+    NAMES = {PATCH: "PATCH", PERFORM: "PERFORM", GM1: "GM1", GM2: "GM2", GS: "GS"}
 
     #: Modes in which more than one MIDI channel selects anything.
     MULTITIMBRAL = frozenset({PERFORM, GM1, GM2, GS})
@@ -618,8 +628,8 @@ class PartState:
     part's own Patch Bank Select MSB / LSB / Program Number.
     """
 
-    part: int                 #: 1-16, as the front panel numbers them.
-    receive_channel: int      #: 0-based wire channel.
+    part: int  #: 1-16, as the front panel numbers them.
+    receive_channel: int  #: 0-based wire channel.
     msb: int
     lsb: int
     program_change: int
@@ -647,15 +657,15 @@ class PartState:
     #: the wire byte is not the number the manual prints. Kept as the wire
     #: value here and converted once, visibly, at the edge; see
     #: :data:`SIGNED_PART_FIELDS`.
-    pan: int = 64             #: ``00 08``, 0-127, displayed L64-63R.
-    coarse: int = 64          #: ``00 09``, 16-112, displayed -48-+48.
-    fine: int = 64            #: ``00 0A``, 14-114, displayed -50-+50.
-    mono_poly: int = 2        #: ``00 0B``: MONO, POLY, PATCH.
-    bend_range: int = 25      #: ``00 0D``, 0-24 semitones or 25 = PATCH.
-    octave: int = 64          #: ``00 15``, 61-67, displayed -3-+3.
-    velocity_sens: int = 64   #: ``00 16``, 1-127, displayed -63-+63.
-    key_lower: int = 0        #: ``00 17``, note number.
-    key_upper: int = 127      #: ``00 18``, note number.
+    pan: int = 64  #: ``00 08``, 0-127, displayed L64-63R.
+    coarse: int = 64  #: ``00 09``, 16-112, displayed -48-+48.
+    fine: int = 64  #: ``00 0A``, 14-114, displayed -50-+50.
+    mono_poly: int = 2  #: ``00 0B``: MONO, POLY, PATCH.
+    bend_range: int = 25  #: ``00 0D``, 0-24 semitones or 25 = PATCH.
+    octave: int = 64  #: ``00 15``, 61-67, displayed -3-+3.
+    velocity_sens: int = 64  #: ``00 16``, 1-127, displayed -63-+63.
+    key_lower: int = 0  #: ``00 17``, note number.
+    key_upper: int = 127  #: ``00 18``, note number.
 
     @property
     def channel_display(self) -> int:
@@ -668,8 +678,7 @@ class PartState:
 
     @property
     def output_name(self) -> str:
-        return OUTPUT_ASSIGN.get(self.output_assign,
-                                 f"?{self.output_assign}")
+        return OUTPUT_ASSIGN.get(self.output_assign, f"?{self.output_assign}")
 
     @property
     def output_mfx_name(self) -> str:
@@ -725,13 +734,13 @@ class SetupState:
 
     @property
     def patch_slot(self) -> Optional[banks.Slot]:
-        return banks.lookup(self.patch_msb, self.patch_lsb,
-                            self.patch_program)
+        return banks.lookup(self.patch_msb, self.patch_lsb, self.patch_program)
 
     @property
     def performance_slot(self) -> Optional[banks.Slot]:
-        return banks.lookup(self.performance_msb, self.performance_lsb,
-                            self.performance_program)
+        return banks.lookup(
+            self.performance_msb, self.performance_lsb, self.performance_program
+        )
 
 
 def _describe_selection(slot, msb: int, lsb: int, program: int) -> str:
@@ -778,7 +787,8 @@ def _ranges(numbers: Iterable[int]) -> str:
         else:
             spans.append([number, number])
     return ", ".join(
-        str(low) if low == high else f"{low}-{high}" for low, high in spans)
+        str(low) if low == high else f"{low}-{high}" for low, high in spans
+    )
 
 
 #: Chorus and Reverb Type on an XV-2020 are one bit: the effect is in or
@@ -807,7 +817,7 @@ class ChannelMidi:
     response at all from the synth, so nothing downstream can detect it.
     """
 
-    channel: int              #: 0-based wire channel.
+    channel: int  #: 0-based wire channel.
     program_change: bool = True
     bank_select: bool = True
     bender: bool = True
@@ -837,8 +847,10 @@ class ChannelMidi:
         if not self.program_change:
             return "ignores Program Change"
         if not self.bank_select:
-            return ("ignores Bank Select -- a Program Change would land in "
-                    "whatever bank the part is already on")
+            return (
+                "ignores Bank Select -- a Program Change would land in "
+                "whatever bank the part is already on"
+            )
         return None
 
 
@@ -934,8 +946,9 @@ class DeviceState:
 
     def audible_parts(self, channel: int) -> List[PartState]:
         """Parts on this channel that would actually be heard."""
-        return [p for p in self.parts_on(channel)
-                if not p.silent and not self.soloed_out(p)]
+        return [
+            p for p in self.parts_on(channel) if not p.silent and not self.soloed_out(p)
+        ]
 
     def soloed_out(self, part: PartState) -> bool:
         """Whether Solo Part Select silences this part."""
@@ -980,7 +993,8 @@ class DeviceState:
             # only the mode then finds the symptom unchanged.
             forward = self._part_findings(
                 lead="Switching to PERFORM would not be enough on its own. "
-                     "In the performance currently loaded:")
+                "In the performance currently loaded:"
+            )
             forward.extend(self._selection_findings())
             lines.extend(forward)
             if forward:
@@ -1038,8 +1052,7 @@ class DeviceState:
         for entry in self.midi:
             problem = entry.selection_problem()
             if problem is not None:
-                by_problem.setdefault(problem, []).append(
-                    entry.channel_display)
+                by_problem.setdefault(problem, []).append(entry.channel_display)
         for problem, channels in by_problem.items():
             word = "Channel" if len(channels) == 1 else "Channels"
             found.append(f"{word} {_ranges(channels)}: {problem}.")
@@ -1068,8 +1081,7 @@ class DeviceState:
             label = "Part" if len(numbers) == 1 else "Parts"
             found.append(f"{label} {_ranges(numbers)}: {reason}")
 
-        listening = {p.receive_channel for p in self.parts
-                     if not p.silent}
+        listening = {p.receive_channel for p in self.parts if not p.silent}
         unused = [c + 1 for c in range(16) if c not in listening]
         if unused:
             word = "channel" if len(unused) == 1 else "channels"
@@ -1094,27 +1106,36 @@ class DeviceState:
         """As :meth:`describes`, without the leading channel number."""
         if not self.setup.multitimbral:
             if channel == self.channels.patch_receive:
-                return ("the patch — currently " + _describe_selection(
-                    self.setup.patch_slot, self.setup.patch_msb,
-                    self.setup.patch_lsb, self.setup.patch_program))
-            return (f"nothing — in {self.setup.mode_name} mode only the Patch "
-                    f"Receive Channel ({self.channels.patch_display}) "
-                    f"selects anything")
+                return "the patch — currently " + _describe_selection(
+                    self.setup.patch_slot,
+                    self.setup.patch_msb,
+                    self.setup.patch_lsb,
+                    self.setup.patch_program,
+                )
+            return (
+                f"nothing — in {self.setup.mode_name} mode only the Patch "
+                f"Receive Channel ({self.channels.patch_display}) "
+                f"selects anything"
+            )
         if channel == self.channels.performance_control:
-            return ("the whole performance — currently " + _describe_selection(
-                self.setup.performance_slot, self.setup.performance_msb,
-                self.setup.performance_lsb, self.setup.performance_program))
+            return "the whole performance — currently " + _describe_selection(
+                self.setup.performance_slot,
+                self.setup.performance_msb,
+                self.setup.performance_lsb,
+                self.setup.performance_program,
+            )
         here = self.parts_on(channel)
         if not here:
             return "no part listens on this channel"
         if len(here) == 1:
             part = here[0]
-            return (f"part {part.part} — currently " + _describe_selection(
-                part.slot, part.msb, part.lsb, part.program_change))
-        names = ", ".join(
-            f"{p.part}={p.slot if p.slot else '?'}" for p in here)
-        return (f"parts {names} — layered, so a Program Change here "
-                f"moves all {len(here)}")
+            return f"part {part.part} — currently " + _describe_selection(
+                part.slot, part.msb, part.lsb, part.program_change
+            )
+        names = ", ".join(f"{p.part}={p.slot if p.slot else '?'}" for p in here)
+        return (
+            f"parts {names} — layered, so a Program Change here moves all {len(here)}"
+        )
 
 
 @dataclass(frozen=True)
@@ -1184,11 +1205,17 @@ class XvBridge:
     but not what it stores.
     """
 
-    def __init__(self, send_port, recv_port, *,
-                 device_id: int = m.DEFAULT_DEVICE_ID,
-                 channel: int = 0, timeout: float = DEFAULT_TIMEOUT,
-                 description: str = "",
-                 identity: Optional[DeviceIdentity] = None):
+    def __init__(
+        self,
+        send_port,
+        recv_port,
+        *,
+        device_id: int = m.DEFAULT_DEVICE_ID,
+        channel: int = 0,
+        timeout: float = DEFAULT_TIMEOUT,
+        description: str = "",
+        identity: Optional[DeviceIdentity] = None,
+    ):
         """``device_id`` is the **wire byte** (0x10-0x1F), not the panel number.
 
         Deliberately not converted here. The two numberings overlap -- panel
@@ -1200,8 +1227,7 @@ class XvBridge:
         """
         self._out = send_port
         self._in = recv_port
-        if not (0x00 <= int(device_id) <= 0x1F
-                or int(device_id) == m.BROADCAST_DEVICE):
+        if not (0x00 <= int(device_id) <= 0x1F or int(device_id) == m.BROADCAST_DEVICE):
             raise ValueError(
                 f"device_id {device_id} is not a wire byte; expected "
                 f"0x10-0x1F. A panel number (17-32) goes through "
@@ -1225,9 +1251,15 @@ class XvBridge:
     # --- construction -------------------------------------------------------
 
     @classmethod
-    def standard(cls, port_name: str, *, recv_port_name: Optional[str] = None,
-                 device_id: int = 17, channel: int = 0,
-                 timeout: float = DEFAULT_TIMEOUT) -> "XvBridge":
+    def standard(
+        cls,
+        port_name: str,
+        *,
+        recv_port_name: Optional[str] = None,
+        device_id: int = 17,
+        channel: int = 0,
+        timeout: float = DEFAULT_TIMEOUT,
+    ) -> "XvBridge":
         """Open a named port pair without probing.
 
         ``device_id`` here is the **panel number** (17-32), because this is
@@ -1247,21 +1279,26 @@ class XvBridge:
             _delete_quiet(out._port)
             raise
         return cls(
-            out, in_port, device_id=m.device_id_byte(device_id),
-            channel=channel, timeout=timeout,
+            out,
+            in_port,
+            device_id=m.device_id_byte(device_id),
+            channel=channel,
+            timeout=timeout,
             description=(
-                port_name if recv_name == port_name
-                else f"{port_name} -> {recv_name}"
+                port_name if recv_name == port_name else f"{port_name} -> {recv_name}"
             ),
         )
 
     @classmethod
-    def autodetect(cls, *, config_path: str = DEFAULT_CONFIG_PATH,
-                   channel: Optional[int] = None,
-                   timeout: float = DEFAULT_TIMEOUT,
-                   probe_timeout: float = AUTODETECT_TIMEOUT,
-                   on_try: Optional[Callable[[str], None]] = None
-                   ) -> "XvBridge":
+    def autodetect(
+        cls,
+        *,
+        config_path: str = DEFAULT_CONFIG_PATH,
+        channel: Optional[int] = None,
+        timeout: float = DEFAULT_TIMEOUT,
+        probe_timeout: float = AUTODETECT_TIMEOUT,
+        on_try: Optional[Callable[[str], None]] = None,
+    ) -> "XvBridge":
         """Find an XV-2020 by broadcasting an Identity Request.
 
         Ports are tried in the order most likely to pay off: the pair
@@ -1281,7 +1318,8 @@ class XvBridge:
             raise AmbiguousDevice(found)
         identity = found[0]
         bridge = cls.standard(
-            identity.send_port, recv_port_name=identity.recv_port,
+            identity.send_port,
+            recv_port_name=identity.recv_port,
             device_id=identity.device_id,
             channel=channel if channel is not None else 0,
             timeout=timeout,
@@ -1294,8 +1332,12 @@ class XvBridge:
         return bridge
 
     @classmethod
-    def _sweep(cls, config_path: str, probe_timeout: float,
-               on_try: Optional[Callable[[str], None]]) -> List[DeviceIdentity]:
+    def _sweep(
+        cls,
+        config_path: str,
+        probe_timeout: float,
+        on_try: Optional[Callable[[str], None]],
+    ) -> List[DeviceIdentity]:
         candidates = cls._probe_order(config_path)
         found: List[DeviceIdentity] = []
         for send_name, recv_name in candidates:
@@ -1333,8 +1375,9 @@ class XvBridge:
         return pairs
 
     @staticmethod
-    def _try_pair(send_name: str, recv_name: str,
-                  probe_timeout: float) -> Optional[DeviceIdentity]:
+    def _try_pair(
+        send_name: str, recv_name: str, probe_timeout: float
+    ) -> Optional[DeviceIdentity]:
         """One Identity Request on one port pair.
 
         Every failure is swallowed and reported as "nothing here". During a
@@ -1363,8 +1406,10 @@ class XvBridge:
                 # which shares the family code and differs in family number.
                 if reply is not None and reply.is_xv2020:
                     return DeviceIdentity(
-                        send_port=send_name, recv_port=recv_name,
-                        device_id=reply.device, family=reply.family,
+                        send_port=send_name,
+                        recv_port=recv_name,
+                        device_id=reply.device,
+                        family=reply.family,
                         family_number=reply.family_number,
                         revision=reply.revision,
                     )
@@ -1404,8 +1449,9 @@ class XvBridge:
     def _send(self, frame: bytes) -> None:
         self._out.send_message(list(frame))
 
-    def request(self, address: Sequence[int], size: int, *,
-                timeout: Optional[float] = None) -> bytes:
+    def request(
+        self, address: Sequence[int], size: int, *, timeout: Optional[float] = None
+    ) -> bytes:
         """RQ1 at ``address`` for ``size`` bytes; return the DT1 payload.
 
         Raises ``TimeoutError`` on silence, which -- per the manual -- means
@@ -1428,7 +1474,7 @@ class XvBridge:
                 # corruption on our own conversation, not foreign traffic.
                 raise
             if packet is None:
-                continue        # somebody else's message on a shared port
+                continue  # somebody else's message on a shared port
             if packet.address != wanted:
                 # A late answer to an earlier request, or a dump the device
                 # sent on its own. Skipping on address rather than taking the
@@ -1501,7 +1547,9 @@ class XvBridge:
     # --- whole performances -------------------------------------------------
 
     def read_performance_blocks(
-        self, base: Tuple[int, int], *,
+        self,
+        base: Tuple[int, int],
+        *,
         on_progress: Optional[Callable[[int, int], None]] = None,
         timeout: Optional[float] = None,
     ) -> Dict[str, bytes]:
@@ -1515,23 +1563,29 @@ class XvBridge:
         out: Dict[str, bytes] = {}
         total = len(PERFORMANCE_BLOCKS)
         for index, (name, (sub_hi, sub_lo), size) in enumerate(
-                PERFORMANCE_BLOCKS, start=1):
+            PERFORMANCE_BLOCKS, start=1
+        ):
             address = (base[0], base[1], sub_hi, sub_lo)
             data = self.request(address, size, timeout=timeout)
             if len(data) != size:
                 raise DeviceError(
                     f"block {name} at "
                     f"{'.'.join(f'{b:02X}' for b in address)} returned "
-                    f"{len(data)} bytes, expected {size}")
+                    f"{len(data)} bytes, expected {size}"
+                )
             out[name] = bytes(data)
             if on_progress is not None:
                 on_progress(index, total)
         return out
 
     def write_performance_blocks(
-        self, base: Tuple[int, int], blocks: Dict[str, bytes], *,
+        self,
+        base: Tuple[int, int],
+        blocks: Dict[str, bytes],
+        *,
         on_progress: Optional[Callable[[int, int], None]] = None,
-        verify: bool = True, timeout: Optional[float] = None,
+        verify: bool = True,
+        timeout: Optional[float] = None,
     ) -> List[str]:
         """Write a whole performance. Returns the names of blocks that
         did **not** read back identical.
@@ -1545,21 +1599,24 @@ class XvBridge:
         send: DT1 is unacknowledged, so the only evidence that a write
         landed is reading the bytes back and finding them equal.
         """
-        missing = [name for name, _addr, _size in PERFORMANCE_BLOCKS
-                   if name not in blocks]
+        missing = [
+            name for name, _addr, _size in PERFORMANCE_BLOCKS if name not in blocks
+        ]
         if missing:
             raise ValueError(
-                f"refusing to write a partial performance; missing "
-                f"{', '.join(missing)}")
+                f"refusing to write a partial performance; missing {', '.join(missing)}"
+            )
 
         mismatched: List[str] = []
         total = len(PERFORMANCE_BLOCKS)
         for index, (name, (sub_hi, sub_lo), size) in enumerate(
-                PERFORMANCE_BLOCKS, start=1):
+            PERFORMANCE_BLOCKS, start=1
+        ):
             payload = blocks[name]
             if len(payload) != size:
                 raise ValueError(
-                    f"block {name} is {len(payload)} bytes, expected {size}")
+                    f"block {name} is {len(payload)} bytes, expected {size}"
+                )
             address = (base[0], base[1], sub_hi, sub_lo)
             self._send(m.dt1(address, payload, device=self.device_id))
             time.sleep(SEND_GAP)
@@ -1572,7 +1629,9 @@ class XvBridge:
         return mismatched
 
     def store_temporary_to_slot(
-        self, slot: int, *,
+        self,
+        slot: int,
+        *,
         on_progress: Optional[Callable[[int, int], None]] = None,
         timeout: Optional[float] = None,
     ) -> Tuple[Dict[str, bytes], List[str]]:
@@ -1588,15 +1647,21 @@ class XvBridge:
         """
         base = user_performance_base(slot)
         backup = self.read_performance_blocks(base, timeout=timeout)
-        blocks = self.read_performance_blocks(
-            TEMPORARY_PERFORMANCE, timeout=timeout)
+        blocks = self.read_performance_blocks(TEMPORARY_PERFORMANCE, timeout=timeout)
         mismatched = self.write_performance_blocks(
-            base, blocks, on_progress=on_progress, timeout=timeout)
+            base, blocks, on_progress=on_progress, timeout=timeout
+        )
         return backup, mismatched
 
-    def write_channel_param(self, channel: int, offset: int, value: int, *,
-                            verify: bool = True,
-                            timeout: Optional[float] = None) -> int:
+    def write_channel_param(
+        self,
+        channel: int,
+        offset: int,
+        value: int,
+        *,
+        verify: bool = True,
+        timeout: Optional[float] = None,
+    ) -> int:
         """Set one Performance MIDI parameter for a channel.
 
         ``channel`` is the 0-based wire channel. As with
@@ -1608,7 +1673,8 @@ class XvBridge:
         if offset not in self.WRITABLE_CHANNEL_OFFSETS:
             raise ValueError(
                 f"offset {offset:#04x} is not one of the Performance MIDI "
-                f"parameters rxved writes")
+                f"parameters rxved writes"
+            )
         label, low, high = self.WRITABLE_CHANNEL_OFFSETS[offset]
         if not low <= value <= high:
             raise ValueError(f"{label} takes {low}-{high}, got {value}")
@@ -1621,13 +1687,19 @@ class XvBridge:
         data = self.request(address, 1, timeout=timeout)
         if not data:
             raise DeviceError(
-                f"wrote {label} on channel {channel + 1} but read back "
-                f"nothing")
+                f"wrote {label} on channel {channel + 1} but read back nothing"
+            )
         return data[0]
 
-    def write_part_param(self, part: int, offset: int, value: int, *,
-                         verify: bool = True,
-                         timeout: Optional[float] = None) -> int:
+    def write_part_param(
+        self,
+        part: int,
+        offset: int,
+        value: int,
+        *,
+        verify: bool = True,
+        timeout: Optional[float] = None,
+    ) -> int:
         """Set one Performance Part parameter in the **temporary** area.
 
         This is the only write in rxved, and what makes it acceptable is
@@ -1655,8 +1727,7 @@ class XvBridge:
             )
         label, low, high = self.WRITABLE_PART_OFFSETS[offset]
         if not low <= value <= high:
-            raise ValueError(
-                f"{label} takes {low}-{high}, got {value}")
+            raise ValueError(f"{label} takes {low}-{high}, got {value}")
 
         address = (0x10, 0x00, 0x20 + part - 1, offset)
         self._send(m.dt1(address, [value], device=self.device_id))
@@ -1667,19 +1738,16 @@ class XvBridge:
         # know anything happened at all.
         data = self.request(address, 1, timeout=timeout)
         if not data:
-            raise DeviceError(
-                f"wrote {label} on part {part} but read back nothing")
+            raise DeviceError(f"wrote {label} on part {part} but read back nothing")
         return data[0]
 
     # --- operations ---------------------------------------------------------
 
-    def identify(self, *, timeout: Optional[float] = None
-                 ) -> Optional[DeviceIdentity]:
+    def identify(self, *, timeout: Optional[float] = None) -> Optional[DeviceIdentity]:
         """Ask again who is on the other end, on the already-open ports."""
         self._drain()
         self._send(m.IDENTITY_REQUEST)
-        deadline = time.time() + (
-            AUTODETECT_TIMEOUT if timeout is None else timeout)
+        deadline = time.time() + (AUTODETECT_TIMEOUT if timeout is None else timeout)
         while time.time() < deadline:
             message = self._in.get_message()
             if message is None:
@@ -1688,8 +1756,10 @@ class XvBridge:
             reply = m.parse_identity_reply(message[0])
             if reply is not None and reply.is_xv2020:
                 return DeviceIdentity(
-                    send_port=self.description, recv_port=self.description,
-                    device_id=reply.device, family=reply.family,
+                    send_port=self.description,
+                    recv_port=self.description,
+                    device_id=reply.device,
+                    family=reply.family,
                     family_number=reply.family_number,
                     revision=reply.revision,
                 )
@@ -1698,8 +1768,7 @@ class XvBridge:
     def is_connected(self, *, timeout: float = AUTODETECT_TIMEOUT) -> bool:
         return self.identify(timeout=timeout) is not None
 
-    def system_channels(self, *, timeout: Optional[float] = None
-                        ) -> "SystemChannels":
+    def system_channels(self, *, timeout: Optional[float] = None) -> "SystemChannels":
         """Which MIDI channels this synth actually listens on.
 
         Read from System Common (OM p. 147), and worth reading rather than
@@ -1725,12 +1794,11 @@ class XvBridge:
                 f"System Common read returned {len(data)} bytes, expected 3"
             )
         raw_performance = data[0]
-        raw_patch = data[2]          # 0x0A between them is (reserved)
+        raw_patch = data[2]  # 0x0A between them is (reserved)
         return SystemChannels(
             patch_receive=raw_patch,
             performance_control=(
-                None if raw_performance >= PERFORMANCE_CHANNEL_OFF
-                else raw_performance
+                None if raw_performance >= PERFORMANCE_CHANNEL_OFF else raw_performance
             ),
         )
 
@@ -1744,17 +1812,18 @@ class XvBridge:
         """
         data = self.request((0x01, 0x00, 0x00, 0x00), 0x0F, timeout=timeout)
         if len(data) < 10:
-            raise DeviceError(
-                f"Setup read returned {len(data)} bytes, expected 15")
+            raise DeviceError(f"Setup read returned {len(data)} bytes, expected 15")
         return SetupState(
             mode=data[0],
-            performance_msb=data[4], performance_lsb=data[5],
+            performance_msb=data[4],
+            performance_lsb=data[5],
             performance_program=data[6],
-            patch_msb=data[7], patch_lsb=data[8], patch_program=data[9],
+            patch_msb=data[7],
+            patch_lsb=data[8],
+            patch_program=data[9],
         )
 
-    def read_part(self, part: int, *, timeout: Optional[float] = None
-                  ) -> PartState:
+    def read_part(self, part: int, *, timeout: Optional[float] = None) -> PartState:
         """Read one Performance Part's channel and patch selection.
 
         ``10 00 <20+part-1> 00``: the Performance Part blocks sit at
@@ -1766,27 +1835,39 @@ class XvBridge:
         # 0x21 bytes: through Part Output MFX Select at offset 00 20. One
         # round trip for the MIDI settings and the effects routing together,
         # rather than two reads of the same block.
-        data = self.request((0x10, 0x00, 0x20 + part - 1, 0x00), 0x21,
-                            timeout=timeout)
+        data = self.request((0x10, 0x00, 0x20 + part - 1, 0x00), 0x21, timeout=timeout)
         if len(data) < 0x21:
             raise DeviceError(
-                f"part {part} read returned {len(data)} bytes, expected 33")
+                f"part {part} read returned {len(data)} bytes, expected 33"
+            )
         return PartState(
-            part=part, receive_channel=data[0],
+            part=part,
+            receive_channel=data[0],
             receive_switch=bool(data[1]),
-            msb=data[4], lsb=data[5], program_change=data[6],
+            msb=data[4],
+            lsb=data[5],
+            program_change=data[6],
             level=data[7],
-            pan=data[0x08], coarse=data[0x09], fine=data[0x0A],
-            mono_poly=data[0x0B], bend_range=data[0x0D],
-            octave=data[0x15], velocity_sens=data[0x16],
-            key_lower=data[0x17], key_upper=data[0x18],
+            pan=data[0x08],
+            coarse=data[0x09],
+            fine=data[0x0A],
+            mono_poly=data[0x0B],
+            bend_range=data[0x0D],
+            octave=data[0x15],
+            velocity_sens=data[0x16],
+            key_lower=data[0x17],
+            key_upper=data[0x18],
             mute=bool(data[0x1B]),
-            dry=data[0x1C], chorus=data[0x1D], reverb=data[0x1E],
-            output_assign=data[0x1F], output_mfx=data[0x20],
+            dry=data[0x1C],
+            chorus=data[0x1D],
+            reverb=data[0x1E],
+            output_assign=data[0x1F],
+            output_mfx=data[0x20],
         )
 
-    def read_performance_common(self, *, timeout: Optional[float] = None
-                                ) -> PerformanceCommon:
+    def read_performance_common(
+        self, *, timeout: Optional[float] = None
+    ) -> PerformanceCommon:
         """Temporary Performance Common: its name, and Solo Part Select.
 
         ``10 00 00 00``, 13 bytes -- the 12-byte name plus offset ``00 0C``.
@@ -1795,41 +1876,48 @@ class XvBridge:
         data = self.request((0x10, 0x00, 0x00, 0x00), 0x0D, timeout=timeout)
         if len(data) < 13:
             raise DeviceError(
-                f"Performance Common read returned {len(data)} bytes, "
-                f"expected 13")
+                f"Performance Common read returned {len(data)} bytes, expected 13"
+            )
         name = "".join(
             chr(byte) if 32 <= byte <= 126 else " " for byte in data[:12]
         ).rstrip()
         solo = data[12]
-        return PerformanceCommon(name=name,
-                                 solo=None if solo == 0 else solo)
+        return PerformanceCommon(name=name, solo=None if solo == 0 else solo)
 
-    def read_performance_midi(self, channel: int, *,
-                              timeout: Optional[float] = None
-                              ) -> "ChannelMidi":
+    def read_performance_midi(
+        self, channel: int, *, timeout: Optional[float] = None
+    ) -> "ChannelMidi":
         """One channel's Performance MIDI block. ``10 00 <10+channel> 00``."""
         if not 0 <= channel <= 15:
             raise ValueError(f"channel {channel} is outside 0-15")
-        data = self.request((0x10, 0x00, 0x10 + channel, 0x00), 0x0C,
-                            timeout=timeout)
+        data = self.request((0x10, 0x00, 0x10 + channel, 0x00), 0x0C, timeout=timeout)
         if len(data) < 0x0C:
             raise DeviceError(
                 f"channel {channel + 1} MIDI read returned {len(data)} "
-                f"bytes, expected 12")
+                f"bytes, expected 12"
+            )
         return ChannelMidi(
             channel=channel,
-            program_change=bool(data[0]), bank_select=bool(data[1]),
-            bender=bool(data[2]), poly_pressure=bool(data[3]),
-            channel_pressure=bool(data[4]), modulation=bool(data[5]),
-            volume=bool(data[6]), pan=bool(data[7]),
-            expression=bool(data[8]), hold_1=bool(data[9]),
-            phase_lock=bool(data[0x0A]), velocity_curve=data[0x0B],
+            program_change=bool(data[0]),
+            bank_select=bool(data[1]),
+            bender=bool(data[2]),
+            poly_pressure=bool(data[3]),
+            channel_pressure=bool(data[4]),
+            modulation=bool(data[5]),
+            volume=bool(data[6]),
+            pan=bool(data[7]),
+            expression=bool(data[8]),
+            hold_1=bool(data[9]),
+            phase_lock=bool(data[0x0A]),
+            velocity_curve=data[0x0B],
         )
 
-    def read_channel_midi(self, *,
-                          on_progress: Optional[Callable[[int, int], None]] = None,
-                          timeout: Optional[float] = None
-                          ) -> Tuple["ChannelMidi", ...]:
+    def read_channel_midi(
+        self,
+        *,
+        on_progress: Optional[Callable[[int, int], None]] = None,
+        timeout: Optional[float] = None,
+    ) -> Tuple["ChannelMidi", ...]:
         """All 16 Performance MIDI blocks. Sixteen round trips, no sound."""
         out = []
         for channel in range(16):
@@ -1838,8 +1926,9 @@ class XvBridge:
                 on_progress(channel + 1, 16)
         return tuple(out)
 
-    def read_performance_fx(self, *, timeout: Optional[float] = None
-                            ) -> "PerformanceFx":
+    def read_performance_fx(
+        self, *, timeout: Optional[float] = None
+    ) -> "PerformanceFx":
         """The performance's three effects blocks. Three round trips, silent.
 
         ``10 00 02 00`` MFX, ``10 00 04 00`` Chorus, ``10 00 06 00`` Reverb
@@ -1850,23 +1939,36 @@ class XvBridge:
         mfx = self.request((0x10, 0x00, 0x02, 0x00), 5, timeout=timeout)
         chorus = self.request((0x10, 0x00, 0x04, 0x00), 4, timeout=timeout)
         reverb = self.request((0x10, 0x00, 0x06, 0x00), 3, timeout=timeout)
-        for name, data, want in (("MFX", mfx, 5), ("chorus", chorus, 4),
-                                 ("reverb", reverb, 3)):
+        for name, data, want in (
+            ("MFX", mfx, 5),
+            ("chorus", chorus, 4),
+            ("reverb", reverb, 3),
+        ):
             if len(data) < want:
                 raise DeviceError(
-                    f"{name} read returned {len(data)} bytes, "
-                    f"expected {want}")
+                    f"{name} read returned {len(data)} bytes, expected {want}"
+                )
         return PerformanceFx(
-            mfx_type=mfx[0], mfx_dry=mfx[1], mfx_chorus=mfx[2],
-            mfx_reverb=mfx[3], mfx_output=mfx[4],
-            chorus_type=chorus[0], chorus_level=chorus[1],
-            chorus_output=chorus[2], chorus_output_select=chorus[3],
-            reverb_type=reverb[0], reverb_level=reverb[1],
+            mfx_type=mfx[0],
+            mfx_dry=mfx[1],
+            mfx_chorus=mfx[2],
+            mfx_reverb=mfx[3],
+            mfx_output=mfx[4],
+            chorus_type=chorus[0],
+            chorus_level=chorus[1],
+            chorus_output=chorus[2],
+            chorus_output_select=chorus[3],
+            reverb_type=reverb[0],
+            reverb_level=reverb[1],
             reverb_output=reverb[2],
         )
 
-    def read_parts(self, *, on_progress: Optional[Callable[[int, int], None]] = None,
-                   timeout: Optional[float] = None) -> Tuple[PartState, ...]:
+    def read_parts(
+        self,
+        *,
+        on_progress: Optional[Callable[[int, int], None]] = None,
+        timeout: Optional[float] = None,
+    ) -> Tuple[PartState, ...]:
         """All 16 Performance Parts. Sixteen round trips, no sound."""
         out = []
         for part in range(1, 17):
@@ -1875,9 +1977,13 @@ class XvBridge:
                 on_progress(part, 16)
         return tuple(out)
 
-    def read_state(self, *, with_parts: Optional[bool] = None,
-                   on_progress: Optional[Callable[[int, int], None]] = None,
-                   timeout: Optional[float] = None) -> DeviceState:
+    def read_state(
+        self,
+        *,
+        with_parts: Optional[bool] = None,
+        on_progress: Optional[Callable[[int, int], None]] = None,
+        timeout: Optional[float] = None,
+    ) -> DeviceState:
         """Everything needed to say what each MIDI channel currently does.
 
         ``with_parts`` defaults to "only if the mode makes them matter" --
@@ -1890,27 +1996,27 @@ class XvBridge:
         want_parts = setup.multitimbral if with_parts is None else with_parts
         parts = (
             self.read_parts(on_progress=on_progress, timeout=timeout)
-            if want_parts else ()
+            if want_parts
+            else ()
         )
         # Solo Part Select lives here, and it silences fifteen parts without
         # touching any of them -- so reading the parts without it can produce
         # a screen on which everything looks fine and the synth is quiet.
-        common = (
-            self.read_performance_common(timeout=timeout)
-            if want_parts else None
-        )
+        common = self.read_performance_common(timeout=timeout) if want_parts else None
         fx = self.read_performance_fx(timeout=timeout) if want_parts else None
         # The two bytes that decide whether anything rxved sends is even
         # looked at. Worth sixteen round trips on a screen whose job is to
         # explain why something did not happen.
-        midi = (self.read_channel_midi(timeout=timeout) if want_parts else ())
-        state = DeviceState(setup=setup, channels=channels, parts=parts,
-                            common=common, fx=fx, midi=midi)
+        midi = self.read_channel_midi(timeout=timeout) if want_parts else ()
+        state = DeviceState(
+            setup=setup, channels=channels, parts=parts, common=common, fx=fx, midi=midi
+        )
         self.state = state
         return state
 
-    def refresh_channel(self, channel: int, *,
-                        timeout: Optional[float] = None) -> DeviceState:
+    def refresh_channel(
+        self, channel: int, *, timeout: Optional[float] = None
+    ) -> DeviceState:
         """Re-read just enough to say what is on one channel. Cheap, silent.
 
         The full :meth:`read_state` costs eighteen round trips in a
@@ -1928,17 +2034,20 @@ class XvBridge:
         """
         setup = self.read_setup(timeout=timeout)
         previous = self.state
-        channels = (previous.channels if previous is not None
-                    else self.system_channels(timeout=timeout))
-        parts: Tuple[PartState, ...] = (
-            previous.parts if previous is not None else ())
+        channels = (
+            previous.channels
+            if previous is not None
+            else self.system_channels(timeout=timeout)
+        )
+        parts: Tuple[PartState, ...] = previous.parts if previous is not None else ()
         if setup.multitimbral:
             if not parts:
                 parts = self.read_parts(timeout=timeout)
             else:
                 fresh = {
                     p.part: self.read_part(p.part, timeout=timeout)
-                    for p in parts if p.receive_channel == channel
+                    for p in parts
+                    if p.receive_channel == channel
                 }
                 parts = tuple(fresh.get(p.part, p) for p in parts)
         # Carried over, not re-read: Solo Part Select changes when a
@@ -1948,48 +2057,54 @@ class XvBridge:
         common = previous.common if previous is not None else None
         fx = previous.fx if previous is not None else None
         midi = previous.midi if previous is not None else ()
-        state = DeviceState(setup=setup, channels=channels, parts=parts,
-                            common=common, fx=fx, midi=midi)
+        state = DeviceState(
+            setup=setup, channels=channels, parts=parts, common=common, fx=fx, midi=midi
+        )
         self.state = state
         self.channels = channels
         return state
 
-    def user_patch_name(self, number: int, *,
-                        timeout: Optional[float] = None) -> str:
+    def user_patch_name(self, number: int, *, timeout: Optional[float] = None) -> str:
         """The name stored in User Patch ``number`` (1-128), read live."""
         data = self.request(
             m.user_patch_address(number), m.PATCH_NAME_LEN, timeout=timeout
         )
-        return m.decode_name(data[:m.PATCH_NAME_LEN])
+        return m.decode_name(data[: m.PATCH_NAME_LEN])
 
-    def user_performance_name(self, number: int, *,
-                              timeout: Optional[float] = None) -> str:
+    def user_performance_name(
+        self, number: int, *, timeout: Optional[float] = None
+    ) -> str:
         """The name stored in User Performance ``number`` (1-64)."""
         data = self.request(
-            m.user_performance_address(number), m.PERFORMANCE_NAME_LEN,
+            m.user_performance_address(number),
+            m.PERFORMANCE_NAME_LEN,
             timeout=timeout,
         )
-        return m.decode_name(data[:m.PERFORMANCE_NAME_LEN])
+        return m.decode_name(data[: m.PERFORMANCE_NAME_LEN])
 
-    def user_rhythm_name(self, number: int, *,
-                         timeout: Optional[float] = None) -> str:
+    def user_rhythm_name(self, number: int, *, timeout: Optional[float] = None) -> str:
         """The name stored in User Rhythm ``number`` (1-4)."""
         data = self.request(
             m.address_add(m.user_rhythm_address(number), m.OFF_RHYTHM_COMMON),
-            m.RHYTHM_NAME_LEN, timeout=timeout,
+            m.RHYTHM_NAME_LEN,
+            timeout=timeout,
         )
-        return m.decode_name(data[:m.RHYTHM_NAME_LEN])
+        return m.decode_name(data[: m.RHYTHM_NAME_LEN])
 
     def temporary_patch_name(self, *, timeout: Optional[float] = None) -> str:
         """The name of the patch the machine is playing right now."""
         data = self.request(
             m.temporary_patch_address(), m.PATCH_NAME_LEN, timeout=timeout
         )
-        return m.decode_name(data[:m.PATCH_NAME_LEN])
+        return m.decode_name(data[: m.PATCH_NAME_LEN])
 
-    def read_user_bank(self, bank_id: str, *,
-                       on_progress: Optional[Callable[[int, int], None]] = None,
-                       timeout: Optional[float] = None) -> Dict[int, str]:
+    def read_user_bank(
+        self,
+        bank_id: str,
+        *,
+        on_progress: Optional[Callable[[int, int], None]] = None,
+        timeout: Optional[float] = None,
+    ) -> Dict[int, str]:
         """Read every name in one of the three writable banks.
 
         Only USER, R-USER and P-USER can be read this way -- they are the
@@ -2020,8 +2135,7 @@ class XvBridge:
 
     # --- the two operations that make a sound -------------------------------
 
-    def select(self, entry: banks.Slot, *, channel: Optional[int] = None
-               ) -> None:
+    def select(self, entry: banks.Slot, *, channel: Optional[int] = None) -> None:
         """Select a slot on the instrument. **This changes what it plays.**
 
         Bank Select MSB, Bank Select LSB, then Program Change, in that order
@@ -2053,8 +2167,9 @@ class XvBridge:
         for message in entry.select_messages(channel):
             self._out.send_message(message)
 
-    def select_raw(self, msb: int, lsb: int, program_change: int, *,
-                   channel: Optional[int] = None) -> None:
+    def select_raw(
+        self, msb: int, lsb: int, program_change: int, *, channel: Optional[int] = None
+    ) -> None:
         """Send a Bank Select / Program Change triple by its raw numbers.
 
         Needed because a *restore* must be able to put the synth back on a
@@ -2064,8 +2179,11 @@ class XvBridge:
         move the synth somewhere else.
         """
         target = self.channel if channel is None else channel
-        for value, name in ((msb, "MSB"), (lsb, "LSB"),
-                            (program_change, "program change")):
+        for value, name in (
+            (msb, "MSB"),
+            (lsb, "LSB"),
+            (program_change, "program change"),
+        ):
             if not 0 <= value <= 127:
                 raise ValueError(f"{name} {value} is outside 0-127")
         self._out.send_message([0xB0 | target, 0, msb])
@@ -2082,8 +2200,9 @@ class XvBridge:
             return self.channels.for_kind(kind)
         return self.channel
 
-    def use_system_channels(self, *, timeout: Optional[float] = None
-                            ) -> "SystemChannels":
+    def use_system_channels(
+        self, *, timeout: Optional[float] = None
+    ) -> "SystemChannels":
         """Read the synth's receive channels and use them from now on.
 
         Free and silent -- one SysEx round trip, nothing selected -- so it is
@@ -2093,10 +2212,15 @@ class XvBridge:
         self.channels = self.system_channels(timeout=timeout)
         return self.channels
 
-    def probe_srx(self, *, lsb_range: Iterable[int] = range(0, 64),
-                  settle: float = SELECT_GAP, restore: bool = True,
-                  on_progress: Optional[Callable[[int, Optional[str]], None]] = None,
-                  timeout: Optional[float] = None) -> Dict[int, str]:
+    def probe_srx(
+        self,
+        *,
+        lsb_range: Iterable[int] = range(0, 64),
+        settle: float = SELECT_GAP,
+        restore: bool = True,
+        on_progress: Optional[Callable[[int, Optional[str]], None]] = None,
+        timeout: Optional[float] = None,
+    ) -> Dict[int, str]:
         """Find which SRX Bank Select LSBs the fitted card actually answers on.
 
         **This plays the instrument**, for the same reason :meth:`scan_bank`
@@ -2142,10 +2266,15 @@ class XvBridge:
         self._restore_selection(before)
         return found
 
-    def scan_bank(self, bank_id: str, *,
-                  on_progress: Optional[Callable[[int, int, str], None]] = None,
-                  settle: float = SELECT_GAP, restore: bool = True,
-                  timeout: Optional[float] = None) -> Dict[int, str]:
+    def scan_bank(
+        self,
+        bank_id: str,
+        *,
+        on_progress: Optional[Callable[[int, int, str], None]] = None,
+        settle: float = SELECT_GAP,
+        restore: bool = True,
+        timeout: Optional[float] = None,
+    ) -> Dict[int, str]:
         """Learn a whole bank's names by selecting each slot and reading back.
 
         **This plays the instrument.** It is the only way to get preset
@@ -2193,8 +2322,7 @@ class XvBridge:
             return None
         return (setup.patch_msb, setup.patch_lsb, setup.patch_program)
 
-    def _restore_selection(self, before: Optional[Tuple[int, int, int]]
-                           ) -> None:
+    def _restore_selection(self, before: Optional[Tuple[int, int, int]]) -> None:
         """Put the synth back where the sweep found it."""
         if before is None:
             return

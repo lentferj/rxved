@@ -23,20 +23,23 @@ from xv import banks
 class TestPrintedTable:
     """Rows checked one by one against OM pp. 40-41 and p. 136."""
 
-    @pytest.mark.parametrize("bank_id,msb,lsb,count", [
-        ("USER", 87, 0, 128),
-        ("PST-A", 87, 64, 128),
-        ("PST-B", 87, 65, 128),
-        ("PST-C", 87, 66, 128),
-        ("PST-D", 87, 67, 128),
-        ("R-USER", 86, 0, 4),
-        ("R-PST-A", 86, 64, 4),
-        ("R-PST-B", 86, 65, 4),
-        ("P-USER", 85, 0, 64),
-        ("P-PST-A", 85, 64, 32),
-        ("P-PST-B", 85, 65, 32),
-        ("GM", 121, 0, 128),
-    ])
+    @pytest.mark.parametrize(
+        "bank_id,msb,lsb,count",
+        [
+            ("USER", 87, 0, 128),
+            ("PST-A", 87, 64, 128),
+            ("PST-B", 87, 65, 128),
+            ("PST-C", 87, 66, 128),
+            ("PST-D", 87, 67, 128),
+            ("R-USER", 86, 0, 4),
+            ("R-PST-A", 86, 64, 4),
+            ("R-PST-B", 86, 65, 4),
+            ("P-USER", 85, 0, 64),
+            ("P-PST-A", 85, 64, 32),
+            ("P-PST-B", 85, 65, 32),
+            ("GM", 121, 0, 128),
+        ],
+    )
     def test_row(self, bank_id, msb, lsb, count):
         entry = banks.bank(bank_id)
         assert (entry.msb, entry.lsb, entry.count) == (msb, lsb, count)
@@ -121,22 +124,25 @@ class TestSelectMessages:
 class TestSrx:
     """Roland Supplemental Note SN 132, row by row. See xv/banks.py."""
 
-    @pytest.mark.parametrize("card_id,base,pages,patches", [
-        ("SRX-01", 0, 1, 41),
-        ("SRX-02", 1, 1, 50),
-        ("SRX-03", 2, 1, 128),
-        ("SRX-04", 3, 1, 128),
-        ("SRX-05", 4, 3, 312),
-        ("SRX-06", 7, 4, 449),
-        ("SRX-07", 11, 4, 475),
-        ("SRX-08", 15, 4, 448),
-        ("SRX-09", 19, 4, 414),
-        ("SRX-10", 23, 1, 100),
-        ("SRX-11", 24, 1, 42),
-        ("SRX-12", 26, 1, 105),
-        ("SRX-97", 97, 1, 12),
-        ("SRX-98", 98, 1, 78),
-    ])
+    @pytest.mark.parametrize(
+        "card_id,base,pages,patches",
+        [
+            ("SRX-01", 0, 1, 41),
+            ("SRX-02", 1, 1, 50),
+            ("SRX-03", 2, 1, 128),
+            ("SRX-04", 3, 1, 128),
+            ("SRX-05", 4, 3, 312),
+            ("SRX-06", 7, 4, 449),
+            ("SRX-07", 11, 4, 475),
+            ("SRX-08", 15, 4, 448),
+            ("SRX-09", 19, 4, 414),
+            ("SRX-10", 23, 1, 100),
+            ("SRX-11", 24, 1, 42),
+            ("SRX-12", 26, 1, 105),
+            ("SRX-97", 97, 1, 12),
+            ("SRX-98", 98, 1, 78),
+        ],
+    )
     def test_card_allocation(self, card_id, base, pages, patches):
         card = banks.srx_card(card_id)
         assert card.patch_lsb_base == base
@@ -165,8 +171,15 @@ class TestSrx:
 
     def test_boards_without_rhythm_sets_have_none(self):
         """02, 04, 10, 11, 12, 97 and 98 have no rhythm row in SN 132."""
-        for card_id in ("SRX-02", "SRX-04", "SRX-10", "SRX-11", "SRX-12",
-                        "SRX-97", "SRX-98"):
+        for card_id in (
+            "SRX-02",
+            "SRX-04",
+            "SRX-10",
+            "SRX-11",
+            "SRX-12",
+            "SRX-97",
+            "SRX-98",
+        ):
             assert banks.srx_card(card_id).rhythm_lsb is None
 
     def test_boards_the_xv2020_cannot_use_are_not_banks(self):
@@ -193,7 +206,8 @@ class TestSrx:
         for card in banks.SRX_CARDS:
             for lsb in card.patch_lsbs:
                 assert lsb not in used, (
-                    f"LSB {lsb} claimed by both {used.get(lsb)} and {card.id}")
+                    f"LSB {lsb} claimed by both {used.get(lsb)} and {card.id}"
+                )
                 used[lsb] = card.id
 
     def test_rhythm_lsb_is_the_cards_first_patch_lsb(self):
@@ -286,11 +300,18 @@ class TestDeviceState:
         from xv.bridge import DeviceState, PartState, SetupState, SystemChannels
 
         return DeviceState(
-            setup=SetupState(mode=mode, patch_msb=87, patch_lsb=0,
-                             patch_program=0, performance_msb=85,
-                             performance_lsb=0, performance_program=4),
-            channels=SystemChannels(patch_receive=patch_rx,
-                                    performance_control=perf_ctrl),
+            setup=SetupState(
+                mode=mode,
+                patch_msb=87,
+                patch_lsb=0,
+                patch_program=0,
+                performance_msb=85,
+                performance_lsb=0,
+                performance_program=4,
+            ),
+            channels=SystemChannels(
+                patch_receive=patch_rx, performance_control=perf_ctrl
+            ),
             parts=parts,
         )
 
@@ -298,8 +319,9 @@ class TestDeviceState:
     def _part(part, channel, pc):
         from xv.bridge import PartState
 
-        return PartState(part=part, receive_channel=channel, msb=87, lsb=64,
-                         program_change=pc)
+        return PartState(
+            part=part, receive_channel=channel, msb=87, lsb=64, program_change=pc
+        )
 
     def test_patch_mode_is_single_channel(self):
         from xv.bridge import SoundMode
@@ -313,8 +335,9 @@ class TestDeviceState:
     def test_perform_mode_maps_channels_to_parts(self):
         from xv.bridge import SoundMode
 
-        state = self._state(SoundMode.PERFORM,
-                            parts=(self._part(1, 0, 0), self._part(2, 3, 1)))
+        state = self._state(
+            SoundMode.PERFORM, parts=(self._part(1, 0, 0), self._part(2, 3, 1))
+        )
         assert "part 1" in state.describes(0)
         assert "part 2" in state.describes(3)
         assert "no part listens" in state.describes(7)
@@ -325,8 +348,7 @@ class TestDeviceState:
 
         state = self._state(
             SoundMode.PERFORM,
-            parts=(self._part(1, 0, 0), self._part(2, 0, 1),
-                   self._part(3, 0, 2)),
+            parts=(self._part(1, 0, 0), self._part(2, 0, 1), self._part(3, 0, 2)),
         )
         assert len(state.parts_on(0)) == 3
         described = state.describes(0)
@@ -347,15 +369,15 @@ class TestDeviceState:
     def test_the_performance_control_channel_selects_the_performance(self):
         from xv.bridge import SoundMode
 
-        state = self._state(SoundMode.PERFORM, perf_ctrl=14,
-                            parts=(self._part(1, 0, 0),))
+        state = self._state(
+            SoundMode.PERFORM, perf_ctrl=14, parts=(self._part(1, 0, 0),)
+        )
         assert "whole performance" in state.describes(14)
 
     def test_gm_modes_count_as_multitimbral(self):
         from xv.bridge import SoundMode
 
-        for mode in (SoundMode.PERFORM, SoundMode.GM1, SoundMode.GM2,
-                     SoundMode.GS):
+        for mode in (SoundMode.PERFORM, SoundMode.GM1, SoundMode.GM2, SoundMode.GS):
             assert self._state(mode).setup.multitimbral
         assert not self._state(SoundMode.PATCH).setup.multitimbral
 
@@ -368,13 +390,19 @@ class TestDeviceState:
         assert setup.performance_slot.bank_id == "P-USER"
 
     def test_an_unclaimed_triple_shows_its_numbers(self):
-        """"Unrecognised" alone is useless exactly when the bytes matter."""
+        """ "Unrecognised" alone is useless exactly when the bytes matter."""
         from xv.bridge import SetupState, SoundMode, SystemChannels, DeviceState
 
         state = DeviceState(
-            setup=SetupState(mode=SoundMode.PATCH, patch_msb=87, patch_lsb=3,
-                             patch_program=5, performance_msb=85,
-                             performance_lsb=0, performance_program=0),
+            setup=SetupState(
+                mode=SoundMode.PATCH,
+                patch_msb=87,
+                patch_lsb=3,
+                patch_program=5,
+                performance_msb=85,
+                performance_lsb=0,
+                performance_program=0,
+            ),
             channels=SystemChannels(patch_receive=0, performance_control=15),
         )
         described = state.describes_short(0)
@@ -385,8 +413,14 @@ class TestDeviceState:
         """An SRX board rxved has no row for, or a mode it did not expect."""
         from xv.bridge import SetupState
 
-        setup = SetupState(mode=1, patch_msb=99, patch_lsb=99,
-                           patch_program=0, performance_msb=99,
-                           performance_lsb=99, performance_program=0)
+        setup = SetupState(
+            mode=1,
+            patch_msb=99,
+            patch_lsb=99,
+            patch_program=0,
+            performance_msb=99,
+            performance_lsb=99,
+            performance_program=0,
+        )
         assert setup.patch_slot is None
         assert setup.performance_slot is None

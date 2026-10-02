@@ -110,11 +110,7 @@ class TestGmDuplicateLsb:
         ]
         expected = {f"GM-{value}" if value else "GM" for value in corrected}
         assert expected <= set(landed)
-        assert "Shadowed" in [
-            row["name"]
-            for rows in out.values()
-            for row in rows
-        ]
+        assert "Shadowed" in [row["name"] for rows in out.values() for row in rows]
 
     def test_every_record_survives_the_correction(self):
         """The count is the point: 256 records in, 256 names out."""
@@ -128,11 +124,7 @@ class TestGmDuplicateLsb:
         records[first + 1] = _gm_record(lsb, program, "Shadowed")
         out = extract.read_gm_patches(_gm_table(records))
         assert sum(len(rows) for rows in out.values()) == 256
-        keys = [
-            f"{bank}:{row['n']:03d}"
-            for bank, rows in out.items()
-            for row in rows
-        ]
+        keys = [f"{bank}:{row['n']:03d}" for bank, rows in out.items() for row in rows]
         assert len(set(keys)) == 256, "a name would be lost on load"
 
 

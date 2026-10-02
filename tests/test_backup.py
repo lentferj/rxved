@@ -27,8 +27,10 @@ from xv import bridge as b
 
 
 def _blocks(name="Woven Drift"):
-    out = {n: bytes((i + s) & 0x7F for i in range(size))
-           for s, (n, _a, size) in enumerate(b.PERFORMANCE_BLOCKS)}
+    out = {
+        n: bytes((i + s) & 0x7F for i in range(size))
+        for s, (n, _a, size) in enumerate(b.PERFORMANCE_BLOCKS)
+    }
     out["common"] = name.ljust(12).encode("ascii") + out["common"][12:]
     return out
 
@@ -104,13 +106,13 @@ class TestRefusals:
 
     def test_bad_hex_is_refused(self):
         with pytest.raises(bk.BackupError, match="hex"):
-            bk.decode({"format": bk.FORMAT, "kind": "performance",
-                       "blocks": {"common": "zz"}})
+            bk.decode(
+                {"format": bk.FORMAT, "kind": "performance", "blocks": {"common": "zz"}}
+            )
 
     def test_an_empty_backup_is_refused(self):
         with pytest.raises(bk.BackupError, match="no blocks"):
-            bk.decode({"format": bk.FORMAT, "kind": "performance",
-                       "blocks": {}})
+            bk.decode({"format": bk.FORMAT, "kind": "performance", "blocks": {}})
 
 
 class TestPartialWritesAreRefused:
@@ -122,8 +124,7 @@ class TestPartialWritesAreRefused:
         blocks = _blocks()
         del blocks["part9"]
         with pytest.raises(ValueError, match="part9"):
-            DemoBridge().write_performance_blocks(
-                b.user_performance_base(1), blocks)
+            DemoBridge().write_performance_blocks(b.user_performance_base(1), blocks)
 
     def test_the_demo_stores_and_reads_back(self):
         from rxved.demo import DemoBridge

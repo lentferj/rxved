@@ -82,9 +82,13 @@ def performance_name(blocks: Dict[str, bytes]) -> str:
     ).strip()
 
 
-def encode(blocks: Dict[str, bytes], *, slot: Optional[int],
-           device_id: Optional[int] = None,
-           source: str = "") -> dict:
+def encode(
+    blocks: Dict[str, bytes],
+    *,
+    slot: Optional[int],
+    device_id: Optional[int] = None,
+    source: str = "",
+) -> dict:
     """Blocks -> the JSON-able dict that gets written."""
     return {
         "format": FORMAT,
@@ -103,14 +107,14 @@ def decode(payload: dict) -> Dict[str, bytes]:
     if not isinstance(payload, dict):
         raise BackupError("backup is not a JSON object")
     if payload.get("kind") != "performance":
-        raise BackupError(
-            f"backup holds {payload.get('kind')!r}, not a performance")
+        raise BackupError(f"backup holds {payload.get('kind')!r}, not a performance")
     version = payload.get("format")
     if version != FORMAT:
         raise BackupError(
             f"backup is format {version!r}, and this rxved reads only "
             f"{FORMAT}. Refusing to guess at the difference rather than "
-            f"restoring something wrong into a user slot.")
+            f"restoring something wrong into a user slot."
+        )
     raw = payload.get("blocks")
     if not isinstance(raw, dict) or not raw:
         raise BackupError("backup carries no blocks")
@@ -133,9 +137,14 @@ def _stamp(name: str, slot: Optional[int]) -> str:
     return f"{where}-{when}" + (f"-{tidy}" if tidy else "") + ".json"
 
 
-def save(blocks: Dict[str, bytes], directory: str, *,
-         slot: Optional[int], device_id: Optional[int] = None,
-         source: str = "") -> str:
+def save(
+    blocks: Dict[str, bytes],
+    directory: str,
+    *,
+    slot: Optional[int],
+    device_id: Optional[int] = None,
+    source: str = "",
+) -> str:
     """Write a backup and return its path. Never overwrites: the filename
     carries a timestamp, and a collision within one second gets a suffix."""
     os.makedirs(directory, exist_ok=True)

@@ -137,9 +137,7 @@ CMD_DT1 = 0x12  #: Data Set 1      (OM p. 145)
 #: and the only way to ask "is anything there?" without knowing the device ID
 #: -- which is exactly the discovery problem, since a Roland RQ1 addressed to
 #: the wrong device ID is answered with silence.
-IDENTITY_REQUEST = bytes(
-    (SYSEX_START, 0x7E, BROADCAST_DEVICE, 0x06, 0x01, SYSEX_END)
-)
+IDENTITY_REQUEST = bytes((SYSEX_START, 0x7E, BROADCAST_DEVICE, 0x06, 0x01, SYSEX_END))
 
 #: Device family code / family number in the XV-2020's Identity Reply
 #: (OM p. 145): ``F0 7E dev 06 02 41 10 01 00 03 00 00 00 00 F7``.
@@ -272,10 +270,9 @@ def address_add(base: Sequence[int], offset: Sequence[int]) -> Address:
     left = pack_address(base)
     right = pack_address(offset)
     total = _flatten(left) + _flatten(right)
-    if total >= 128 ** 4:
+    if total >= 128**4:
         raise ValueError(
-            f"address {tuple(left)} + {tuple(right)} overflows the 4-byte "
-            f"address space"
+            f"address {tuple(left)} + {tuple(right)} overflows the 4-byte address space"
         )
     return _unflatten(total)
 
@@ -283,7 +280,7 @@ def address_add(base: Sequence[int], offset: Sequence[int]) -> Address:
 def address_scale(offset: Sequence[int], count: int) -> Address:
     """``offset`` taken ``count`` times, in base 128."""
     value = _flatten(pack_address(offset)) * int(count)
-    if value >= 128 ** 4:
+    if value >= 128**4:
         raise ValueError(f"{tuple(offset)} x {count} overflows the address space")
     return _unflatten(value)
 
@@ -299,8 +296,8 @@ def _flatten(address: Sequence[int]) -> int:
 def _unflatten(value: int) -> Address:
     """The inverse of :func:`_flatten`."""
     return (
-        (value // (128 ** 3)) % 128,
-        (value // (128 ** 2)) % 128,
+        (value // (128**3)) % 128,
+        (value // (128**2)) % 128,
         (value // 128) % 128,
         value % 128,
     )
@@ -317,9 +314,7 @@ def checksum(payload: Iterable[int]) -> int:
     total = 0
     for byte in payload:
         if not 0 <= byte <= 0x7F:
-            raise ValueError(
-                f"checksum byte {byte} is outside the 7-bit range 0-127"
-            )
+            raise ValueError(f"checksum byte {byte} is outside the 7-bit range 0-127")
         total += byte
     return (128 - (total % 128)) % 128
 
@@ -343,8 +338,9 @@ def _device_wire(device: int) -> int:
     )
 
 
-def rq1(address: Sequence[int], size: Sequence[int], *,
-        device: int = DEFAULT_DEVICE_ID) -> bytes:
+def rq1(
+    address: Sequence[int], size: Sequence[int], *, device: int = DEFAULT_DEVICE_ID
+) -> bytes:
     """A Data Request (RQ1) frame. ``device`` is the wire byte.
 
     ``size`` is itself a four-byte base-128 address-shaped quantity, which is
@@ -354,22 +350,23 @@ def rq1(address: Sequence[int], size: Sequence[int], *,
     count.
     """
     body = pack_address(address) + pack_address(size)
-    return bytes(
-        (SYSEX_START, ROLAND_ID, _device_wire(device))
-        + MODEL_ID
-        + (CMD_RQ1,)
-    ) + body + bytes((checksum(body), SYSEX_END))
+    return (
+        bytes((SYSEX_START, ROLAND_ID, _device_wire(device)) + MODEL_ID + (CMD_RQ1,))
+        + body
+        + bytes((checksum(body), SYSEX_END))
+    )
 
 
 def size_bytes(count: int) -> Address:
     """A plain byte count as the four-byte base-128 size RQ1 wants."""
-    if count < 0 or count >= 128 ** 4:
+    if count < 0 or count >= 128**4:
         raise ValueError(f"size {count} is out of range")
     return _unflatten(count)
 
 
-def dt1(address: Sequence[int], data: Sequence[int], *,
-        device: int = DEFAULT_DEVICE_ID) -> bytes:
+def dt1(
+    address: Sequence[int], data: Sequence[int], *, device: int = DEFAULT_DEVICE_ID
+) -> bytes:
     """A Data Set (DT1) frame. ``device`` is the wire byte.
 
     rxved sends these in exactly one place: XvBridge.write_part_param, which
@@ -385,20 +382,18 @@ def dt1(address: Sequence[int], data: Sequence[int], *,
     for byte in payload:
         if not 0 <= byte <= 0x7F:
             raise ValueError(f"data byte {byte} is outside the 7-bit range")
-    return bytes(
-        (SYSEX_START, ROLAND_ID, _device_wire(device))
-        + MODEL_ID
-        + (CMD_DT1,)
-    ) + bytes(payload) + bytes((checksum(payload), SYSEX_END))
+    return (
+        bytes((SYSEX_START, ROLAND_ID, _device_wire(device)) + MODEL_ID + (CMD_DT1,))
+        + bytes(payload)
+        + bytes((checksum(payload), SYSEX_END))
+    )
 
 
 def identity_request(device: int = BROADCAST_DEVICE) -> bytes:
     """Universal Identity Request, broadcast by default."""
     if device == BROADCAST_DEVICE:
         return IDENTITY_REQUEST
-    return bytes(
-        (SYSEX_START, 0x7E, _device_wire(device), 0x06, 0x01, SYSEX_END)
-    )
+    return bytes((SYSEX_START, 0x7E, _device_wire(device), 0x06, 0x01, SYSEX_END))
 
 
 # --- decoding ---------------------------------------------------------------
@@ -540,9 +535,7 @@ def user_patch_address(number: int) -> Address:
     """Address of User Patch ``number`` (1-128), at its Patch Common."""
     if not 1 <= number <= 128:
         raise ValueError(f"user patch number {number} is outside 1-128")
-    return address_add(
-        ADDR_USER_PATCH, address_scale(_USER_PATCH_STRIDE, number - 1)
-    )
+    return address_add(ADDR_USER_PATCH, address_scale(_USER_PATCH_STRIDE, number - 1))
 
 
 def user_performance_address(number: int) -> Address:
@@ -559,9 +552,7 @@ def user_rhythm_address(number: int) -> Address:
     """Address of User Rhythm ``number`` (1-4), at its Rhythm Common."""
     if not 1 <= number <= 4:
         raise ValueError(f"user rhythm number {number} is outside 1-4")
-    return address_add(
-        ADDR_USER_RHYTHM, address_scale(_USER_RHYTHM_STRIDE, number - 1)
-    )
+    return address_add(ADDR_USER_RHYTHM, address_scale(_USER_RHYTHM_STRIDE, number - 1))
 
 
 def temporary_patch_address() -> Address:

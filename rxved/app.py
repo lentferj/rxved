@@ -124,8 +124,9 @@ class TextPromptScreen(ModalScreen[Optional[str]]):
 
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
 
-    def __init__(self, prompt: str, current: str = "",
-                 select_all: bool = False) -> None:
+    def __init__(
+        self, prompt: str, current: str = "", select_all: bool = False
+    ) -> None:
         super().__init__()
         self._prompt = prompt
         self._current = current
@@ -255,11 +256,25 @@ class KeyHints(Static):
 #: The legend. Every binding the app has, in the order somebody meets them.
 #: Nothing is omitted, because KeyHints wraps rather than truncating.
 KEY_HINTS = (
-    "↑↓ move", "tab pane", "⏎ select on synth",
-    "[ ] channel", "c set channel", "C categories", "R re-read",
-    "f favourite", "F favourites view", "t tags", "n note", "/ search",
-    "r read names", "s scan bank", "x probe SRX",
-    "m multi setup", "i device", "? help", "q quit",
+    "↑↓ move",
+    "tab pane",
+    "⏎ select on synth",
+    "[ ] channel",
+    "c set channel",
+    "C categories",
+    "R re-read",
+    "f favourite",
+    "F favourites view",
+    "t tags",
+    "n note",
+    "/ search",
+    "r read names",
+    "s scan bank",
+    "x probe SRX",
+    "m multi setup",
+    "i device",
+    "? help",
+    "q quit",
 )
 
 
@@ -334,27 +349,56 @@ EDITABLE_PART_COLUMNS = {
 #: times thirteen parameters does not fit a terminal row, and cramming it
 #: would cost the patch name -- which is the one column that says what a
 #: part *is* rather than how it is set.
-MIDI_COLUMNS = (("ch", "ch"), ("rx", "rx"), ("lvl", "lvl"), ("PC", "pc"),
-                ("LSB", "lsb"), ("MSB", "msb"))
-FX_COLUMNS = (("mute", "mute"), ("dry", "dry"), ("cho", "cho"),
-              ("rev", "rev"), ("out", "out"), ("mfx", "mfx"))
+MIDI_COLUMNS = (
+    ("ch", "ch"),
+    ("rx", "rx"),
+    ("lvl", "lvl"),
+    ("PC", "pc"),
+    ("LSB", "lsb"),
+    ("MSB", "msb"),
+)
+FX_COLUMNS = (
+    ("mute", "mute"),
+    ("dry", "dry"),
+    ("cho", "cho"),
+    ("rev", "rev"),
+    ("out", "out"),
+    ("mfx", "mfx"),
+)
 
 #: Per-**channel** receive switches (Performance MIDI). Shown on the part
 #: row for the channel that part listens on, which means two parts sharing a
 #: channel show the same values -- because they genuinely share them.
-RX_COLUMNS = (("ch", "ch"), ("rxPC", "rx_pc"), ("rxBS", "rx_bs"),
-              ("bend", "rx_bend"), ("mod", "rx_mod"), ("vol", "rx_vol"),
-              ("hold", "rx_hold"))
+RX_COLUMNS = (
+    ("ch", "ch"),
+    ("rxPC", "rx_pc"),
+    ("rxBS", "rx_bs"),
+    ("bend", "rx_bend"),
+    ("mod", "rx_mod"),
+    ("vol", "rx_vol"),
+    ("hold", "rx_hold"),
+)
 
 #: Per-part musical settings. Most of these are stored biased by 64 and are
 #: shown here as the manual prints them -- see _BIAS.
-TONE_COLUMNS = (("pan", "pan"), ("oct", "oct"), ("crs", "crs"),
-                ("fin", "fin"), ("bend", "bend"), ("mono", "mono"),
-                ("lo", "lo"), ("hi", "hi"))
+TONE_COLUMNS = (
+    ("pan", "pan"),
+    ("oct", "oct"),
+    ("crs", "crs"),
+    ("fin", "fin"),
+    ("bend", "bend"),
+    ("mono", "mono"),
+    ("lo", "lo"),
+    ("hi", "hi"),
+)
 
 #: The four column sets `tab` cycles through.
-COLUMN_VIEWS = (("MIDI", MIDI_COLUMNS), ("FX / routing", FX_COLUMNS),
-                ("receive switches", RX_COLUMNS), ("tone", TONE_COLUMNS))
+COLUMN_VIEWS = (
+    ("MIDI", MIDI_COLUMNS),
+    ("FX / routing", FX_COLUMNS),
+    ("receive switches", RX_COLUMNS),
+    ("tone", TONE_COLUMNS),
+)
 
 #: display = wire - bias, wire = display + bias. Every entry is a place the
 #: synth's byte and the manual's number differ, collected in one dict so
@@ -364,9 +408,12 @@ _BIAS = {"ch": -1, "pan": 64, "crs": 64, "fin": 64, "oct": 64}
 
 #: Column key -> the ChannelMidi attribute it shows.
 _CHANNEL_FIELDS = {
-    "rx_pc": "program_change", "rx_bs": "bank_select",
-    "rx_bend": "bender", "rx_mod": "modulation",
-    "rx_vol": "volume", "rx_hold": "hold_1",
+    "rx_pc": "program_change",
+    "rx_bs": "bank_select",
+    "rx_bend": "bender",
+    "rx_mod": "modulation",
+    "rx_vol": "volume",
+    "rx_hold": "hold_1",
 }
 
 #: Performance MIDI columns, by column key: offset, label, range. These are
@@ -439,9 +486,9 @@ class StoreScreen(ModalScreen[None]):
         with Vertical():
             yield Label(
                 f"[b]Write the edit buffer to a user performance[/b]\n"
-                f"source: {self._source or 'the temporary performance'}")
-            yield DataTable(id="slot-table", cursor_type="row",
-                            zebra_stripes=True)
+                f"source: {self._source or 'the temporary performance'}"
+            )
+            yield DataTable(id="slot-table", cursor_type="row", zebra_stripes=True)
             yield Static(self._status(), id="store-status")
 
     def on_mount(self) -> None:
@@ -449,8 +496,7 @@ class StoreScreen(ModalScreen[None]):
         table.add_column("slot", key="slot")
         table.add_column("currently holds", key="name")
         for slot in range(1, 65):
-            table.add_row(f"{slot:02d}", self._name_cell(slot),
-                          key=str(slot))
+            table.add_row(f"{slot:02d}", self._name_cell(slot), key=str(slot))
         table.focus()
 
     def _name_cell(self, slot: int) -> str:
@@ -466,8 +512,7 @@ class StoreScreen(ModalScreen[None]):
 
     def _status(self) -> str:
         if self._armed is None:
-            return ("[dim]a to arm the slot under the cursor · "
-                    "esc to cancel[/dim]")
+            return "[dim]a to arm the slot under the cursor · esc to cancel[/dim]"
         name = self._names.get(self._armed)
         holds = f"“{name}”" if name else "an unread performance"
         return (
@@ -495,8 +540,8 @@ class StoreScreen(ModalScreen[None]):
     def action_fire(self) -> None:
         if self._armed is None:
             self.app.notify_status(
-                "not armed — press a on the destination slot first",
-                refused=True)
+                "not armed — press a on the destination slot first", refused=True
+            )
             return
         slot, self._armed = self._armed, None
         self.query_one("#store-status", Static).update(self._status())
@@ -565,8 +610,7 @@ class MultiScreen(ModalScreen[None]):
         for digit in range(10)
     ]
 
-    def __init__(self, state, catalog, *, on_write=None,
-                 on_write_channel=None) -> None:
+    def __init__(self, state, catalog, *, on_write=None, on_write_channel=None) -> None:
         super().__init__()
         self._state = state
         self._catalog = catalog
@@ -589,8 +633,7 @@ class MultiScreen(ModalScreen[None]):
         with Vertical():
             yield Label(f"[b]{title}[/b]")
             yield Static(self._fx_summary(), classes="hint", id="fx")
-            yield DataTable(id="part-table", cursor_type="cell",
-                            zebra_stripes=True)
+            yield DataTable(id="part-table", cursor_type="cell", zebra_stripes=True)
             yield Static(self._hint_text(), classes="hint", id="hint")
             yield Static(self._report_text(), classes="report", id="report")
             yield Static("[dim]esc / q to close[/dim]")
@@ -618,8 +661,7 @@ class MultiScreen(ModalScreen[None]):
         answer to the question the screen was opened to ask.
         """
         middle = COLUMN_VIEWS[self._view][1]
-        return ((("part", "part"),) + middle
-                + (("patch", "patch"), ("", "flag")))
+        return (("part", "part"),) + middle + (("patch", "patch"), ("", "flag"))
 
     def on_mount(self) -> None:
         self._build_table()
@@ -654,8 +696,7 @@ class MultiScreen(ModalScreen[None]):
         if column == "mute":
             return "[b]MUTE[/b]" if part.mute else "off"
         if column in ("dry", "cho", "rev"):
-            value = {"dry": part.dry, "cho": part.chorus,
-                     "rev": part.reverb}[column]
+            value = {"dry": part.dry, "cho": part.chorus, "rev": part.reverb}[column]
             # Only worth flagging when *every* send is down; a part can
             # legitimately run entirely wet or entirely dry.
             dead = part.dry == part.chorus == part.reverb == 0
@@ -675,8 +716,7 @@ class MultiScreen(ModalScreen[None]):
         if column == "bend":
             return "PAT" if part.bend_range == 25 else str(part.bend_range)
         if column == "mono":
-            return params.MONO_POLY.get(part.mono_poly,
-                                            str(part.mono_poly))
+            return params.MONO_POLY.get(part.mono_poly, str(part.mono_poly))
         if column in ("lo", "hi"):
             low, high = part.key_lower, part.key_upper
             value = low if column == "lo" else high
@@ -707,10 +747,10 @@ class MultiScreen(ModalScreen[None]):
         reason = part.silence_reason()
         if reason is None and self._state.soloed_out(part):
             reason = "not soloed"
-        middle = tuple(self._cell_text(part, key)
-                       for _label, key in self._columns()[1:-2])
-        return ((str(part.part),) + middle
-                + (name, f"[b]{reason}[/b]" if reason else ""))
+        middle = tuple(
+            self._cell_text(part, key) for _label, key in self._columns()[1:-2]
+        )
+        return (str(part.part),) + middle + (name, f"[b]{reason}[/b]" if reason else "")
 
     def _report_text(self) -> str:
         lines = list(self._state.silence_report())
@@ -724,41 +764,50 @@ class MultiScreen(ModalScreen[None]):
         table = self.query_one("#part-table", DataTable)
         if not table.row_count:
             return None, None
-        row_key, column_key = table.coordinate_to_cell_key(
-            table.cursor_coordinate)
+        row_key, column_key = table.coordinate_to_cell_key(table.cursor_coordinate)
         column = column_key.value
-        if (column not in EDITABLE_PART_COLUMNS
-                and column not in EDITABLE_CHANNEL_COLUMNS):
+        if (
+            column not in EDITABLE_PART_COLUMNS
+            and column not in EDITABLE_CHANNEL_COLUMNS
+        ):
             return None, column
-        part = next((p for p in self._state.parts
-                     if str(p.part) == row_key.value), None)
+        part = next(
+            (p for p in self._state.parts if str(p.part) == row_key.value), None
+        )
         return part, column
 
     def _current_value(self, part, column: str) -> int:
         """The value as this column displays it -- 1-based for ch."""
         if column in _BIAS and column != "ch":
-            wire = {"pan": part.pan, "crs": part.coarse, "fin": part.fine,
-                    "oct": part.octave}[column]
+            wire = {
+                "pan": part.pan,
+                "crs": part.coarse,
+                "fin": part.fine,
+                "oct": part.octave,
+            }[column]
             return wire - _BIAS[column]
-        return {
-            "ch": part.channel_display,
-            "rx": 1 if part.receive_switch else 0,
-            "lvl": part.level,
-            "pc": part.program_change,
-            "lsb": part.lsb,
-            "msb": part.msb,
-            "mute": 1 if part.mute else 0,
-            "dry": part.dry,
-            "cho": part.chorus,
-            "rev": part.reverb,
-            "out": part.output_assign,
-            "mfx": part.output_mfx,
-            "bend": part.bend_range,
-            "mono": part.mono_poly,
-            "lo": part.key_lower,
-            "hi": part.key_upper,
-        }.get(column) if column not in EDITABLE_CHANNEL_COLUMNS else (
-            self._channel_value(part, column))
+        return (
+            {
+                "ch": part.channel_display,
+                "rx": 1 if part.receive_switch else 0,
+                "lvl": part.level,
+                "pc": part.program_change,
+                "lsb": part.lsb,
+                "msb": part.msb,
+                "mute": 1 if part.mute else 0,
+                "dry": part.dry,
+                "cho": part.chorus,
+                "rev": part.reverb,
+                "out": part.output_assign,
+                "mfx": part.output_mfx,
+                "bend": part.bend_range,
+                "mono": part.mono_poly,
+                "lo": part.key_lower,
+                "hi": part.key_upper,
+            }.get(column)
+            if column not in EDITABLE_CHANNEL_COLUMNS
+            else (self._channel_value(part, column))
+        )
 
     def _channel_value(self, part, column: str) -> int:
         entry = self._state.channel_midi(part.receive_channel)
@@ -786,7 +835,8 @@ class MultiScreen(ModalScreen[None]):
                 self._apply(part, column, int(digit))
             else:
                 self.app.notify_status(
-                    f"{self._spec(column)[1]} is 0 or 1", refused=True)
+                    f"{self._spec(column)[1]} is 0 or 1", refused=True
+                )
             return
         self._prompt_for_value(part, column, seed=digit)
 
@@ -795,7 +845,8 @@ class MultiScreen(ModalScreen[None]):
         if part is None:
             self.app.notify_status(
                 f"{column} is not editable" if column else "nothing to edit",
-                refused=True)
+                refused=True,
+            )
             return
         if self._is_switch(column):
             self.action_toggle_cell()
@@ -807,11 +858,12 @@ class MultiScreen(ModalScreen[None]):
         # only way to type a negative pan or tune is to replace the whole
         # value. Enter is the path that has to allow it.
         self._prompt_for_value(
-            part, column, seed=str(self._current_value(part, column)),
-            select_all=True)
+            part, column, seed=str(self._current_value(part, column)), select_all=True
+        )
 
-    def _prompt_for_value(self, part, column: str, *, seed: str,
-                          select_all: bool = False) -> None:
+    def _prompt_for_value(
+        self, part, column: str, *, seed: str, select_all: bool = False
+    ) -> None:
         _offset, label, low, high = self._spec(column)
 
         def done(text) -> None:
@@ -820,15 +872,16 @@ class MultiScreen(ModalScreen[None]):
             try:
                 value = int(text.strip())
             except ValueError:
-                self.app.notify_status(f"{text!r} is not a number",
-                                       refused=True)
+                self.app.notify_status(f"{text!r} is not a number", refused=True)
                 return
             self._apply(part, column, value)
 
         self.app.push_screen(
             TextPromptScreen(
-                f"Part {part.part} — {label} ({low}-{high})", seed,
-                select_all=select_all),
+                f"Part {part.part} — {label} ({low}-{high})",
+                seed,
+                select_all=select_all,
+            ),
             done,
         )
 
@@ -870,7 +923,8 @@ class MultiScreen(ModalScreen[None]):
         offset, label, low, high = self._spec(column)
         if not low <= value <= high:
             self.app.notify_status(
-                f"{label} takes {low}-{high}, not {value}", refused=True)
+                f"{label} takes {low}-{high}, not {value}", refused=True
+            )
             return
         if self._on_write is None:
             self.app.notify_status("not connected to a synth", refused=True)
@@ -887,20 +941,19 @@ class MultiScreen(ModalScreen[None]):
         wire = value + _BIAS.get(column, 0)
         self._on_write(part.part, offset, wire, self._adopt_part)
 
-    def _on_write_channel(self, channel: int, offset: int,
-                          value: int) -> None:
+    def _on_write_channel(self, channel: int, offset: int, value: int) -> None:
         if self._on_write_channel_cb is None:
             self.app.notify_status("not connected to a synth", refused=True)
             return
-        self._on_write_channel_cb(channel, offset, value,
-                                  self._adopt_channel)
+        self._on_write_channel_cb(channel, offset, value, self._adopt_channel)
 
     def _adopt_channel(self, fresh) -> None:
         """Replace one channel's MIDI block with what the device reported."""
         self._state = replace(
             self._state,
-            midi=tuple(fresh if e.channel == fresh.channel else e
-                       for e in self._state.midi),
+            midi=tuple(
+                fresh if e.channel == fresh.channel else e for e in self._state.midi
+            ),
         )
         # Every row on that channel changes at once, so rebuild rather than
         # patch -- and keep the cursor where the user left it.
@@ -914,12 +967,12 @@ class MultiScreen(ModalScreen[None]):
         """Replace one part with what the device reported after a write."""
         self._state = replace(
             self._state,
-            parts=tuple(fresh if p.part == fresh.part else p
-                        for p in self._state.parts),
+            parts=tuple(
+                fresh if p.part == fresh.part else p for p in self._state.parts
+            ),
         )
         table = self.query_one("#part-table", DataTable)
-        for column, cell in zip(table.columns.values(),
-                                self._row_cells(fresh)):
+        for column, cell in zip(table.columns.values(), self._row_cells(fresh)):
             table.update_cell(str(fresh.part), column.key, cell)
         self.query_one("#report", Static).update(self._report_text())
 
@@ -970,16 +1023,16 @@ class CategoryScreen(ModalScreen[Optional[set]]):
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Label("[b]Categories[/b] — narrows whatever is already "
-                        "shown")
+            yield Label("[b]Categories[/b] — narrows whatever is already shown")
             yield DataTable(id="cats", cursor_type="row")
-            yield Static("[b]space[/b] toggle   [b]a[/b] all   [b]x[/b] clear"
-                         "   [b]enter[/b] apply   [b]esc[/b] cancel")
+            yield Static(
+                "[b]space[/b] toggle   [b]a[/b] all   [b]x[/b] clear"
+                "   [b]enter[/b] apply   [b]esc[/b] cancel"
+            )
 
     def on_mount(self) -> None:
         table = self.query_one("#cats", DataTable)
-        for label, key in (("", "on"), ("cat", "code"), ("", "name"),
-                           ("n", "count")):
+        for label, key in (("", "on"), ("cat", "code"), ("", "name"), ("n", "count")):
             table.add_column(label, key=key)
         self._fill()
         table.focus()
@@ -1087,9 +1140,16 @@ class RxvedApp(App):
         Binding("q", "quit", "Quit"),
     ]
 
-    def __init__(self, bridge, *, favorites, catalog=None,
-                 channel: int = 0, backup_dir: Optional[str] = None,
-                 config_path: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        bridge,
+        *,
+        favorites,
+        catalog=None,
+        channel: int = 0,
+        backup_dir: Optional[str] = None,
+        config_path: Optional[str] = None,
+    ) -> None:
         super().__init__()
         self.bridge = bridge
         #: Where the send channel is remembered between runs. Injected, and
@@ -1151,8 +1211,12 @@ class RxvedApp(App):
         # cells and rebuilding a table to change a cell is what caused the
         # cursor to jump -- see _mark_favorite and on_data_table_row_highlighted.
         bank_table = self.query_one("#bank-table", DataTable)
-        for label, key in (("bank", "bank"), ("kind", "kind"),
-                           ("n", "n"), ("fav", "fav")):
+        for label, key in (
+            ("bank", "bank"),
+            ("kind", "kind"),
+            ("n", "n"),
+            ("fav", "fav"),
+        ):
             bank_table.add_column(label, key=key)
         self._fill_banks()
 
@@ -1165,9 +1229,15 @@ class RxvedApp(App):
         # gutter mark the eye runs down; a heart, because an asterisk
         # already means "this name disagrees with the catalog" two columns
         # over, and one glyph should not mean two things in one table.
-        for label, key in (("♥", "fav"), ("#", "num"), ("name", "name"),
-                           ("PC", "pc"), ("LSB", "lsb"), ("MSB", "msb"),
-                           ("cat", "cat")):
+        for label, key in (
+            ("♥", "fav"),
+            ("#", "num"),
+            ("name", "name"),
+            ("PC", "pc"),
+            ("LSB", "lsb"),
+            ("MSB", "msb"),
+            ("cat", "cat"),
+        ):
             slot_table.add_column(label, key=key)
         self._fill_slots(self._current_bank)
 
@@ -1213,10 +1283,8 @@ class RxvedApp(App):
             # channel 1 by assumption.
             self.target_channel = state.channels.patch_receive
             self.channel_is_from_device = True
-        self._update_detail(
-            self.query_one("#slot-table", DataTable).cursor_row)
-        self.notify_status(f"read back from the synth — "
-                           f"{state.setup.mode_name} mode")
+        self._update_detail(self.query_one("#slot-table", DataTable).cursor_row)
+        self.notify_status(f"read back from the synth — {state.setup.mode_name} mode")
 
     # --- filling the tables -------------------------------------------------
 
@@ -1256,8 +1324,7 @@ class RxvedApp(App):
             rows = []
             for favourite in self.favorites.all(order="bank"):
                 try:
-                    rows.append(banks.slot(favourite.bank_id,
-                                           favourite.number))
+                    rows.append(banks.slot(favourite.bank_id, favourite.number))
                 except LookupError:
                     # A favourite for a bank this build no longer defines.
                     # Skipped rather than crashing the view.
@@ -1269,7 +1336,8 @@ class RxvedApp(App):
         if not self.categories:
             return rows
         return [
-            s for s in rows
+            s
+            for s in rows
             if self.catalog.category(s.bank_id, s.number) in self.categories
         ]
 
@@ -1303,8 +1371,11 @@ class RxvedApp(App):
                 catalog_entry = self.catalog.entry(slot.bank_id, slot.number)
                 table.add_row(
                     "[b]♥[/b]" if slot.key in favorited else "",
-                    (f"{slot.bank_id} {slot.number:03d}" if across_banks
-                     else f"{slot.number:03d}"),
+                    (
+                        f"{slot.bank_id} {slot.number:03d}"
+                        if across_banks
+                        else f"{slot.number:03d}"
+                    ),
                     shown,
                     str(slot.program_change),
                     str(slot.lsb),
@@ -1327,16 +1398,23 @@ class RxvedApp(App):
         entry = banks.bank(self._current_bank)
         shown = len(self._current_slots)
         if self.view_mode == VIEW_ALL:
-            plural = {"patch": "patches", "rhythm": "rhythm sets",
-                      "performance": "performances"}[entry.kind]
+            plural = {
+                "patch": "patches",
+                "rhythm": "rhythm sets",
+                "performance": "performances",
+            }[entry.kind]
             what = f"{entry.label} ({self._current_bank}) — {shown} {plural}"
         elif self.view_mode == VIEW_BANK_FAVOURITES:
-            what = (f"{entry.label} ({self._current_bank}) — {shown} "
-                    f"favourite{'' if shown == 1 else 's'}")
+            what = (
+                f"{entry.label} ({self._current_bank}) — {shown} "
+                f"favourite{'' if shown == 1 else 's'}"
+            )
         else:
-            what = (f"all favourites — {shown} "
-                    f"across {len({s.bank_id for s in self._current_slots})} "
-                    f"bank(s)")
+            what = (
+                f"all favourites — {shown} "
+                f"across {len({s.bank_id for s in self._current_slots})} "
+                f"bank(s)"
+            )
         if self.categories:
             what += "   ·   " + "/".join(sorted(self.categories))
         self.sub_title = f"{what}   ·   ch {self.target_channel + 1}"
@@ -1344,8 +1422,11 @@ class RxvedApp(App):
     def _update_detail(self, row: int) -> None:
         if not 0 <= row < len(self._current_slots):
             if self.view_mode != VIEW_ALL:
-                where = ("this bank" if self.view_mode == VIEW_BANK_FAVOURITES
-                         else "any bank")
+                where = (
+                    "this bank"
+                    if self.view_mode == VIEW_BANK_FAVOURITES
+                    else "any bank"
+                )
                 self.query_one("#detail", Static).update(
                     f"[b]No favourites in {where}.[/b]\n"
                     f"Press [b]F[/b] for the next view, or go back to the "
@@ -1375,7 +1456,8 @@ class RxvedApp(App):
         else:
             lines.append(
                 f"send on ch [b]{self.target_channel + 1}[/b] "
-                f"[dim](synth state not read)[/dim]")
+                f"[dim](synth state not read)[/dim]"
+            )
         if fav is not None:
             bits = ["favourite"]
             if fav.rating:
@@ -1469,7 +1551,8 @@ class RxvedApp(App):
         marked = len(self.favorites.keys_for_bank(slot.bank_id))
         try:
             self.query_one("#bank-table", DataTable).update_cell(
-                slot.bank_id, "fav", str(marked) if marked else "")
+                slot.bank_id, "fav", str(marked) if marked else ""
+            )
         except Exception:
             pass
 
@@ -1487,8 +1570,7 @@ class RxvedApp(App):
             return
 
         try:
-            slot_table.update_cell(slot.key, "fav",
-                                   "[b]♥[/b]" if now else "")
+            slot_table.update_cell(slot.key, "fav", "[b]♥[/b]" if now else "")
         except Exception:
             # The row is gone (the bank changed under us); a full rebuild is
             # the honest fallback and costs one frame.
@@ -1523,11 +1605,11 @@ class RxvedApp(App):
                 if used is None:
                     raise RuntimeError(
                         "this synth has its Performance Control Channel set "
-                        "to OFF, so performances cannot be selected over MIDI")
+                        "to OFF, so performances cannot be selected over MIDI"
+                    )
                 self.bridge.select(slot, channel=used)
         except Exception as exc:
-            self.call_from_thread(
-                self.notify_status, f"select: {exc}", refused=True)
+            self.call_from_thread(self.notify_status, f"select: {exc}", refused=True)
             return
         message = (
             f"selected {slot} on MIDI channel {used + 1} "
@@ -1556,7 +1638,8 @@ class RxvedApp(App):
             return
         name = self.catalog.display_name(slot.bank_id, slot.number)
         now = self.favorites.toggle(
-            slot.bank_id, slot.number,
+            slot.bank_id,
+            slot.number,
             name="" if name == cat.UNNAMED else name,
         )
         self._mark_favorite(slot, now)
@@ -1572,21 +1655,19 @@ class RxvedApp(App):
         existing = self.favorites.get(slot.bank_id, slot.number)
         if existing is None:
             self.notify_status(
-                f"{slot} is not a favourite yet -- press f first",
-                refused=True)
+                f"{slot} is not a favourite yet -- press f first", refused=True
+            )
             return
 
         def apply(value: Optional[str]) -> None:
             if value is None:
                 return
             self.favorites.set_tags(slot.bank_id, slot.number, value)
-            self._update_detail(
-                self.query_one("#slot-table", DataTable).cursor_row)
+            self._update_detail(self.query_one("#slot-table", DataTable).cursor_row)
             self.notify_status(f"{slot} tags set")
 
         self.push_screen(
-            TextPromptScreen(f"Tags for {slot} (comma separated)",
-                             existing.tags),
+            TextPromptScreen(f"Tags for {slot} (comma separated)", existing.tags),
             apply,
         )
 
@@ -1597,20 +1678,18 @@ class RxvedApp(App):
         existing = self.favorites.get(slot.bank_id, slot.number)
         if existing is None:
             self.notify_status(
-                f"{slot} is not a favourite yet -- press f first",
-                refused=True)
+                f"{slot} is not a favourite yet -- press f first", refused=True
+            )
             return
 
         def apply(value: Optional[str]) -> None:
             if value is None:
                 return
             self.favorites.set_note(slot.bank_id, slot.number, value)
-            self._update_detail(
-                self.query_one("#slot-table", DataTable).cursor_row)
+            self._update_detail(self.query_one("#slot-table", DataTable).cursor_row)
             self.notify_status(f"{slot} note set")
 
-        self.push_screen(
-            TextPromptScreen(f"Note for {slot}", existing.note), apply)
+        self.push_screen(TextPromptScreen(f"Note for {slot}", existing.note), apply)
 
     def action_cycle_favorites(self) -> None:
         """Step: all slots -> this bank's favourites -> every favourite.
@@ -1632,15 +1711,18 @@ class RxvedApp(App):
         if self.view_mode == VIEW_ALL:
             self.notify_status("showing all slots")
         elif not shown:
-            where = ("this bank" if self.view_mode == VIEW_BANK_FAVOURITES
-                     else "any bank")
+            where = (
+                "this bank" if self.view_mode == VIEW_BANK_FAVOURITES else "any bank"
+            )
             self.notify_status(
                 f"no favourites in {where} yet — press f on a slot to add "
-                f"one, or F again for the next view")
+                f"one, or F again for the next view"
+            )
         else:
             self.notify_status(
                 f"showing {VIEW_LABEL[self.view_mode]} — {shown} row(s); "
-                f"enter still selects, f un-favourites")
+                f"enter still selects, f un-favourites"
+            )
 
     def action_pick_categories(self) -> None:
         """Narrow the current list by category. Stacks on the current view."""
@@ -1652,8 +1734,7 @@ class RxvedApp(App):
             rows = self._visible_slots(self._current_bank)
         finally:
             self.categories = saved
-        counts = self.catalog.categories_in(
-            [(s.bank_id, s.number) for s in rows])
+        counts = self.catalog.categories_in([(s.bank_id, s.number) for s in rows])
         if not counts:
             self.notify_status("nothing to categorise here", refused=True)
             return
@@ -1669,8 +1750,8 @@ class RxvedApp(App):
                 self.notify_status(f"category filter cleared — {shown} rows")
             else:
                 self.notify_status(
-                    f"{'/'.join(sorted(self.categories))} — {shown} of "
-                    f"{len(rows)} rows")
+                    f"{'/'.join(sorted(self.categories))} — {shown} of {len(rows)} rows"
+                )
 
         self.push_screen(CategoryScreen(counts, self.categories), apply)
 
@@ -1686,15 +1767,16 @@ class RxvedApp(App):
             for bank_id, number, name in hits[:400]:
                 try:
                     slot = banks.slot(bank_id, number)
-                    wire = (f"PC {slot.program_change:>3}  "
-                            f"LSB {slot.lsb:>3}  MSB {slot.msb:>3}")
+                    wire = (
+                        f"PC {slot.program_change:>3}  "
+                        f"LSB {slot.lsb:>3}  MSB {slot.msb:>3}"
+                    )
                 except LookupError:
                     wire = ""
                 lines.append(f"{bank_id:<10} {number:03d}  {name:<14} {wire}")
             if len(hits) > 400:
                 lines.append(f"... and {len(hits) - 400} more")
-            self.push_screen(ReportScreen(f"Search: {needle}",
-                                          "\n".join(lines)))
+            self.push_screen(ReportScreen(f"Search: {needle}", "\n".join(lines)))
 
         self.push_screen(TextPromptScreen("Search names"), run)
 
@@ -1727,16 +1809,18 @@ class RxvedApp(App):
     @work(thread=True)
     def _read_bank_worker(self, bank_id: str) -> None:
         try:
+
             def progress(done: int, total: int) -> None:
                 self.call_from_thread(
-                    self.notify_status, f"reading {bank_id}: {done}/{total}")
+                    self.notify_status, f"reading {bank_id}: {done}/{total}"
+                )
 
             with self._bridge_lock:
-                names = self.bridge.read_user_bank(
-                    bank_id, on_progress=progress)
+                names = self.bridge.read_user_bank(bank_id, on_progress=progress)
         except Exception as exc:
             self.call_from_thread(
-                self.notify_status, f"read {bank_id}: {exc}", refused=True)
+                self.notify_status, f"read {bank_id}: {exc}", refused=True
+            )
             return
         finally:
             self._busy = False
@@ -1752,11 +1836,11 @@ class RxvedApp(App):
 
         def go(confirmed: bool) -> None:
             if confirmed:
-        # Set on the main thread, not in the worker. A
-        # @work(thread=True) method returns at once and would set the
-        # flag on its own thread, so two quick presses both passed the
-        # check above before either worker ran -- two of whatever the
-        # worker does, from one intent.
+                # Set on the main thread, not in the worker. A
+                # @work(thread=True) method returns at once and would set the
+                # flag on its own thread, so two quick presses both passed the
+                # check above before either worker ran -- two of whatever the
+                # worker does, from one intent.
                 self._scan_bank_worker(bank_id)
 
         self.push_screen(
@@ -1777,16 +1861,18 @@ class RxvedApp(App):
     @work(thread=True)
     def _scan_bank_worker(self, bank_id: str) -> None:
         try:
+
             def progress(done: int, total: int, name: str) -> None:
                 self.call_from_thread(
-                    self.notify_status,
-                    f"scanning {bank_id}: {done}/{total}  {name}")
+                    self.notify_status, f"scanning {bank_id}: {done}/{total}  {name}"
+                )
 
             with self._bridge_lock:
                 names = self.bridge.scan_bank(bank_id, on_progress=progress)
         except Exception as exc:
             self.call_from_thread(
-                self.notify_status, f"scan {bank_id}: {exc}", refused=True)
+                self.notify_status, f"scan {bank_id}: {exc}", refused=True
+            )
             return
         finally:
             self._busy = False
@@ -1796,14 +1882,13 @@ class RxvedApp(App):
         for number, name in names.items():
             self.catalog.set_live_name(bank_id, number, name)
         changed = self.favorites.refresh_names(
-            lambda b, n: self.catalog.live_name(b, n))
+            lambda b, n: self.catalog.live_name(b, n)
+        )
         self._refresh_current_bank()
-        differing = sum(
-            1 for number in names if self.catalog.differs(bank_id, number))
+        differing = sum(1 for number in names if self.catalog.differs(bank_id, number))
         message = f"read {len(names)} name(s) from {bank_id}"
         if differing:
-            message += (f"; {differing} differ from the printed list "
-                        f"(marked *)")
+            message += f"; {differing} differ from the printed list (marked *)"
         if changed:
             message += f"; relabelled {changed} favourite(s)"
         self.notify_status(message)
@@ -1816,11 +1901,11 @@ class RxvedApp(App):
 
         def go(confirmed: bool) -> None:
             if confirmed:
-        # Set on the main thread, not in the worker. A
-        # @work(thread=True) method returns at once and would set the
-        # flag on its own thread, so two quick presses both passed the
-        # check above before either worker ran -- two of whatever the
-        # worker does, from one intent.
+                # Set on the main thread, not in the worker. A
+                # @work(thread=True) method returns at once and would set the
+                # flag on its own thread, so two quick presses both passed the
+                # check above before either worker ran -- two of whatever the
+                # worker does, from one intent.
                 self._probe_srx_worker()
 
         self.push_screen(
@@ -1840,16 +1925,17 @@ class RxvedApp(App):
     @work(thread=True)
     def _probe_srx_worker(self) -> None:
         try:
+
             def progress(lsb: int, name: Optional[str]) -> None:
                 self.call_from_thread(
                     self.notify_status,
-                    f"probing SRX LSB {lsb}" + (f": {name}" if name else ""))
+                    f"probing SRX LSB {lsb}" + (f": {name}" if name else ""),
+                )
 
             with self._bridge_lock:
                 found = self.bridge.probe_srx(on_progress=progress)
         except Exception as exc:
-            self.call_from_thread(
-                self.notify_status, f"probe: {exc}", refused=True)
+            self.call_from_thread(self.notify_status, f"probe: {exc}", refused=True)
             return
         finally:
             self._busy = False
@@ -1868,8 +1954,7 @@ class RxvedApp(App):
             "",
         ]
         for lsb, name in sorted(found.items()):
-            known = [card.id for card in banks.SRX_CARDS
-                     if lsb in card.patch_lsbs]
+            known = [card.id for card in banks.SRX_CARDS if lsb in card.patch_lsbs]
             tag = f"  ({known[0]})" if known else "  (not in rxved's table)"
             lines.append(f"  LSB {lsb:>3}   {name:<14}{tag}")
         lines += [
@@ -1913,8 +1998,7 @@ class RxvedApp(App):
             try:
                 number = int(value.strip())
             except ValueError:
-                self.notify_status(f"{value!r} is not a channel number",
-                                   refused=True)
+                self.notify_status(f"{value!r} is not a channel number", refused=True)
                 return
             if not 1 <= number <= 16:
                 self.notify_status("MIDI channels are 1-16", refused=True)
@@ -1922,8 +2006,9 @@ class RxvedApp(App):
             self._set_channel(number - 1)
 
         self.push_screen(
-            TextPromptScreen("Send on MIDI channel (1-16)",
-                             str(self.target_channel + 1)),
+            TextPromptScreen(
+                "Send on MIDI channel (1-16)", str(self.target_channel + 1)
+            ),
             apply,
         )
 
@@ -1940,11 +2025,9 @@ class RxvedApp(App):
         self.channel_is_from_device = True
         self._remember_channel(channel)
         self._update_subtitle()
-        self._update_detail(
-            self.query_one("#slot-table", DataTable).cursor_row)
+        self._update_detail(self.query_one("#slot-table", DataTable).cursor_row)
         if self._busy:
-            self.notify_status(
-                f"send channel {channel + 1} (synth busy; not re-read)")
+            self.notify_status(f"send channel {channel + 1} (synth busy; not re-read)")
             return
         self._refresh_channel_worker(channel)
 
@@ -1957,7 +2040,8 @@ class RxvedApp(App):
             self.call_from_thread(
                 self.notify_status,
                 f"channel {channel + 1}: could not read back ({exc})",
-                refused=True)
+                refused=True,
+            )
             return
         self.call_from_thread(self._adopt_state, state)
 
@@ -1976,16 +2060,16 @@ class RxvedApp(App):
     @work(thread=True)
     def _refresh_state_worker(self) -> None:
         try:
+
             def progress(done, total):
                 self.call_from_thread(
-                    self.notify_status, f"reading part {done}/{total}")
+                    self.notify_status, f"reading part {done}/{total}"
+                )
 
             with self._bridge_lock:
-                state = self.bridge.read_state(with_parts=True,
-                                               on_progress=progress)
+                state = self.bridge.read_state(with_parts=True, on_progress=progress)
         except Exception as exc:
-            self.call_from_thread(
-                self.notify_status, f"refresh: {exc}", refused=True)
+            self.call_from_thread(self.notify_status, f"refresh: {exc}", refused=True)
             return
         finally:
             self._busy = False
@@ -2013,16 +2097,18 @@ class RxvedApp(App):
     def _multi_setup_worker(self) -> None:
         """**MIDI only** -- the screen is built on the main thread."""
         try:
+
             def progress(done, total):
                 self.call_from_thread(
-                    self.notify_status, f"reading part {done}/{total}")
+                    self.notify_status, f"reading part {done}/{total}"
+                )
 
             with self._bridge_lock:
-                state = self.bridge.read_state(with_parts=True,
-                                               on_progress=progress)
+                state = self.bridge.read_state(with_parts=True, on_progress=progress)
         except Exception as exc:
             self.call_from_thread(
-                self.notify_status, f"multi setup: {exc}", refused=True)
+                self.notify_status, f"multi setup: {exc}", refused=True
+            )
             return
         finally:
             self._busy = False
@@ -2033,18 +2119,23 @@ class RxvedApp(App):
         if not state.parts:
             # Single-timbral: there is nothing to tabulate, and a table of
             # sixteen unused parts would imply there is.
-            self.push_screen(ReportScreen(
-                "Multi-mode setup",
-                "\n".join(f"· {line}" for line in state.silence_report()),
-            ))
+            self.push_screen(
+                ReportScreen(
+                    "Multi-mode setup",
+                    "\n".join(f"· {line}" for line in state.silence_report()),
+                )
+            )
             return
-        self.push_screen(MultiScreen(
-            state, self.catalog,
-            on_write=self._write_part_param,
-            on_write_channel=self._write_channel_param))
+        self.push_screen(
+            MultiScreen(
+                state,
+                self.catalog,
+                on_write=self._write_part_param,
+                on_write_channel=self._write_channel_param,
+            )
+        )
 
-    def _write_part_param(self, part: int, offset: int, value: int,
-                          adopt) -> None:
+    def _write_part_param(self, part: int, offset: int, value: int, adopt) -> None:
         """Hand one part-parameter write to a worker. Main thread."""
         if self._busy:
             self.notify_status("busy", refused=True)
@@ -2079,8 +2170,7 @@ class RxvedApp(App):
             name = self.catalog.live_name("P-USER", number)
             if name:
                 names[number] = name
-        self.push_screen(
-            StoreScreen(source_name, names, on_store=self._store_to_slot))
+        self.push_screen(StoreScreen(source_name, names, on_store=self._store_to_slot))
 
     def _store_to_slot(self, slot: int) -> None:
         if self._busy:
@@ -2105,20 +2195,25 @@ class RxvedApp(App):
         from xv import backup as bk
 
         try:
+
             def progress(done, total):
                 self.call_from_thread(
-                    self.notify_status, f"writing block {done}/{total}")
+                    self.notify_status, f"writing block {done}/{total}"
+                )
 
             with self._bridge_lock:
                 previous, mismatched = self.bridge.store_temporary_to_slot(
-                    slot, on_progress=progress)
+                    slot, on_progress=progress
+                )
             path = bk.save(
-                previous, self.backup_dir(), slot=slot,
+                previous,
+                self.backup_dir(),
+                slot=slot,
                 device_id=self.bridge.device_id,
-                source=f"{self.bridge.description} (before store)")
+                source=f"{self.bridge.description} (before store)",
+            )
         except Exception as exc:
-            self.call_from_thread(
-                self.notify_status, f"store: {exc}", refused=True)
+            self.call_from_thread(self.notify_status, f"store: {exc}", refused=True)
             return
         finally:
             self._busy = False
@@ -2129,15 +2224,17 @@ class RxvedApp(App):
                 f"slot {slot}: {len(mismatched)} block(s) did NOT read back "
                 f"as written ({', '.join(mismatched[:3])}...). Previous "
                 f"contents are in {path}",
-                refused=True)
+                refused=True,
+            )
         else:
             self.call_from_thread(
                 self.notify_status,
-                f"stored into user performance {slot}; what was there "
-                f"is in {path}")
+                f"stored into user performance {slot}; what was there is in {path}",
+            )
 
-    def _write_channel_param(self, channel: int, offset: int, value: int,
-                             adopt) -> None:
+    def _write_channel_param(
+        self, channel: int, offset: int, value: int, adopt
+    ) -> None:
         """Hand one Performance MIDI write to a worker. Main thread."""
         if self._busy:
             self.notify_status("busy", refused=True)
@@ -2150,17 +2247,16 @@ class RxvedApp(App):
         self._write_channel_worker(channel, offset, value, adopt)
 
     @work(thread=True)
-    def _write_channel_worker(self, channel: int, offset: int, value: int,
-                              adopt) -> None:
+    def _write_channel_worker(
+        self, channel: int, offset: int, value: int, adopt
+    ) -> None:
         """**MIDI only.** Write one byte, then re-read the channel's block."""
         try:
             with self._bridge_lock:
-                landed = self.bridge.write_channel_param(
-                    channel, offset, value)
+                landed = self.bridge.write_channel_param(channel, offset, value)
                 fresh = self.bridge.read_performance_midi(channel)
         except Exception as exc:
-            self.call_from_thread(
-                self.notify_status, f"write: {exc}", refused=True)
+            self.call_from_thread(self.notify_status, f"write: {exc}", refused=True)
             return
         finally:
             self._busy = False
@@ -2169,16 +2265,17 @@ class RxvedApp(App):
             self.call_from_thread(
                 self.notify_status,
                 f"ch {channel + 1}: wrote {value}, synth reports {landed}",
-                refused=True)
+                refused=True,
+            )
         else:
             self.call_from_thread(
                 self.notify_status,
                 f"ch {channel + 1}: set to {landed} in the temporary "
-                f"performance (not stored)")
+                f"performance (not stored)",
+            )
 
     @work(thread=True)
-    def _write_part_worker(self, part: int, offset: int, value: int,
-                           adopt) -> None:
+    def _write_part_worker(self, part: int, offset: int, value: int, adopt) -> None:
         """**MIDI only.** Write one byte, then re-read the whole part.
 
         The whole part, not the byte written: the XV-2020 is free to adjust
@@ -2191,8 +2288,7 @@ class RxvedApp(App):
                 landed = self.bridge.write_part_param(part, offset, value)
                 fresh = self.bridge.read_part(part)
         except Exception as exc:
-            self.call_from_thread(
-                self.notify_status, f"write: {exc}", refused=True)
+            self.call_from_thread(self.notify_status, f"write: {exc}", refused=True)
             return
         finally:
             self._busy = False
@@ -2204,12 +2300,14 @@ class RxvedApp(App):
             self.call_from_thread(
                 self.notify_status,
                 f"part {part}: wrote {value}, synth reports {landed}",
-                refused=True)
+                refused=True,
+            )
         else:
             self.call_from_thread(
                 self.notify_status,
                 f"part {part}: set to {landed} in the temporary performance "
-                f"(not stored)")
+                f"(not stored)",
+            )
 
     def action_device_info(self) -> None:
         self._device_info_worker()
@@ -2229,8 +2327,7 @@ class RxvedApp(App):
             with self._bridge_lock:
                 identity = self.bridge.identify()
         except Exception as exc:
-            self.call_from_thread(
-                self.notify_status, f"identify: {exc}", refused=True)
+            self.call_from_thread(self.notify_status, f"identify: {exc}", refused=True)
             return
         self.call_from_thread(self._show_device_info, identity)
 
@@ -2248,8 +2345,7 @@ class RxvedApp(App):
             f"connection        {getattr(self.bridge, 'description', '?')}",
             f"device ID         {identity.device_display} "
             f"(wire byte {identity.device_id:#04x})",
-            f"family            "
-            f"{identity.family[0]:#04x} {identity.family[1]:#04x}",
+            f"family            {identity.family[0]:#04x} {identity.family[1]:#04x}",
             f"family number     {identity.family_number[0]:#04x} "
             f"{identity.family_number[1]:#04x}",
             f"software revision {identity.revision_text}",
@@ -2261,9 +2357,11 @@ class RxvedApp(App):
                 f"sound mode        {state.setup.mode_name}",
                 f"patch channel     {state.channels.patch_display}",
                 f"performance chan  "
-                + (str(state.channels.performance_display)
-                   if state.channels.performance_display is not None
-                   else "OFF"),
+                + (
+                    str(state.channels.performance_display)
+                    if state.channels.performance_display is not None
+                    else "OFF"
+                ),
                 f"rxved sends on    ch {self.target_channel + 1}"
                 f"  ({state.describes_short(self.target_channel)})",
             ]
@@ -2273,16 +2371,17 @@ class RxvedApp(App):
                 for part in state.parts:
                     rows.append(
                         f"{part.part:>4}  {part.channel_display:>2}   "
-                        f"{part.slot if part.slot else '?'}")
+                        f"{part.slot if part.slot else '?'}"
+                    )
         else:
-            rows.append(f"rxved sends on    ch {self.target_channel + 1} "
-                        f"(synth state not read)")
+            rows.append(
+                f"rxved sends on    ch {self.target_channel + 1} (synth state not read)"
+            )
         rows += [
             "",
             f"catalog           {len(self.catalog)} names"
             + (f" from {self.catalog.source}" if self.catalog.source else ""),
-            f"favourites        {len(self.favorites)} "
-            f"in {self.favorites.path}",
+            f"favourites        {len(self.favorites)} in {self.favorites.path}",
         ]
         self.push_screen(ReportScreen("Device", "\n".join(rows)))
 
@@ -2361,26 +2460,41 @@ def build_parser() -> argparse.ArgumentParser:
         description="Terminal browser for the Roland XV-2020's sounds.",
     )
     parser.add_argument("--port", help="MIDI port name (default: autodetect)")
-    parser.add_argument("--recv-port", default=None,
-                        help="input port, if it differs from --port")
     parser.add_argument(
-        "--demo", action="store_true",
-        help="run against the built-in demo synth; opens no MIDI ports")
-    parser.add_argument("--device-id", type=int, default=None,
-                        help="XV-2020 device ID as its display shows it "
-                             "(17-32); default: autodetected, else 17")
-    parser.add_argument("--channel", type=int, default=None,
-                        help="MIDI channel to send Bank Select / Program "
-                             "Change on, 1-16 (default 1)")
+        "--recv-port", default=None, help="input port, if it differs from --port"
+    )
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="run against the built-in demo synth; opens no MIDI ports",
+    )
+    parser.add_argument(
+        "--device-id",
+        type=int,
+        default=None,
+        help="XV-2020 device ID as its display shows it "
+        "(17-32); default: autodetected, else 17",
+    )
+    parser.add_argument(
+        "--channel",
+        type=int,
+        default=None,
+        help="MIDI channel to send Bank Select / Program Change on, 1-16 (default 1)",
+    )
     parser.add_argument("--timeout", type=float, default=None)
     parser.add_argument("--config", default=None)
-    parser.add_argument("--catalog", default=None,
-                        help="path to a generated name catalog")
-    parser.add_argument("--favorites", default=None,
-                        help="path to the favourites database")
-    parser.add_argument("--backup-dir", default=None,
-                        help="where performance backups are written "
-                             "(default: alongside the favourites database)")
+    parser.add_argument(
+        "--catalog", default=None, help="path to a generated name catalog"
+    )
+    parser.add_argument(
+        "--favorites", default=None, help="path to the favourites database"
+    )
+    parser.add_argument(
+        "--backup-dir",
+        default=None,
+        help="where performance backups are written "
+        "(default: alongside the favourites database)",
+    )
     return parser
 
 
@@ -2417,14 +2531,19 @@ def main(argv: Optional[List[str]] = None) -> int:
                     else (b.load_device_id(config_path) or 17)
                 )
                 bridge = b.XvBridge.standard(
-                    args.port, recv_port_name=args.recv_port,
-                    device_id=device_id, channel=channel, **kwargs)
+                    args.port,
+                    recv_port_name=args.recv_port,
+                    device_id=device_id,
+                    channel=channel,
+                    **kwargs,
+                )
             else:
                 bridge = b.XvBridge.autodetect(
-                    config_path=config_path, channel=channel,
-                    on_try=lambda name: print(f"  probing {name}...",
-                                              file=sys.stderr),
-                    **kwargs)
+                    config_path=config_path,
+                    channel=channel,
+                    on_try=lambda name: print(f"  probing {name}...", file=sys.stderr),
+                    **kwargs,
+                )
         except Exception as exc:
             sys.exit(f"error: {exc}")
 
@@ -2440,9 +2559,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         # two used to print a traceback.
         raise SystemExit(f"error: {exc}")
 
-    app = RxvedApp(bridge, favorites=favorites, catalog=catalog,
-                   channel=channel or 0, backup_dir=args.backup_dir,
-                   config_path=config_path)
+    app = RxvedApp(
+        bridge,
+        favorites=favorites,
+        catalog=catalog,
+        channel=channel or 0,
+        backup_dir=args.backup_dir,
+        config_path=config_path,
+    )
     try:
         app.run()
     finally:

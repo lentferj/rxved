@@ -103,7 +103,9 @@ DEFAULT_MANUAL = (
 )
 DEFAULT_OUTPUT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "xv", "data", "catalog.json",
+    "xv",
+    "data",
+    "catalog.json",
 )
 
 
@@ -111,7 +113,7 @@ DEFAULT_OUTPUT = os.path.join(
 
 
 def _name_at(data: bytes, offset: int, length: int = 12) -> Optional[str]:
-    chunk = data[offset:offset + length]
+    chunk = data[offset : offset + length]
     if len(chunk) < length:
         return None
     if not all(32 <= b <= 126 for b in chunk):
@@ -128,6 +130,7 @@ def find_preset_table(data: bytes) -> int:
     build of the editor, and fails loudly rather than silently reading
     whatever happens to sit at a stale offset.
     """
+
     def ok(off: int) -> bool:
         return data[off + 12] == 0 and _name_at(data, off) is not None
 
@@ -158,6 +161,7 @@ def find_preset_table(data: bytes) -> int:
 
 def find_gm_table(data: bytes, msb: int, expect: int) -> int:
     """Offset of a GM table, identified by its records' own MSB byte."""
+
     def ok(off: int) -> bool:
         return (
             data[off] == msb
@@ -179,8 +183,7 @@ def find_gm_table(data: bytes, msb: int, expect: int) -> int:
         if count >= expect:
             return start
     raise SystemExit(
-        f"error: no run of {expect} GM records with MSB {msb} in the editor "
-        f"binary."
+        f"error: no run of {expect} GM records with MSB {msb} in the editor binary."
     )
 
 
@@ -313,15 +316,25 @@ NAME_WIDTH = 12
 #: exactly that: its page-two header became patch 271, so 271 onwards all
 #: named the patch before them. Caught only because that board has a second
 #: source to disagree with.
-_NOT_NAMES = frozenset({
-    "no. name", "no.", "name", "voices", "category", "patch", "rhythm",
-    "patch list", "patch listing", "kit", "no. patch name",
-})
+_NOT_NAMES = frozenset(
+    {
+        "no. name",
+        "no.",
+        "name",
+        "voices",
+        "category",
+        "patch",
+        "rhythm",
+        "patch list",
+        "patch listing",
+        "kit",
+        "no. patch name",
+    }
+)
 
 
 def _ok(name: str) -> bool:
-    return (0 < len(name) <= NAME_WIDTH
-            and name.strip().lower() not in _NOT_NAMES)
+    return 0 < len(name) <= NAME_WIDTH and name.strip().lower() not in _NOT_NAMES
 
 
 #: One row of an SRX patch list: number, name, voices, CATEGORY.
@@ -437,7 +450,8 @@ def _xv_section(text: str) -> str:
 #: board's manual turned up to disagree; SRX-01 and SRX-04 were exposed to
 #: the same thing with nothing to catch it.
 _SRX_LIST_ROW = re.compile(
-    r"(?:^|(?<=\s\s))\s*(\d{1,3})\.?\s+((?:\S| (?! ))+?)(?=\s{2,}|$)")
+    r"(?:^|(?<=\s\s))\s*(\d{1,3})\.?\s+((?:\S| (?! ))+?)(?=\s{2,}|$)"
+)
 
 
 def read_srx_list(card: str, path: str) -> Dict[str, List[dict]]:
@@ -475,15 +489,16 @@ def read_srx_list(card: str, path: str) -> Dict[str, List[dict]]:
 
     missing = [n for n in range(1, total + 1) if n not in found]
     if missing:
-        print(f"warning: {card}: {len(missing)} of {total} patches were not "
-              f"parsed ({missing[:8]}...). Those slots stay unnamed.",
-              file=sys.stderr)
+        print(
+            f"warning: {card}: {len(missing)} of {total} patches were not "
+            f"parsed ({missing[:8]}...). Those slots stay unnamed.",
+            file=sys.stderr,
+        )
 
     out: Dict[str, List[dict]] = {}
     for number, name in sorted(found.items()):
         page, slot = divmod(number - 1, 128)
-        out.setdefault(f"{card}-{page + 1}", []).append(
-            {"n": slot + 1, "name": name})
+        out.setdefault(f"{card}-{page + 1}", []).append({"n": slot + 1, "name": name})
     for rows in out.values():
         rows.sort(key=lambda r: r["n"])
     return out
@@ -498,7 +513,8 @@ _RHYTHM_BANK_LINE = re.compile(r"BANK SELECT\s+MSB\s*:\s*92", re.IGNORECASE)
 #: key-assign charts are the dangerous one: they are full of small numbers
 #: beside short names and would happily supply 79 plausible "kits".
 _AFTER_RHYTHM = re.compile(
-    r"Key Assign|Wave List|Patch List|^\s*For\s+[A-Z]", re.IGNORECASE)
+    r"Key Assign|Wave List|Patch List|^\s*For\s+[A-Z]", re.IGNORECASE
+)
 
 
 def read_srx_rhythm(card: str, path: str) -> Dict[str, List[dict]]:
@@ -520,15 +536,20 @@ def read_srx_rhythm(card: str, path: str) -> Dict[str, List[dict]]:
         return {}
 
     lines = _fix_pdf_text(pdf_text(path)).splitlines()
-    start = next((i for i, line in enumerate(lines)
-                  if _RHYTHM_BANK_LINE.search(line)), None)
+    start = next(
+        (i for i, line in enumerate(lines) if _RHYTHM_BANK_LINE.search(line)), None
+    )
     if start is None:
-        print(f"warning: {card}: no Rhythm Set List found in "
-              f"{os.path.basename(path)}; its {total} kits stay unnamed.",
-              file=sys.stderr)
+        print(
+            f"warning: {card}: no Rhythm Set List found in "
+            f"{os.path.basename(path)}; its {total} kits stay unnamed.",
+            file=sys.stderr,
+        )
         return {}
-    end = next((i for i in range(start + 1, len(lines))
-                if _AFTER_RHYTHM.search(lines[i])), len(lines))
+    end = next(
+        (i for i in range(start + 1, len(lines)) if _AFTER_RHYTHM.search(lines[i])),
+        len(lines),
+    )
 
     found: Dict[int, str] = {}
     for line in lines[start:end]:
@@ -540,8 +561,11 @@ def read_srx_rhythm(card: str, path: str) -> Dict[str, List[dict]]:
 
     missing = [n for n in range(1, total + 1) if n not in found]
     if missing:
-        print(f"warning: {card}: {len(missing)} of {total} rhythm sets were "
-              f"not parsed ({missing[:8]}...).", file=sys.stderr)
+        print(
+            f"warning: {card}: {len(missing)} of {total} rhythm sets were "
+            f"not parsed ({missing[:8]}...).",
+            file=sys.stderr,
+        )
     if not found:
         return {}
     return {f"{card}-R": [{"n": n, "name": found[n]} for n in sorted(found)]}
@@ -574,7 +598,8 @@ def read_srx_names(card: str, path: str) -> Dict[str, List[dict]]:
             if len(fields) < 2:
                 raise SystemExit(
                     f"error: {path}:{lineno}: expected 'number<tab>name"
-                    f"[<tab>CATEGORY]', got {line.strip()!r}")
+                    f"[<tab>CATEGORY]', got {line.strip()!r}"
+                )
             try:
                 number = int(fields[0])
             except ValueError:
@@ -584,27 +609,34 @@ def read_srx_names(card: str, path: str) -> Dict[str, List[dict]]:
             if not 1 <= number <= total:
                 raise SystemExit(
                     f"error: {path}:{lineno}: {card} has {total} patches, so "
-                    f"{number} is out of range")
+                    f"{number} is out of range"
+                )
             if number in found:
                 raise SystemExit(
-                    f"error: {path}:{lineno}: patch {number} appears twice")
+                    f"error: {path}:{lineno}: patch {number} appears twice"
+                )
             name = fields[1]
             if not _ok(name):
                 raise SystemExit(
                     f"error: {path}:{lineno}: {name!r} is not a usable name "
-                    f"(the device stores {NAME_WIDTH} characters)")
+                    f"(the device stores {NAME_WIDTH} characters)"
+                )
             category = fields[2] if len(fields) > 2 else None
             if category and category not in _CATEGORY_CODES:
                 raise SystemExit(
                     f"error: {path}:{lineno}: {category!r} is not an XV-2020 "
-                    f"category. Use a full name such as 'AC.BRASS'.")
+                    f"category. Use a full name such as 'AC.BRASS'."
+                )
             found[number] = (name, category)
 
     missing = [n for n in range(1, total + 1) if n not in found]
     if missing:
-        print(f"warning: {card}: {len(missing)} of {total} patches are absent "
-              f"from {os.path.basename(path)} ({missing[:8]}...). Those slots "
-              f"stay unnamed.", file=sys.stderr)
+        print(
+            f"warning: {card}: {len(missing)} of {total} patches are absent "
+            f"from {os.path.basename(path)} ({missing[:8]}...). Those slots "
+            f"stay unnamed.",
+            file=sys.stderr,
+        )
 
     out: Dict[str, List[dict]] = {}
     for number, (name, category) in sorted(found.items()):
@@ -669,15 +701,21 @@ def read_srx(card: str, path: str) -> Dict[str, List[dict]]:
         # listing 105 for Fantom-X and 50 for XV.
         tail = missing == list(range(missing[0], total + 1))
         if tail:
-            print(f"note: {card}: the XV list stops at {missing[0] - 1}, "
-                  f"though the board has {total} patches. That is usually "
-                  f"the document, not the parse -- a board can expose fewer "
-                  f"patches to the XV series than to other hosts. The "
-                  f"remaining slots stay unnamed.", file=sys.stderr)
+            print(
+                f"note: {card}: the XV list stops at {missing[0] - 1}, "
+                f"though the board has {total} patches. That is usually "
+                f"the document, not the parse -- a board can expose fewer "
+                f"patches to the XV series than to other hosts. The "
+                f"remaining slots stay unnamed.",
+                file=sys.stderr,
+            )
         else:
-            print(f"warning: {card}: {len(missing)} of {total} patches were "
-                  f"not parsed ({missing[:8]}...). Those slots stay unnamed; "
-                  f"the rest are unaffected.", file=sys.stderr)
+            print(
+                f"warning: {card}: {len(missing)} of {total} patches were "
+                f"not parsed ({missing[:8]}...). Those slots stay unnamed; "
+                f"the rest are unaffected.",
+                file=sys.stderr,
+            )
 
     out: Dict[str, List[dict]] = {}
     for number, (name, category) in sorted(found.items()):
@@ -688,8 +726,7 @@ def read_srx(card: str, path: str) -> Dict[str, List[dict]]:
         if code:
             row["category"] = code
         elif category:
-            print(f"note: {card}: no code for category {category!r}",
-                  file=sys.stderr)
+            print(f"note: {card}: no code for category {category!r}", file=sys.stderr)
         out.setdefault(bank_id, []).append(row)
     for rows in out.values():
         rows.sort(key=lambda r: r["n"])
@@ -704,7 +741,8 @@ def pdf_text(path: str) -> str:
     try:
         result = subprocess.run(
             ["pdftotext", "-layout", path, "-"],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
     except FileNotFoundError:
         raise SystemExit(
@@ -789,10 +827,9 @@ def read_performances(path: str) -> Dict[str, List[dict]]:
             start = index
             break
     if start is None:
-        print("warning: no Performance List in the manual; skipping",
-              file=sys.stderr)
+        print("warning: no Performance List in the manual; skipping", file=sys.stderr)
         return {}
-    body = lines[start:start + 220]
+    body = lines[start : start + 220]
     # Rows look like:  001   Name        033   Name       001   Name   001  Name
     # i.e. up to four (number, name) pairs per line. Columns one and two are
     # the USER bank's two halves, three is Preset-A, four is Preset-B.
@@ -812,14 +849,14 @@ def read_performances(path: str) -> Dict[str, List[dict]]:
     preset_b = columns[3]
     out: Dict[str, List[dict]] = {}
     for bank_id, rows, expect in (
-        ("P-USER", user, 64), ("P-PST-A", preset_a, 32),
+        ("P-USER", user, 64),
+        ("P-PST-A", preset_a, 32),
         ("P-PST-B", preset_b, 32),
     ):
         have = [n for n in range(1, expect + 1) if n in rows]
         if len(have) != expect:
             print(
-                f"warning: {bank_id} incomplete ({len(have)}/{expect}); "
-                f"leaving it out",
+                f"warning: {bank_id} incomplete ({len(have)}/{expect}); leaving it out",
                 file=sys.stderr,
             )
             continue
@@ -842,8 +879,11 @@ def read_rhythm_sets(path: str) -> Dict[str, List[dict]]:
     """
     text = _fix_pdf_text(pdf_text(path))
     lines = text.splitlines()
-    groups = {"User Group": "R-USER", "Preset A Group": "R-PST-A",
-              "Preset B Group": "R-PST-B"}
+    groups = {
+        "User Group": "R-USER",
+        "Preset A Group": "R-PST-A",
+        "Preset B Group": "R-PST-B",
+    }
     out: Dict[str, List[dict]] = {}
     for index, line in enumerate(lines):
         label = line.strip()
@@ -851,32 +891,31 @@ def read_rhythm_sets(path: str) -> Dict[str, List[dict]]:
             continue
         # The heading is followed by the number row, then the name row.
         for lookahead in range(index + 1, min(index + 5, len(lines))):
-            if not re.match(r"\s*001\s+002\s+003\s+004\s*$",
-                            lines[lookahead]):
+            if not re.match(r"\s*001\s+002\s+003\s+004\s*$", lines[lookahead]):
                 continue
             names_line = lines[lookahead + 1]
             names = re.sub(r"^\s*Note No\.\s*", "", names_line)
             # Kit names are separated by runs of two or more spaces.
-            parts = [p.strip() for p in re.split(r"\s{2,}", names.strip())
-                     if p.strip()]
+            parts = [p.strip() for p in re.split(r"\s{2,}", names.strip()) if p.strip()]
             if len(parts) == 4:
                 out[groups[label]] = [
-                    {"n": n, "name": name}
-                    for n, name in enumerate(parts, start=1)
+                    {"n": n, "name": name} for n, name in enumerate(parts, start=1)
                 ]
             break
     for bank_id in groups.values():
         if bank_id not in out:
-            print(f"warning: {bank_id} not found in the Rhythm Set List",
-                  file=sys.stderr)
+            print(
+                f"warning: {bank_id} not found in the Rhythm Set List", file=sys.stderr
+            )
     return out
 
 
 # --- cross-checking ---------------------------------------------------------
 
 
-def crosscheck_presets(from_binary: Dict[str, List[dict]],
-                       manual_path: Optional[str]) -> None:
+def crosscheck_presets(
+    from_binary: Dict[str, List[dict]], manual_path: Optional[str]
+) -> None:
     """Report where the manual's printed preset names differ from the binary.
 
     Differences are expected and mostly cosmetic -- the PDF text layer
@@ -917,24 +956,43 @@ def build_parser() -> argparse.ArgumentParser:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--editor", default=DEFAULT_EDITOR,
-                        help="path to XV-2020Editor.exe")
-    parser.add_argument("--patch-list", default=DEFAULT_PATCH_LIST,
-                        help="path to the XV-2020 patch listing PDF")
-    parser.add_argument("--manual", default=DEFAULT_MANUAL,
-                        help="path to the XV-2020 owner's manual PDF")
     parser.add_argument(
-        "--srx", action="append", default=[], metavar="CARD=PDF",
+        "--editor", default=DEFAULT_EDITOR, help="path to XV-2020Editor.exe"
+    )
+    parser.add_argument(
+        "--patch-list",
+        default=DEFAULT_PATCH_LIST,
+        help="path to the XV-2020 patch listing PDF",
+    )
+    parser.add_argument(
+        "--manual",
+        default=DEFAULT_MANUAL,
+        help="path to the XV-2020 owner's manual PDF",
+    )
+    parser.add_argument(
+        "--srx",
+        action="append",
+        default=[],
+        metavar="CARD=PDF",
         help="an expansion board's owner's manual, e.g. "
-             "--srx SRX-07=SRX-07_OM.pdf (repeatable)")
+        "--srx SRX-07=SRX-07_OM.pdf (repeatable)",
+    )
     parser.add_argument(
-        "--srx-list", action="append", default=[], metavar="CARD=PDF",
+        "--srx-list",
+        action="append",
+        default=[],
+        metavar="CARD=PDF",
         help="a names-only Patch Listing for a board whose owner's manual "
-             "you do not have. No categories come from these.")
+        "you do not have. No categories come from these.",
+    )
     parser.add_argument(
-        "--srx-names", action="append", default=[], metavar="CARD=FILE",
+        "--srx-names",
+        action="append",
+        default=[],
+        metavar="CARD=FILE",
         help="a hand-written 'number<tab>name<tab>CATEGORY' table, for a "
-             "board with no document to parse")
+        "board with no document to parse",
+    )
     parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT)
     parser.add_argument("--no-crosscheck", action="store_true")
     return parser
@@ -983,32 +1041,36 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if os.path.exists(args.patch_list):
         banks_out.update(read_user_bank(args.patch_list))
-        sources.append(f"XV-2020 Patch Listing "
-                       f"({os.path.basename(args.patch_list)})")
+        sources.append(f"XV-2020 Patch Listing ({os.path.basename(args.patch_list)})")
     else:
-        print(f"note: no patch listing at {args.patch_list}; the USER bank's "
-              f"factory names will be missing (rxved reads USER from the "
-              f"device anyway)", file=sys.stderr)
+        print(
+            f"note: no patch listing at {args.patch_list}; the USER bank's "
+            f"factory names will be missing (rxved reads USER from the "
+            f"device anyway)",
+            file=sys.stderr,
+        )
 
     if os.path.exists(args.manual):
         banks_out.update(read_performances(args.manual))
         banks_out.update(read_rhythm_sets(args.manual))
-        sources.append(f"XV-2020 Owner's Manual "
-                       f"({os.path.basename(args.manual)})")
+        sources.append(f"XV-2020 Owner's Manual ({os.path.basename(args.manual)})")
         if not args.no_crosscheck:
             crosscheck_presets(
                 {k: v for k, v in banks_out.items() if k.startswith("PST-")},
                 args.manual,
             )
     else:
-        print(f"note: no manual at {args.manual}; performance and rhythm-set "
-              f"names will be missing", file=sys.stderr)
+        print(
+            f"note: no manual at {args.manual}; performance and rhythm-set "
+            f"names will be missing",
+            file=sys.stderr,
+        )
 
     for item in args.srx:
         card, _, path = item.partition("=")
         if not path:
             raise SystemExit(f"error: --srx wants CARD=PDF, got {item!r}")
-        banks.srx_card(card)          # fail now on an unknown board
+        banks.srx_card(card)  # fail now on an unknown board
         if not os.path.exists(path):
             raise SystemExit(f"error: no such file: {path}")
         banks_out.update(read_srx(card, path))
@@ -1033,8 +1095,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     for item in args.srx_names:
         card, _, path = item.partition("=")
         if not path:
-            raise SystemExit(f"error: --srx-names wants CARD=FILE, got "
-                             f"{item!r}")
+            raise SystemExit(f"error: --srx-names wants CARD=FILE, got {item!r}")
         banks.srx_card(card)
         if not os.path.exists(path):
             raise SystemExit(f"error: no such file: {path}")
@@ -1062,15 +1123,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"wrote {args.output}: {total} names across {len(banks_out)} banks")
     if args.srx_list:
         from_listing = sorted(
-            item.partition("=")[0] for item in args.srx_list
-            if item.partition("=")[0] not in
-            {i.partition("=")[0] for i in args.srx}
+            item.partition("=")[0]
+            for item in args.srx_list
+            if item.partition("=")[0] not in {i.partition("=")[0] for i in args.srx}
         )
         if from_listing:
-            print(f"\nnote: {', '.join(from_listing)} came from a names-only "
-                  f"Patch Listing. Those boards have no categories, and "
-                  f"nothing cross-checks their numbering -- see read_srx_list. "
-                  f"Use the owner's manual instead if you can get it.")
+            print(
+                f"\nnote: {', '.join(from_listing)} came from a names-only "
+                f"Patch Listing. Those boards have no categories, and "
+                f"nothing cross-checks their numbering -- see read_srx_list. "
+                f"Use the owner's manual instead if you can get it."
+            )
     for bank_id in sorted(banks_out):
         print(f"  {bank_id:<8} {len(banks_out[bank_id]):>4}")
     return 0

@@ -107,8 +107,9 @@ def struct_types(root: ET.Element) -> Dict[str, dict]:
             # whole thing is kept when it is not, rather than silently
             # truncated.
             values[vname] = {
-                "offset": offset[-1] if (len(offset) == 1 or
-                                         not any(offset[:-1])) else offset,
+                "offset": offset[-1]
+                if (len(offset) == 1 or not any(offset[:-1]))
+                else offset,
                 "size": _hex_bytes(value.findtext("size")),
                 "range": value.findtext("range"),
                 "default": value.findtext("default"),
@@ -155,59 +156,79 @@ def _flat(values: Dict[str, dict]) -> Dict[int, str]:
 #: the offsets rxved actually reads or writes -- this is a check on rxved,
 #: not an inventory of the editor.
 CHECKS: Tuple[Tuple[str, str, Dict[int, str]], ...] = (
-    ("PerformancePart", "Performance Part (10 00 <20+n-1> 00)", {
-        0x00: "receive channel",
-        0x01: "receive switch",
-        0x04: "bank select MSB",
-        0x05: "bank select LSB",
-        0x06: "program change",
-        0x07: "part level",
-        0x08: "part pan",
-        0x09: "part coarse tune",
-        0x0A: "part fine tune",
-        0x0B: "part mono/poly",
-        0x0D: "part pitch bend range",
-        0x15: "part octave shift",
-        0x16: "part velocity sensitivity",
-        0x17: "keyboard range lower",
-        0x18: "keyboard range upper",
-        0x1B: "mute switch",
-        0x1C: "dry send level",
-        0x1D: "chorus send level",
-        0x1E: "reverb send level",
-        0x1F: "output assign",
-        0x20: "output MFX select",
-    }),
-    ("PerformanceMIDI", "Performance MIDI (10 00 <10+ch> 00)", {
-        0x00: "receive program change",
-        0x01: "receive bank select",
-        0x02: "receive bender",
-        0x03: "receive poly pressure",
-        0x04: "receive channel pressure",
-        0x05: "receive modulation",
-        0x06: "receive volume",
-        0x07: "receive pan",
-        0x08: "receive expression",
-        0x09: "receive hold 1",
-        0x0A: "phase lock",
-        0x0B: "velocity curve type",
-    }),
-    ("PerformanceCommon", "Performance Common (10 00 00 00)", {
-        0x0C: "solo part select",
-    }),
-    ("Setup", "Setup (01 00 00 00)", {
-        0x00: "sound mode",
-        0x04: "performance bank MSB",
-        0x05: "performance bank LSB",
-        0x06: "performance program",
-        0x07: "patch bank MSB",
-        0x08: "patch bank LSB",
-        0x09: "patch program",
-    }),
-    ("SystemCommon", "System Common (02 00 00 00)", {
-        0x09: "performance control channel",
-        0x0B: "patch receive channel",
-    }),
+    (
+        "PerformancePart",
+        "Performance Part (10 00 <20+n-1> 00)",
+        {
+            0x00: "receive channel",
+            0x01: "receive switch",
+            0x04: "bank select MSB",
+            0x05: "bank select LSB",
+            0x06: "program change",
+            0x07: "part level",
+            0x08: "part pan",
+            0x09: "part coarse tune",
+            0x0A: "part fine tune",
+            0x0B: "part mono/poly",
+            0x0D: "part pitch bend range",
+            0x15: "part octave shift",
+            0x16: "part velocity sensitivity",
+            0x17: "keyboard range lower",
+            0x18: "keyboard range upper",
+            0x1B: "mute switch",
+            0x1C: "dry send level",
+            0x1D: "chorus send level",
+            0x1E: "reverb send level",
+            0x1F: "output assign",
+            0x20: "output MFX select",
+        },
+    ),
+    (
+        "PerformanceMIDI",
+        "Performance MIDI (10 00 <10+ch> 00)",
+        {
+            0x00: "receive program change",
+            0x01: "receive bank select",
+            0x02: "receive bender",
+            0x03: "receive poly pressure",
+            0x04: "receive channel pressure",
+            0x05: "receive modulation",
+            0x06: "receive volume",
+            0x07: "receive pan",
+            0x08: "receive expression",
+            0x09: "receive hold 1",
+            0x0A: "phase lock",
+            0x0B: "velocity curve type",
+        },
+    ),
+    (
+        "PerformanceCommon",
+        "Performance Common (10 00 00 00)",
+        {
+            0x0C: "solo part select",
+        },
+    ),
+    (
+        "Setup",
+        "Setup (01 00 00 00)",
+        {
+            0x00: "sound mode",
+            0x04: "performance bank MSB",
+            0x05: "performance bank LSB",
+            0x06: "performance program",
+            0x07: "patch bank MSB",
+            0x08: "patch bank LSB",
+            0x09: "patch program",
+        },
+    ),
+    (
+        "SystemCommon",
+        "System Common (02 00 00 00)",
+        {
+            0x09: "performance control channel",
+            0x0B: "patch receive channel",
+        },
+    ),
 )
 
 
@@ -230,8 +251,10 @@ def check(root: ET.Element) -> int:
             mine = ours[offset]
             match = theirs.get(offset)
             if match is None:
-                print(f"    {offset:#04x}  {mine:<28} "
-                      f"-- editor has NOTHING at this offset")
+                print(
+                    f"    {offset:#04x}  {mine:<28} "
+                    f"-- editor has NOTHING at this offset"
+                )
                 problems += 1
             else:
                 print(f"    {offset:#04x}  {mine:<28} editor: {match}")
@@ -258,33 +281,39 @@ def check(root: ET.Element) -> int:
             mine_label, low, high = allowlist[offset]
             found = theirs.get(offset)
             if found is None:
-                print(f"  {label} {offset:#04x} {mine_label:<26} "
-                      f"editor gives no range")
+                print(f"  {label} {offset:#04x} {mine_label:<26} editor gives no range")
                 continue
             name, raw = found
             try:
                 their_low, their_high = (int(x) for x in raw.split(","))
             except ValueError:
-                print(f"  {label} {offset:#04x} {mine_label:<26} "
-                      f"editor range {raw!r} unparsed")
+                print(
+                    f"  {label} {offset:#04x} {mine_label:<26} "
+                    f"editor range {raw!r} unparsed"
+                )
                 continue
             if (low, high) == (their_low, their_high):
-                print(f"  {label} {offset:#04x} {mine_label:<26} "
-                      f"{low}-{high} == editor")
+                print(
+                    f"  {label} {offset:#04x} {mine_label:<26} {low}-{high} == editor"
+                )
             else:
-                print(f"  {label} {offset:#04x} {mine_label:<26} "
-                      f"rxved {low}-{high} != editor {their_low}-"
-                      f"{their_high}  <-- DISAGREE")
+                print(
+                    f"  {label} {offset:#04x} {mine_label:<26} "
+                    f"rxved {low}-{high} != editor {their_low}-"
+                    f"{their_high}  <-- DISAGREE"
+                )
                 problems += 1
 
     # Block sizes, which decide how much a performance copy reads and writes.
     print("\nPerformance block sizes")
     ours_sizes = {name: size for name, _sub, size in b.PERFORMANCE_BLOCKS}
-    ours_sizes["setup"] = 15          # what read_setup asks for
-    for type_name, key in (("PerformanceCommon", "common"),
-                           ("PerformanceMIDI", "midi1"),
-                           ("PerformancePart", "part1"),
-                           ("Setup", "setup")):
+    ours_sizes["setup"] = 15  # what read_setup asks for
+    for type_name, key in (
+        ("PerformanceCommon", "common"),
+        ("PerformanceMIDI", "midi1"),
+        ("PerformancePart", "part1"),
+        ("Setup", "setup"),
+    ):
         spec = types.get(type_name)
         if spec is None or not spec.get("size"):
             print(f"  {key:<8} editor gives no size")
@@ -292,13 +321,11 @@ def check(root: ET.Element) -> int:
         theirs = _size(spec["size"])
         mine = ours_sizes[key]
         if theirs is None:
-            print(f"  {key:<8} rxved {mine:>4}   editor {spec['size']!r} "
-                  f"(unparsed)")
+            print(f"  {key:<8} rxved {mine:>4}   editor {spec['size']!r} (unparsed)")
         elif theirs == mine:
             print(f"  {key:<8} rxved {mine:>4} == editor {theirs}")
         else:
-            print(f"  {key:<8} rxved {mine:>4} != editor {theirs}  "
-                  f"<-- DISAGREE")
+            print(f"  {key:<8} rxved {mine:>4} != editor {theirs}  <-- DISAGREE")
             problems += 1
 
     return problems
@@ -309,33 +336,38 @@ def dump(root: ET.Element, type_name: str) -> None:
     spec = types.get(type_name)
     if spec is None:
         raise SystemExit(
-            f"error: no structType {type_name!r}. Known: "
-            f"{', '.join(sorted(types))}")
+            f"error: no structType {type_name!r}. Known: {', '.join(sorted(types))}"
+        )
     print(f"{type_name}  (size {spec['size']})")
-    rows = sorted(spec["values"].items(),
-                  key=lambda kv: (kv[1]["offset"]
-                                  if isinstance(kv[1]["offset"], int)
-                                  else 999))
+    rows = sorted(
+        spec["values"].items(),
+        key=lambda kv: (kv[1]["offset"] if isinstance(kv[1]["offset"], int) else 999),
+    )
     for name, value in rows:
         offset = value["offset"]
         shown = f"{offset:#04x}" if isinstance(offset, int) else str(offset)
-        print(f"  {shown:<6} {name:<32} range={value['range']!s:<14} "
-              f"default={value['default']!s:<6} {value['type'] or ''}")
+        print(
+            f"  {shown:<6} {name:<32} range={value['range']!s:<14} "
+            f"default={value['default']!s:<6} {value['type'] or ''}"
+        )
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--script", default=DEFAULT_SCRIPT)
-    parser.add_argument("--dump", metavar="STRUCTTYPE",
-                        help="print one struct's parameters and stop")
-    parser.add_argument("--list", action="store_true",
-                        help="list the struct types and stop")
+    parser.add_argument(
+        "--dump", metavar="STRUCTTYPE", help="print one struct's parameters and stop"
+    )
+    parser.add_argument(
+        "--list", action="store_true", help="list the struct types and stop"
+    )
     args = parser.parse_args(argv)
 
     if not os.path.exists(args.script):
         raise SystemExit(
             f"error: no editor script at {args.script}. It ships with the "
-            f"XV-2020 Editor for Windows, under Script/.")
+            f"XV-2020 Editor for Windows, under Script/."
+        )
     root = load(args.script)
 
     if args.list:
@@ -349,9 +381,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     problems = check(root)
     print()
     if problems:
-        print(f"{problems} disagreement(s). Read the manual's own block "
-              f"before changing anything -- the editor is a cross-check, "
-              f"not an authority, and this tool never edits rxved.")
+        print(
+            f"{problems} disagreement(s). Read the manual's own block "
+            f"before changing anything -- the editor is a cross-check, "
+            f"not an authority, and this tool never edits rxved."
+        )
         return 1
     print("rxved agrees with Roland's editor script on every offset checked.")
     return 0

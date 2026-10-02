@@ -71,8 +71,7 @@ __all__ = [
 ]
 
 #: Where ``tools/extract_patchlist.py`` writes, and where :func:`load` looks.
-DEFAULT_CATALOG_PATH = os.path.join(os.path.dirname(__file__), "data",
-                                    "catalog.json")
+DEFAULT_CATALOG_PATH = os.path.join(os.path.dirname(__file__), "data", "catalog.json")
 
 #: The patch categories, in the order the XV-2020's own category byte
 #: indexes them (1-based), as code -> what the machine's display calls it.
@@ -82,20 +81,44 @@ DEFAULT_CATALOG_PATH = os.path.join(os.path.dirname(__file__), "data",
 #: turn the editor binary's category byte into a code, so reordering it
 #: would silently relabel every preset patch.
 CATEGORIES = (
-    ("PNO", "AC.PIANO"), ("EP", "EL.PIANO"), ("KEY", "KEYBOARDS"),
-    ("BEL", "BELL"), ("MLT", "MALLET"), ("ORG", "ORGAN"),
-    ("ACD", "ACCORDION"), ("HRM", "HARMONICA"),
-    ("AGT", "AC.GUITAR"), ("EGT", "EL.GUITAR"), ("DGT", "DIST.GUITAR"),
-    ("BS", "BASS"), ("SBS", "SYNTH BASS"),
-    ("STR", "STRINGS"), ("OCH", "ORCHESTRA"), ("HIT", "HIT&STAB"),
-    ("WND", "WIND"), ("FLT", "FLUTE"), ("BRS", "AC.BRASS"),
-    ("SBR", "SYNTH BRASS"), ("SAX", "SAX"),
-    ("HLD", "HARD LEAD"), ("SLD", "SOFT LEAD"), ("TEK", "TECHNO SYNTH"),
-    ("PLS", "PULSATING"), ("FX", "SYNTH FX"), ("SYN", "OTHER SYNTH"),
-    ("BPD", "BRIGHT PAD"), ("SPD", "SOFT PAD"), ("VOX", "VOX"),
-    ("PLK", "PLUCKED"), ("ETH", "ETHNIC"), ("FRT", "FRETTED"),
-    ("PRC", "PERCUSSION"), ("SFX", "SOUND FX"), ("BTS", "BEAT&GROOVE"),
-    ("DRM", "DRUMS"), ("CMB", "COMBINATION"),
+    ("PNO", "AC.PIANO"),
+    ("EP", "EL.PIANO"),
+    ("KEY", "KEYBOARDS"),
+    ("BEL", "BELL"),
+    ("MLT", "MALLET"),
+    ("ORG", "ORGAN"),
+    ("ACD", "ACCORDION"),
+    ("HRM", "HARMONICA"),
+    ("AGT", "AC.GUITAR"),
+    ("EGT", "EL.GUITAR"),
+    ("DGT", "DIST.GUITAR"),
+    ("BS", "BASS"),
+    ("SBS", "SYNTH BASS"),
+    ("STR", "STRINGS"),
+    ("OCH", "ORCHESTRA"),
+    ("HIT", "HIT&STAB"),
+    ("WND", "WIND"),
+    ("FLT", "FLUTE"),
+    ("BRS", "AC.BRASS"),
+    ("SBR", "SYNTH BRASS"),
+    ("SAX", "SAX"),
+    ("HLD", "HARD LEAD"),
+    ("SLD", "SOFT LEAD"),
+    ("TEK", "TECHNO SYNTH"),
+    ("PLS", "PULSATING"),
+    ("FX", "SYNTH FX"),
+    ("SYN", "OTHER SYNTH"),
+    ("BPD", "BRIGHT PAD"),
+    ("SPD", "SOFT PAD"),
+    ("VOX", "VOX"),
+    ("PLK", "PLUCKED"),
+    ("ETH", "ETHNIC"),
+    ("FRT", "FRETTED"),
+    ("PRC", "PERCUSSION"),
+    ("SFX", "SOUND FX"),
+    ("BTS", "BEAT&GROOVE"),
+    ("DRM", "DRUMS"),
+    ("CMB", "COMBINATION"),
 )
 
 #: Code -> display name, for anything that has to show one.
@@ -139,8 +162,9 @@ class Catalog:
     and a single mapping cannot do that.
     """
 
-    def __init__(self, entries: Iterable[Entry] = (), *,
-                 source: str = "", generated: str = "") -> None:
+    def __init__(
+        self, entries: Iterable[Entry] = (), *, source: str = "", generated: str = ""
+    ) -> None:
         self._entries: Dict[str, Entry] = {}
         for entry in entries:
             self._entries[entry.key] = entry
@@ -192,11 +216,7 @@ class Catalog:
 
     def display_name(self, bank_id: str, number: int) -> str:
         """The best name available, hardware winning over print."""
-        return (
-            self.live_name(bank_id, number)
-            or self.name(bank_id, number)
-            or UNNAMED
-        )
+        return self.live_name(bank_id, number) or self.name(bank_id, number) or UNNAMED
 
     def is_live(self, bank_id: str, number: int) -> bool:
         """Whether :meth:`display_name` is reporting a hardware read.
@@ -233,13 +253,13 @@ class Catalog:
             code = self.category(bank_id, number)
             counts[code] = counts.get(code, 0) + 1
         order = {code: i for i, (code, _) in enumerate(CATEGORIES)}
-        return dict(sorted(counts.items(),
-                           key=lambda kv: order.get(kv[0], len(order))))
+        return dict(sorted(counts.items(), key=lambda kv: order.get(kv[0], len(order))))
 
     # --- searching ----------------------------------------------------------
 
-    def search(self, needle: str, *, kind: Optional[str] = None
-               ) -> List[Tuple[str, int, str]]:
+    def search(
+        self, needle: str, *, kind: Optional[str] = None
+    ) -> List[Tuple[str, int, str]]:
         """``(bank_id, number, name)`` for every slot matching ``needle``.
 
         Case-insensitive substring, over both printed and live names, so a
@@ -309,8 +329,11 @@ def load(path: Optional[str] = None) -> Catalog:
             except (KeyError, TypeError, ValueError):
                 skipped += 1
     if skipped:
-        print(f"warning: {target} has {skipped} unreadable row(s), skipped; "
-              f"regenerate it with tools/extract_catalog.py", file=sys.stderr)
+        print(
+            f"warning: {target} has {skipped} unreadable row(s), skipped; "
+            f"regenerate it with tools/extract_catalog.py",
+            file=sys.stderr,
+        )
     return Catalog(
         entries,
         source=raw.get("source", ""),
@@ -318,8 +341,7 @@ def load(path: Optional[str] = None) -> Catalog:
     )
 
 
-def dump(catalog: Catalog, path: str, *, source: str = "",
-         generated: str = "") -> None:
+def dump(catalog: Catalog, path: str, *, source: str = "", generated: str = "") -> None:
     """Write a catalog back out in the format :func:`load` reads."""
     by_bank: Dict[str, List[dict]] = {}
     for entry in catalog._entries.values():  # noqa: SLF001 - same module

@@ -134,7 +134,8 @@ def render(pdf: str, outdir: str) -> List[str]:
     try:
         subprocess.run(
             ["pdftoppm", "-r", str(DPI), "-png", pdf, prefix],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
     except FileNotFoundError:
         raise SystemExit(
@@ -143,7 +144,8 @@ def render(pdf: str, outdir: str) -> List[str]:
     except subprocess.CalledProcessError as exc:
         raise SystemExit(f"error: pdftoppm failed: {exc}") from None
     pages = sorted(
-        os.path.join(outdir, name) for name in os.listdir(outdir)
+        os.path.join(outdir, name)
+        for name in os.listdir(outdir)
         if name.startswith("page") and name.endswith(".png")
     )
     if not pages:
@@ -151,8 +153,9 @@ def render(pdf: str, outdir: str) -> List[str]:
     return pages
 
 
-def _centres(a, x0: int, x1: int, ytop: int = 440, ybot: int = 3350,
-             minh: int = 10) -> List[int]:
+def _centres(
+    a, x0: int, x1: int, ytop: int = 440, ybot: int = 3350, minh: int = 10
+) -> List[int]:
     """y centre of every run of ink in a number cell."""
     dark = (a[:, :, 0] < 150) & (a[:, :, 1] < 150) & (a[:, :, 2] < 150)
     proj = dark[:, x0:x1].sum(axis=1)
@@ -298,8 +301,9 @@ def fit_grid(a, x0: int, x1: int, rows: int) -> Tuple[List[float], int]:
     return [first + n * pitch for n in range(rows)], accounted
 
 
-def score_page(path: str, layout: str, starts: List[int],
-               counts: List[int]) -> Dict[int, int]:
+def score_page(
+    path: str, layout: str, starts: List[int], counts: List[int]
+) -> Dict[int, int]:
     """``{patch number: marked pixel count}`` for one page.
 
     ``starts`` is the first patch number in each column and ``counts`` how
@@ -311,7 +315,8 @@ def score_page(path: str, layout: str, starts: List[int],
     if len(starts) != len(columns):
         raise SystemExit(
             f"error: {path} was given {len(starts)} column starts but the "
-            f"{layout!r} template has {len(columns)}")
+            f"{layout!r} template has {len(columns)}"
+        )
     scores: Dict[int, int] = {}
     for cols, start, rows in zip(columns, starts, counts):
         if rows <= 0:
@@ -323,11 +328,13 @@ def score_page(path: str, layout: str, starts: List[int],
         # Fewer than expected means rows were lost, and then every row on the
         # column is in doubt.
         if not rows <= found <= rows + 1:
-            print(f"warning: {os.path.basename(path)} column starting at "
-                  f"{start}: expected {rows} rows, the evenly spaced stretch "
-                  f"of ink accounts for {found}. Every row on this column is "
-                  f"suspect; check it with --verify before trusting it.",
-                  file=sys.stderr)
+            print(
+                f"warning: {os.path.basename(path)} column starting at "
+                f"{start}: expected {rows} rows, the evenly spaced stretch "
+                f"of ink accounts for {found}. Every row on this column is "
+                f"suspect; check it with --verify before trusting it.",
+                file=sys.stderr,
+            )
         x0, x1 = cols["num"]
         for n in range(rows):
             cy = centres[n]
@@ -372,10 +379,12 @@ def parse_pages(values: List[str]) -> Dict[int, Tuple[str, List[int]]]:
             firsts = [int(v) for v in starts.split(",") if v.strip()]
         except ValueError:
             raise SystemExit(
-                f"error: --page wants N=BANK:first,first,... , got {item!r}")
+                f"error: --page wants N=BANK:first,first,... , got {item!r}"
+            )
         if not card or not firsts:
-            raise SystemExit(f"error: --page {item!r} is missing a bank or "
-                             f"its column starts")
+            raise SystemExit(
+                f"error: --page {item!r} is missing a bank or its column starts"
+            )
         out[number] = (card, firsts)
     return out
 
@@ -403,34 +412,51 @@ def resolve(pages, totals: Dict[str, int]):
             while len(plan[page]) <= index:
                 plan[page].append(0)
             plan[page][index] = nxt - first
-        counted = sum(nxt - first for i, (first, _p, _c) in enumerate(entries)
-                      for nxt in [entries[i + 1][0] if i + 1 < len(entries)
-                                  else total + 1])
+        counted = sum(
+            nxt - first
+            for i, (first, _p, _c) in enumerate(entries)
+            for nxt in [entries[i + 1][0] if i + 1 < len(entries) else total + 1]
+        )
         if counted != total:
             raise SystemExit(
                 f"error: the column starts given for {card} describe "
                 f"{counted} patches, but {card} has {total}. One of the "
-                f"first numbers is wrong; nothing has been written.")
-        print(f"{card}: {counted} patches across "
-              f"{len(entries)} columns — matches the documented total")
+                f"first numbers is wrong; nothing has been written."
+            )
+        print(
+            f"{card}: {counted} patches across "
+            f"{len(entries)} columns — matches the documented total"
+        )
     return plan
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="read_marked_list.py", description=__doc__,
+        prog="read_marked_list.py",
+        description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("pdf", help="scanned patch list")
     parser.add_argument(
-        "--page", action="append", default=[], metavar="N=BANK:first,first",
+        "--page",
+        action="append",
+        default=[],
+        metavar="N=BANK:first,first",
         help="a page: its bank and the first patch number in each of its "
-             "columns, e.g. --page 1=SRX-07:1,91,181 or --page 5=PST-B:1,65")
+        "columns, e.g. --page 1=SRX-07:1,91,181 or --page 5=PST-B:1,65",
+    )
     parser.add_argument("-o", "--output", default=None)
-    parser.add_argument("--threshold", type=int, default=None,
-                        help="marked-pixel cut (default: from the data)")
-    parser.add_argument("--apply", action="store_true",
-                        help="also add the rows to the favourites database")
+    parser.add_argument(
+        "--threshold",
+        type=int,
+        default=None,
+        help="marked-pixel cut (default: from the data)",
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="also add the rows to the favourites database",
+    )
     parser.add_argument("--favorites", default=None)
     parser.add_argument("--note", default=None)
     return parser
@@ -446,7 +472,7 @@ def _bank_for(card: str, number: int) -> Tuple[str, int]:
     try:
         card_def = banks.srx_card(card)
     except LookupError:
-        return card, number          # an internal bank: numbers are slots
+        return card, number  # an internal bank: numbers are slots
     page, slot = divmod(number - 1, 128)
     return f"{card}-{page + 1}", slot + 1
 
@@ -455,8 +481,7 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     pages = parse_pages(args.page)
     if not pages:
-        raise SystemExit(
-            "error: describe each page, e.g. --page 1=SRX-07:1,91,181")
+        raise SystemExit("error: describe each page, e.g. --page 1=SRX-07:1,91,181")
 
     totals: Dict[str, int] = {}
     for card, _firsts in pages.values():
@@ -487,10 +512,8 @@ def main(argv=None) -> int:
             scores = score_page(images[page - 1], layout, firsts, counts)
             cut = args.threshold or auto_threshold(scores)
             hits = sorted(n for n, v in scores.items() if v >= cut)
-            near = sorted(n for n, v in scores.items()
-                          if cut * 0.5 <= v < cut)
-            body.append(f"{card}   page {page}   "
-                        f"[{layout} template, cut at {cut}]")
+            near = sorted(n for n, v in scores.items() if cut * 0.5 <= v < cut)
+            body.append(f"{card}   page {page}   [{layout} template, cut at {cut}]")
             body.append(f"{len(hits)} marked")
             body.append("")
             for number in hits:
@@ -501,20 +524,26 @@ def main(argv=None) -> int:
                     f"  {number:3d}  {name:<14} "
                     f"{bank_id:<9} slot {slot_number:3d}  "
                     f"MSB {slot.msb:3d}  LSB {slot.lsb:3d}  "
-                    f"PC {slot.program_change:3d}")
+                    f"PC {slot.program_change:3d}"
+                )
                 chosen.append((bank_id, slot_number, name))
             body.append("")
             if near:
-                notes.append(f"page {page} ({card}): "
-                             + ", ".join(f"{n} ({scores[n]})" for n in near))
+                notes.append(
+                    f"page {page} ({card}): "
+                    + ", ".join(f"{n} ({scores[n]})" for n in near)
+                )
 
     if notes:
-        body.append("Borderline rows, NOT included. Check whether each sits "
-                    "directly above a row")
-        body.append("that IS marked -- if so it is the mark below bleeding "
-                    "into this row's window,")
-        body.append("which is the usual false positive here and correctly "
-                    "excluded.")
+        body.append(
+            "Borderline rows, NOT included. Check whether each sits "
+            "directly above a row"
+        )
+        body.append(
+            "that IS marked -- if so it is the mark below bleeding "
+            "into this row's window,"
+        )
+        body.append("which is the usual false positive here and correctly excluded.")
         body.append("")
         body += [f"  {n}" for n in notes]
         body.append("")
@@ -544,11 +573,14 @@ def main(argv=None) -> int:
                 if (bank_id, number) in store:
                     present += 1
                     continue
-                store.add(bank_id, number,
-                          name=catalog.name(bank_id, number) or "", note=note)
+                store.add(
+                    bank_id, number, name=catalog.name(bank_id, number) or "", note=note
+                )
                 added += 1
-            print(f"\n{store.path}: added {added}, already present "
-                  f"{present}; {len(store)} favourites in total")
+            print(
+                f"\n{store.path}: added {added}, already present "
+                f"{present}; {len(store)} favourites in total"
+            )
         finally:
             store.close()
     else:

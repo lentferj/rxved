@@ -64,7 +64,7 @@ class TestLiveNames:
 
     def test_hardware_wins_over_print(self, catalog):
         catalog.set_live_name("USER", 1, "Iron Drone")
-        assert catalog.name("USER", 1) == "Velvet Bell"      # unchanged
+        assert catalog.name("USER", 1) == "Velvet Bell"  # unchanged
         assert catalog.display_name("USER", 1) == "Iron Drone"
 
     def test_is_live_marks_only_what_was_read(self, catalog):
@@ -74,7 +74,7 @@ class TestLiveNames:
 
     def test_differs_needs_both_and_a_disagreement(self, catalog):
         catalog.set_live_name("USER", 1, "Iron Drone")
-        catalog.set_live_name("USER", 2, "Rusty Pad")   # same as printed
+        catalog.set_live_name("USER", 2, "Rusty Pad")  # same as printed
         catalog.set_live_name("PST-D", 7, "Amber Hum")  # nothing printed
         assert catalog.differs("USER", 1)
         assert not catalog.differs("USER", 2)
@@ -110,7 +110,8 @@ class TestSearch:
     def test_filters_by_kind(self, catalog):
         catalog.set_live_name("P-USER", 1, "Velvet Stack")
         assert catalog.search("velvet", kind="performance") == [
-            ("P-USER", 1, "Velvet Stack")]
+            ("P-USER", 1, "Velvet Stack")
+        ]
         assert [h[0] for h in catalog.search("velvet", kind="patch")] == ["USER"]
 
     def test_results_are_sorted(self, catalog):

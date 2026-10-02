@@ -138,8 +138,7 @@ class TestFrames:
         assert (sum(frame[6:-1])) % 128 == 0
 
     def test_dt1_round_trips_through_the_parser(self):
-        frame = m.dt1((0x30, 0x02, 0, 0), m.encode_name("Velvet Bell"),
-                      device=0x10)
+        frame = m.dt1((0x30, 0x02, 0, 0), m.encode_name("Velvet Bell"), device=0x10)
         parsed = m.parse_dt1(frame)
         assert parsed is not None
         assert parsed.address == (0x30, 0x02, 0, 0)
@@ -147,12 +146,20 @@ class TestFrames:
 
     def test_a_foreign_manufacturer_is_skipped_not_an_error(self):
         """A shared port carries other devices' traffic."""
-        assert m.parse_dt1(bytes([0xF0, 0x43, 0x10, 0x00, 0x10, 0x12,
-                                  0, 0, 0, 0, 0, 0xF7])) is None
+        assert (
+            m.parse_dt1(
+                bytes([0xF0, 0x43, 0x10, 0x00, 0x10, 0x12, 0, 0, 0, 0, 0, 0xF7])
+            )
+            is None
+        )
 
     def test_a_wrong_model_id_is_skipped(self):
-        assert m.parse_dt1(bytes([0xF0, 0x41, 0x10, 0x00, 0x0B, 0x12,
-                                  0, 0, 0, 0, 0, 0xF7])) is None
+        assert (
+            m.parse_dt1(
+                bytes([0xF0, 0x41, 0x10, 0x00, 0x0B, 0x12, 0, 0, 0, 0, 0, 0xF7])
+            )
+            is None
+        )
 
     def test_a_bad_checksum_on_our_own_frame_raises(self):
         """Corruption on our conversation must not present as a timeout."""
@@ -182,7 +189,7 @@ class TestIdentity:
         chain; the family *number* is what separates them.
         """
         other = bytearray(self.REPLY)
-        other[9] = 0x04                      # family number 00 04
+        other[9] = 0x04  # family number 00 04
         reply = m.parse_identity_reply(bytes(other))
         assert reply is not None
         assert not reply.is_xv2020

@@ -51,8 +51,9 @@ def _fmt_table(rows: List[List[str]], headers: List[str]) -> str:
     out = ["  ".join(h.ljust(widths[i]) for i, h in enumerate(headers)).rstrip()]
     out.append("  ".join("-" * widths[i] for i in range(len(headers))))
     for row in rows:
-        out.append("  ".join(cell.ljust(widths[i])
-                             for i, cell in enumerate(row)).rstrip())
+        out.append(
+            "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)).rstrip()
+        )
     return "\n".join(out)
 
 
@@ -117,16 +118,27 @@ def _cmd_banks(_bridge, args) -> None:
         pcs = banks.slots(bank_id)
         pc_span = (
             f"{pcs[0].program_change}-{pcs[-1].program_change}"
-            if len(pcs) > 1 else str(pcs[0].program_change)
+            if len(pcs) > 1
+            else str(pcs[0].program_change)
         )
-        rows.append([
-            bank_id, entry.label, entry.kind, str(entry.msb), str(entry.lsb),
-            pc_span, str(entry.count),
-            "yes" if catalog.has(bank_id) else "",
-            "user" if entry.writable else ("SRX" if entry.expansion else ""),
-        ])
-    print(_fmt_table(rows, ["id", "label", "kind", "MSB", "LSB", "PC",
-                            "slots", "named", "note"]))
+        rows.append(
+            [
+                bank_id,
+                entry.label,
+                entry.kind,
+                str(entry.msb),
+                str(entry.lsb),
+                pc_span,
+                str(entry.count),
+                "yes" if catalog.has(bank_id) else "",
+                "user" if entry.writable else ("SRX" if entry.expansion else ""),
+            ]
+        )
+    print(
+        _fmt_table(
+            rows, ["id", "label", "kind", "MSB", "LSB", "PC", "slots", "named", "note"]
+        )
+    )
 
 
 def _cmd_list(_bridge, args) -> None:
@@ -139,13 +151,17 @@ def _cmd_list(_bridge, args) -> None:
     rows = []
     for slot in banks.slots(args.bank):
         entry = catalog.entry(args.bank, slot.number)
-        rows.append([
-            f"{slot.number:03d}",
-            catalog.display_name(args.bank, slot.number),
-            str(slot.msb), str(slot.lsb), str(slot.program_change),
-            (entry.category or "") if entry else "",
-            "*" if slot.number in marked else "",
-        ])
+        rows.append(
+            [
+                f"{slot.number:03d}",
+                catalog.display_name(args.bank, slot.number),
+                str(slot.msb),
+                str(slot.lsb),
+                str(slot.program_change),
+                (entry.category or "") if entry else "",
+                "*" if slot.number in marked else "",
+            ]
+        )
     print(_fmt_table(rows, ["#", "name", "MSB", "LSB", "PC", "cat", "fav"]))
 
 
@@ -158,8 +174,16 @@ def _cmd_find(_bridge, args) -> None:
     rows = []
     for bank_id, number, name in hits:
         slot = banks.slot(bank_id, number)
-        rows.append([bank_id, f"{number:03d}", name, str(slot.msb),
-                     str(slot.lsb), str(slot.program_change)])
+        rows.append(
+            [
+                bank_id,
+                f"{number:03d}",
+                name,
+                str(slot.msb),
+                str(slot.lsb),
+                str(slot.program_change),
+            ]
+        )
     print(_fmt_table(rows, ["bank", "#", "name", "MSB", "LSB", "PC"]))
 
 
@@ -173,11 +197,15 @@ def _cmd_resolve(_bridge, args) -> None:
             f"the number the synth displays is one higher."
         )
     catalog = _catalog(args)
-    print(f"{found.bank.label} ({found.bank_id}) {found.number:03d}  "
-          f"{catalog.display_name(found.bank_id, found.number)}")
-    print(f"kind: {found.kind}"
-          + ("  (SRX expansion)" if found.bank.expansion else "")
-          + ("  (writable)" if found.bank.writable else ""))
+    print(
+        f"{found.bank.label} ({found.bank_id}) {found.number:03d}  "
+        f"{catalog.display_name(found.bank_id, found.number)}"
+    )
+    print(
+        f"kind: {found.kind}"
+        + ("  (SRX expansion)" if found.bank.expansion else "")
+        + ("  (writable)" if found.bank.writable else "")
+    )
 
 
 def _cmd_favorites(_bridge, args) -> None:
@@ -187,9 +215,14 @@ def _cmd_favorites(_bridge, args) -> None:
         if args.add:
             bank_id, number = _parse_slot(args.add)
             name = catalog.name(bank_id, number) or ""
-            favorites.add(bank_id, number, name=name,
-                          rating=args.rating or 0, tags=args.tags or "",
-                          note=args.note or "")
+            favorites.add(
+                bank_id,
+                number,
+                name=name,
+                rating=args.rating or 0,
+                tags=args.tags or "",
+                note=args.note or "",
+            )
             print(f"added {bank_id} {number:03d}")
             return
         if args.remove:
@@ -197,8 +230,7 @@ def _cmd_favorites(_bridge, args) -> None:
             if favorites.remove(bank_id, number):
                 print(f"removed {bank_id} {number:03d}")
             else:
-                print(f"{bank_id} {number:03d} was not a favourite",
-                      file=sys.stderr)
+                print(f"{bank_id} {number:03d} was not a favourite", file=sys.stderr)
             return
         if args.tag:
             rows = favorites.with_tag(args.tag)
@@ -213,20 +245,27 @@ def _cmd_favorites(_bridge, args) -> None:
         for fav in rows:
             try:
                 slot = banks.slot(fav.bank_id, fav.number)
-                wire = [str(slot.msb), str(slot.lsb),
-                        str(slot.program_change)]
+                wire = [str(slot.msb), str(slot.lsb), str(slot.program_change)]
             except LookupError:
                 # A bank this build no longer defines. Shown, not dropped.
                 wire = ["?", "?", "?"]
-            table.append([
-                fav.bank_id, f"{fav.number:03d}",
-                fav.name or catalog.display_name(fav.bank_id, fav.number),
-                *wire,
-                "*" * fav.rating if fav.rating else "",
-                fav.tags, fav.note,
-            ])
-        print(_fmt_table(table, ["bank", "#", "name", "MSB", "LSB", "PC",
-                                 "rating", "tags", "note"]))
+            table.append(
+                [
+                    fav.bank_id,
+                    f"{fav.number:03d}",
+                    fav.name or catalog.display_name(fav.bank_id, fav.number),
+                    *wire,
+                    "*" * fav.rating if fav.rating else "",
+                    fav.tags,
+                    fav.note,
+                ]
+            )
+        print(
+            _fmt_table(
+                table,
+                ["bank", "#", "name", "MSB", "LSB", "PC", "rating", "tags", "note"],
+            )
+        )
     finally:
         favorites.close()
 
@@ -240,8 +279,7 @@ def _cmd_tags(_bridge, args) -> None:
     if not counts:
         print("no tags", file=sys.stderr)
         return
-    print(_fmt_table([[tag, str(n)] for tag, n in counts.items()],
-                     ["tag", "count"]))
+    print(_fmt_table([[tag, str(n)] for tag, n in counts.items()], ["tag", "count"]))
 
 
 # --- commands that need the device -----------------------------------------
@@ -256,12 +294,15 @@ def _cmd_status(bridge, _args) -> None:
             "cannot serve with silence, so this means powered off, wrong "
             "port, Rx Exclusive off -- or simply busy."
         )
-    print(f"device ID         {identity.device_display} "
-          f"(wire byte {identity.device_id:#04x})")
-    print(f"family            {identity.family[0]:#04x} "
-          f"{identity.family[1]:#04x}")
-    print(f"family number     {identity.family_number[0]:#04x} "
-          f"{identity.family_number[1]:#04x}")
+    print(
+        f"device ID         {identity.device_display} "
+        f"(wire byte {identity.device_id:#04x})"
+    )
+    print(f"family            {identity.family[0]:#04x} {identity.family[1]:#04x}")
+    print(
+        f"family number     {identity.family_number[0]:#04x} "
+        f"{identity.family_number[1]:#04x}"
+    )
     print(f"software revision {identity.revision_text}")
 
 
@@ -273,11 +314,16 @@ def _cmd_read(bridge, args) -> None:
     for number in sorted(names):
         printed = catalog.name(args.bank, number)
         slot = banks.slot(args.bank, number)
-        rows.append([
-            f"{number:03d}", names[number], str(slot.msb), str(slot.lsb),
-            str(slot.program_change),
-            "" if printed in (None, names[number]) else f"was {printed!r}",
-        ])
+        rows.append(
+            [
+                f"{number:03d}",
+                names[number],
+                str(slot.msb),
+                str(slot.lsb),
+                str(slot.program_change),
+                "" if printed in (None, names[number]) else f"was {printed!r}",
+            ]
+        )
     print(_fmt_table(rows, ["#", "name", "MSB", "LSB", "PC", "differs"]))
 
 
@@ -290,19 +336,24 @@ def _cmd_select(bridge, args) -> None:
     try:
         bridge.use_system_channels()
     except Exception as exc:
-        print(f"note: could not read the synth's receive channels ({exc}); "
-              f"using the configured channel, which may be wrong",
-              file=sys.stderr)
+        print(
+            f"note: could not read the synth's receive channels ({exc}); "
+            f"using the configured channel, which may be wrong",
+            file=sys.stderr,
+        )
     channel = (args.channel - 1) if args.channel is not None else None
     if channel is None:
         channel = bridge.channel_for(slot.kind)
     if channel is None:
         raise SystemExit(
             "error: this synth has its Performance Control Channel set to "
-            "OFF, so performances cannot be selected over MIDI.")
+            "OFF, so performances cannot be selected over MIDI."
+        )
     bridge.select(slot, channel=channel)
-    print(f"selected {slot}: MSB {slot.msb}, LSB {slot.lsb}, "
-          f"PC {slot.program_change}, on MIDI channel {channel + 1}")
+    print(
+        f"selected {slot}: MSB {slot.msb}, LSB {slot.lsb}, "
+        f"PC {slot.program_change}, on MIDI channel {channel + 1}"
+    )
     # Read back rather than assume: a select aimed at a channel nothing
     # listens on is ignored in silence.
     try:
@@ -322,28 +373,43 @@ def _cmd_channels(bridge, args) -> None:
     state = bridge.read_state(with_parts=args.parts or None)
     setup = state.setup
     print(f"sound mode                       {setup.mode_name}")
-    print(f"patch / rhythm receive channel   "
-          f"{state.channels.patch_display}")
+    print(f"patch / rhythm receive channel   {state.channels.patch_display}")
     if state.channels.performance_display is None:
-        print("performance control channel      OFF — performances cannot "
-              "be selected over MIDI at all")
+        print(
+            "performance control channel      OFF — performances cannot "
+            "be selected over MIDI at all"
+        )
     else:
-        print(f"performance control channel      "
-              f"{state.channels.performance_display}")
+        print(f"performance control channel      {state.channels.performance_display}")
     from xv.bridge import _describe_selection
 
-    print(f"current patch                    " + _describe_selection(
-        setup.patch_slot, setup.patch_msb, setup.patch_lsb,
-        setup.patch_program))
-    print(f"current performance              " + _describe_selection(
-        setup.performance_slot, setup.performance_msb,
-        setup.performance_lsb, setup.performance_program))
+    print(
+        f"current patch                    "
+        + _describe_selection(
+            setup.patch_slot, setup.patch_msb, setup.patch_lsb, setup.patch_program
+        )
+    )
+    print(
+        f"current performance              "
+        + _describe_selection(
+            setup.performance_slot,
+            setup.performance_msb,
+            setup.performance_lsb,
+            setup.performance_program,
+        )
+    )
 
     if state.parts:
         print()
         rows = [
-            [str(p.part), str(p.channel_display), str(p.program_change),
-             str(p.lsb), str(p.msb), str(p.slot) if p.slot else "?"]
+            [
+                str(p.part),
+                str(p.channel_display),
+                str(p.program_change),
+                str(p.lsb),
+                str(p.msb),
+                str(p.slot) if p.slot else "?",
+            ]
             for p in state.parts
         ]
         print(_fmt_table(rows, ["part", "ch", "PC", "LSB", "MSB", "slot"]))
@@ -375,47 +441,79 @@ def _cmd_multi(bridge, args) -> None:
             reason = part.silence_reason()
             if reason is None and state.soloed_out(part):
                 reason = "not soloed"
-            rows.append([
-                str(part.part), str(part.channel_display),
-                "on" if part.receive_switch else "OFF",
-                str(part.level),
-                str(part.program_change), str(part.lsb), str(part.msb),
-                str(part.slot) if part.slot else "?",
-                reason or "",
-            ])
-        print(_fmt_table(rows, ["part", "ch", "rx", "lvl", "PC", "LSB",
-                                "MSB", "slot", ""]))
+            rows.append(
+                [
+                    str(part.part),
+                    str(part.channel_display),
+                    "on" if part.receive_switch else "OFF",
+                    str(part.level),
+                    str(part.program_change),
+                    str(part.lsb),
+                    str(part.msb),
+                    str(part.slot) if part.slot else "?",
+                    reason or "",
+                ]
+            )
+        print(
+            _fmt_table(
+                rows, ["part", "ch", "rx", "lvl", "PC", "LSB", "MSB", "slot", ""]
+            )
+        )
         print()
 
         # The TUI puts these behind `tab`; a CLI has no cursor to move, so
         # it prints all three.
         rows = [
-            [str(p.part), str(p.channel_display),
-             "MUTE" if p.mute else "off",
-             str(p.dry), str(p.chorus), str(p.reverb),
-             p.output_name, p.output_mfx_name]
+            [
+                str(p.part),
+                str(p.channel_display),
+                "MUTE" if p.mute else "off",
+                str(p.dry),
+                str(p.chorus),
+                str(p.reverb),
+                p.output_name,
+                p.output_mfx_name,
+            ]
             for p in state.parts
         ]
-        print(_fmt_table(rows, ["part", "ch", "mute", "dry", "cho", "rev",
-                                "out", "mfx"]))
+        print(
+            _fmt_table(rows, ["part", "ch", "mute", "dry", "cho", "rev", "out", "mfx"])
+        )
         print()
 
     if state.midi:
         rows = [
-            [str(e.channel_display),
-             "on" if e.program_change else "OFF",
-             "on" if e.bank_select else "OFF",
-             "on" if e.bender else "off",
-             "on" if e.modulation else "off",
-             "on" if e.volume else "off",
-             "on" if e.expression else "off",
-             "on" if e.hold_1 else "off",
-             "on" if e.phase_lock else "off",
-             str(e.velocity_curve) if e.velocity_curve else "off"]
+            [
+                str(e.channel_display),
+                "on" if e.program_change else "OFF",
+                "on" if e.bank_select else "OFF",
+                "on" if e.bender else "off",
+                "on" if e.modulation else "off",
+                "on" if e.volume else "off",
+                "on" if e.expression else "off",
+                "on" if e.hold_1 else "off",
+                "on" if e.phase_lock else "off",
+                str(e.velocity_curve) if e.velocity_curve else "off",
+            ]
             for e in state.midi
         ]
-        print(_fmt_table(rows, ["ch", "rxPC", "rxBS", "bend", "mod", "vol",
-                                "exp", "hold", "phase", "vcurve"]))
+        print(
+            _fmt_table(
+                rows,
+                [
+                    "ch",
+                    "rxPC",
+                    "rxBS",
+                    "bend",
+                    "mod",
+                    "vol",
+                    "exp",
+                    "hold",
+                    "phase",
+                    "vcurve",
+                ],
+            )
+        )
         print()
 
     for line in state.silence_report():
@@ -440,8 +538,15 @@ def _cmd_scan(bridge, args) -> None:
     rows = []
     for number in sorted(names):
         slot = banks.slot(args.bank, number)
-        rows.append([f"{number:03d}", names[number], str(slot.msb),
-                     str(slot.lsb), str(slot.program_change)])
+        rows.append(
+            [
+                f"{number:03d}",
+                names[number],
+                str(slot.msb),
+                str(slot.lsb),
+                str(slot.program_change),
+            ]
+        )
     print(_fmt_table(rows, ["#", "name", "MSB", "LSB", "PC"]))
 
 
@@ -481,8 +586,7 @@ def _parse_slot(text: str) -> tuple:
             except ValueError:
                 break
     raise SystemExit(
-        f"error: {text!r} is not a slot; write it as BANK:NUMBER, e.g. "
-        f"PST-B:29"
+        f"error: {text!r} is not a slot; write it as BANK:NUMBER, e.g. PST-B:29"
     )
 
 
@@ -497,6 +601,7 @@ def _backup_dir(args) -> str:
 def _progress(label: str):
     def report(done: int, total: int) -> None:
         print(f"\r  {label} {done}/{total}", end="", file=sys.stderr)
+
     return report
 
 
@@ -508,12 +613,12 @@ def _cmd_perf_list(bridge, args) -> None:
     rows = []
     for entry in bk.list_backups(directory):
         if "error" in entry:
-            rows.append([os.path.basename(entry["path"]), "", "",
-                         entry["error"]])
+            rows.append([os.path.basename(entry["path"]), "", "", entry["error"]])
             continue
         slot = f"{entry['slot']:02d}" if entry["slot"] else "temp"
-        rows.append([os.path.basename(entry["path"]), slot,
-                     entry["saved"], entry["name"]])
+        rows.append(
+            [os.path.basename(entry["path"]), slot, entry["saved"], entry["name"]]
+        )
     if not rows:
         print(f"no backups in {directory}")
         return
@@ -533,11 +638,15 @@ def _cmd_perf_backup(bridge, args) -> None:
         base, slot = b.user_performance_base(args.slot), args.slot
         what = f"user performance {args.slot}"
     print(f"reading {what}...", file=sys.stderr)
-    blocks = bridge.read_performance_blocks(
-        base, on_progress=_progress("block"))
+    blocks = bridge.read_performance_blocks(base, on_progress=_progress("block"))
     print("", file=sys.stderr)
-    path = bk.save(blocks, _backup_dir(args), slot=slot,
-                   device_id=bridge.device_id, source=bridge.description)
+    path = bk.save(
+        blocks,
+        _backup_dir(args),
+        slot=slot,
+        device_id=bridge.device_id,
+        source=bridge.description,
+    )
     print(f"saved {bk.performance_name(blocks)!r} to {path}")
 
 
@@ -557,24 +666,31 @@ def _cmd_perf_verify(bridge, args) -> None:
         raise SystemExit(
             f"error: this writes user performance {args.slot} -- with its "
             f"own current contents, so it changes nothing, but it is still "
-            f"a write to stored memory. Re-run with --yes.")
-    before = bridge.read_performance_blocks(base,
-                                            on_progress=_progress("read"))
+            f"a write to stored memory. Re-run with --yes."
+        )
+    before = bridge.read_performance_blocks(base, on_progress=_progress("read"))
     print("", file=sys.stderr)
     mismatched = bridge.write_performance_blocks(
-        base, before, on_progress=_progress("write"))
+        base, before, on_progress=_progress("write")
+    )
     print("", file=sys.stderr)
     after = bridge.read_performance_blocks(base)
     changed = [name for name in before if before[name] != after.get(name)]
     if mismatched or changed:
-        print(f"MISMATCH: {len(mismatched)} block(s) did not verify on "
-              f"write, {len(changed)} differ after: "
-              f"{', '.join(sorted(set(mismatched) | set(changed)))}")
-        print("Writing to a user slot does NOT work this way on this "
-              "machine. Do not use `perf store`.")
+        print(
+            f"MISMATCH: {len(mismatched)} block(s) did not verify on "
+            f"write, {len(changed)} differ after: "
+            f"{', '.join(sorted(set(mismatched) | set(changed)))}"
+        )
+        print(
+            "Writing to a user slot does NOT work this way on this "
+            "machine. Do not use `perf store`."
+        )
         return
-    print(f"all {len(before)} blocks round-tripped identically -- "
-          f"user slot {args.slot} is writable over SysEx, and is unchanged")
+    print(
+        f"all {len(before)} blocks round-tripped identically -- "
+        f"user slot {args.slot} is writable over SysEx, and is unchanged"
+    )
 
 
 def _cmd_perf_store(bridge, args) -> None:
@@ -585,20 +701,29 @@ def _cmd_perf_store(bridge, args) -> None:
         raise SystemExit(
             f"error: this overwrites user performance {args.slot}, "
             f"permanently -- a power cycle does not bring it back. The slot "
-            f"is backed up to {_backup_dir(args)} first. Re-run with --yes.")
+            f"is backed up to {_backup_dir(args)} first. Re-run with --yes."
+        )
     backup_blocks, mismatched = bridge.store_temporary_to_slot(
-        args.slot, on_progress=_progress("block"))
+        args.slot, on_progress=_progress("block")
+    )
     print("", file=sys.stderr)
-    path = bk.save(backup_blocks, _backup_dir(args), slot=args.slot,
-                   device_id=bridge.device_id,
-                   source=f"{bridge.description} (before store)")
-    print(f"previous contents of slot {args.slot} "
-          f"({bk.performance_name(backup_blocks)!r}) saved to {path}")
+    path = bk.save(
+        backup_blocks,
+        _backup_dir(args),
+        slot=args.slot,
+        device_id=bridge.device_id,
+        source=f"{bridge.description} (before store)",
+    )
+    print(
+        f"previous contents of slot {args.slot} "
+        f"({bk.performance_name(backup_blocks)!r}) saved to {path}"
+    )
     if mismatched:
-        print(f"WARNING: {len(mismatched)} block(s) did not read back as "
-              f"written: {', '.join(mismatched)}")
-        print(f"Restore with: rxvcli perf-restore {path} "
-              f"--slot {args.slot} --yes")
+        print(
+            f"WARNING: {len(mismatched)} block(s) did not read back as "
+            f"written: {', '.join(mismatched)}"
+        )
+        print(f"Restore with: rxvcli perf-restore {path} --slot {args.slot} --yes")
         return
     print(f"stored into user performance {args.slot}")
 
@@ -612,19 +737,21 @@ def _cmd_perf_restore(bridge, args) -> None:
         raise SystemExit(
             f"error: this overwrites user performance {args.slot} with "
             f"{bk.performance_name(blocks)!r} from {args.file}. Re-run with "
-            f"--yes.")
+            f"--yes."
+        )
     from xv import bridge as b
 
     mismatched = bridge.write_performance_blocks(
-        b.user_performance_base(args.slot), blocks,
-        on_progress=_progress("block"))
+        b.user_performance_base(args.slot), blocks, on_progress=_progress("block")
+    )
     print("", file=sys.stderr)
     if mismatched:
-        print(f"WARNING: {len(mismatched)} block(s) did not read back as "
-              f"written: {', '.join(mismatched)}")
+        print(
+            f"WARNING: {len(mismatched)} block(s) did not read back as "
+            f"written: {', '.join(mismatched)}"
+        )
         return
-    print(f"restored {bk.performance_name(blocks)!r} into user "
-          f"performance {args.slot}")
+    print(f"restored {bk.performance_name(blocks)!r} into user performance {args.slot}")
 
 
 _COMMANDS: Dict[str, Callable] = {
@@ -652,8 +779,7 @@ _COMMANDS: Dict[str, Callable] = {
 #: Commands that construct no bridge and open no port. `ports` is here too:
 #: it enumerates, which needs the MIDI backend but not the synth, and it is
 #: the first thing a new user runs.
-_OFFLINE = {"ports", "banks", "list", "find", "resolve", "fav", "tags",
-            "perf-list"}
+_OFFLINE = {"ports", "banks", "list", "find", "resolve", "fav", "tags", "perf-list"}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -663,10 +789,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--port", help="MIDI port name (default: autodetect)")
     parser.add_argument("--recv-port", default=None)
-    parser.add_argument("--demo", action="store_true",
-                        help="use the built-in demo synth; opens no ports")
-    parser.add_argument("--device-id", type=int, default=None,
-                        help="device ID as the synth displays it (17-32)")
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="use the built-in demo synth; opens no ports",
+    )
+    parser.add_argument(
+        "--device-id",
+        type=int,
+        default=None,
+        help="device ID as the synth displays it (17-32)",
+    )
     parser.add_argument("--channel", type=int, default=None, help="1-16")
     parser.add_argument("--timeout", type=float, default=None)
     parser.add_argument("--config", default=None)
@@ -677,19 +810,16 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("ports", help="list MIDI ports on this host")
 
     sp = sub.add_parser("banks", help="the bank table (no device needed)")
-    sp.add_argument("--kind", choices=["patch", "rhythm", "performance"],
-                    default=None)
+    sp.add_argument("--kind", choices=["patch", "rhythm", "performance"], default=None)
 
     sp = sub.add_parser("list", help="one bank's slots (no device needed)")
     sp.add_argument("bank", help="bank id, e.g. PST-B")
 
     sp = sub.add_parser("find", help="search names (no device needed)")
     sp.add_argument("name")
-    sp.add_argument("--kind", choices=["patch", "rhythm", "performance"],
-                    default=None)
+    sp.add_argument("--kind", choices=["patch", "rhythm", "performance"], default=None)
 
-    sp = sub.add_parser("resolve",
-                        help="what does this MSB/LSB/PC select?")
+    sp = sub.add_parser("resolve", help="what does this MSB/LSB/PC select?")
     sp.add_argument("msb", type=int)
     sp.add_argument("lsb", type=int)
     sp.add_argument("pc", type=int, help="program change, 0-based (wire)")
@@ -702,46 +832,50 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--note", default=None)
     sp.add_argument("--tag", default=None, help="list favourites with this tag")
     sp.add_argument("--search", default=None)
-    sp.add_argument("--order", default="added",
-                    choices=["added", "rating", "bank", "name"])
+    sp.add_argument(
+        "--order", default="added", choices=["added", "rating", "bank", "name"]
+    )
 
     sub.add_parser("tags", help="tags in use, with counts")
     sub.add_parser("status", help="ask the synth who it is")
-    sp = sub.add_parser(
-        "channels", help="what each MIDI channel currently selects")
-    sp.add_argument("--parts", action="store_true",
-                    help="read all 16 Performance Parts even in Patch mode "
-                         "(16 extra round trips, still silent)")
+    sp = sub.add_parser("channels", help="what each MIDI channel currently selects")
+    sp.add_argument(
+        "--parts",
+        action="store_true",
+        help="read all 16 Performance Parts even in Patch mode "
+        "(16 extra round trips, still silent)",
+    )
 
-    sub.add_parser(
-        "multi", help="multi-mode setup, and why a channel is silent")
+    sub.add_parser("multi", help="multi-mode setup, and why a channel is silent")
 
     # --- performances -------------------------------------------------------
     sp = sub.add_parser("perf-list", help="performance backups on disk")
     sp.add_argument("--dir", help="backup directory (default: the data dir)")
 
-    sp = sub.add_parser("perf-backup",
-                        help="read a performance to a backup file")
-    sp.add_argument("--slot", type=int,
-                    help="user performance 1-64 (default: the edit buffer)")
+    sp = sub.add_parser("perf-backup", help="read a performance to a backup file")
+    sp.add_argument(
+        "--slot", type=int, help="user performance 1-64 (default: the edit buffer)"
+    )
     sp.add_argument("--dir")
 
     sp = sub.add_parser(
-        "perf-verify",
-        help="prove a user slot is writable WITHOUT changing it")
+        "perf-verify", help="prove a user slot is writable WITHOUT changing it"
+    )
     sp.add_argument("slot", type=int)
     sp.add_argument("--yes", action="store_true")
 
-    sp = sub.add_parser("perf-store",
-                        help="save the edit buffer to a user slot (DESTROYS "
-                             "what is there; backs it up first)")
+    sp = sub.add_parser(
+        "perf-store",
+        help="save the edit buffer to a user slot (DESTROYS "
+        "what is there; backs it up first)",
+    )
     sp.add_argument("slot", type=int)
     sp.add_argument("--dir")
     sp.add_argument("--yes", action="store_true")
 
-    sp = sub.add_parser("perf-restore",
-                        help="write a backup file back to a user slot "
-                             "(DESTRUCTIVE)")
+    sp = sub.add_parser(
+        "perf-restore", help="write a backup file back to a user slot (DESTRUCTIVE)"
+    )
     sp.add_argument("file")
     sp.add_argument("--slot", type=int, required=True)
     sp.add_argument("--yes", action="store_true")
@@ -753,16 +887,19 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("slot", metavar="BANK:N")
 
     sp = sub.add_parser(
-        "scan", help="read a bank's names by selecting every slot (plays it)")
+        "scan", help="read a bank's names by selecting every slot (plays it)"
+    )
     sp.add_argument("bank")
-    sp.add_argument("--yes", action="store_true",
-                    help="required: this plays the instrument")
+    sp.add_argument(
+        "--yes", action="store_true", help="required: this plays the instrument"
+    )
 
     sp = sub.add_parser("probe-srx", help="find a fitted SRX card (plays it)")
     sp.add_argument("--first-lsb", type=int, default=0)
     sp.add_argument("--last-lsb", type=int, default=63)
-    sp.add_argument("--yes", action="store_true",
-                    help="required: this plays the instrument")
+    sp.add_argument(
+        "--yes", action="store_true", help="required: this plays the instrument"
+    )
 
     return parser
 
@@ -777,21 +914,33 @@ def _build_bridge(args):
 
     b.install_clean_exit()
     config_path = args.config or b.DEFAULT_CONFIG_PATH
-    channel = (args.channel - 1) if args.channel is not None else (
-        b.load_channel(config_path) or 0)
+    channel = (
+        (args.channel - 1)
+        if args.channel is not None
+        else (b.load_channel(config_path) or 0)
+    )
     kwargs = {}
     if args.timeout is not None:
         kwargs["timeout"] = args.timeout
     if args.port:
-        device_id = (args.device_id if args.device_id is not None
-                     else (b.load_device_id(config_path) or 17))
+        device_id = (
+            args.device_id
+            if args.device_id is not None
+            else (b.load_device_id(config_path) or 17)
+        )
         return b.XvBridge.standard(
-            args.port, recv_port_name=args.recv_port, device_id=device_id,
-            channel=channel, **kwargs)
+            args.port,
+            recv_port_name=args.recv_port,
+            device_id=device_id,
+            channel=channel,
+            **kwargs,
+        )
     return b.XvBridge.autodetect(
-        config_path=config_path, channel=channel,
+        config_path=config_path,
+        channel=channel,
         on_try=lambda name: print(f"  probing {name}...", file=sys.stderr),
-        **kwargs)
+        **kwargs,
+    )
 
 
 def main(argv: Optional[List[str]] = None) -> int:

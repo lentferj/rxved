@@ -49,6 +49,40 @@ nothing: **rxved contains no shell scripts.** `Makefile` targets invoke
 the tools directly rather than through wrapper scripts, and no file
 carries a `bash`/`sh` shebang.
 
+## CI
+
+`.github/workflows/checks.yml` runs `make check` on **ubuntu, windows and
+macos**, on Python 3.11 and 3.12 — six jobs — plus one Ubuntu job that runs
+every pre-commit hook over every file.
+
+The matrix is platforms, not Python versions. This program opens a MIDI
+port; where it runs matters more than which interpreter runs it.
+
+**3.13 is listed in pyproject's classifiers but is not tested.** As of
+2026-10-02 `python-rtmidi` publishes wheels for cp38–cp312 only, so on
+3.13 `pip install` falls back to a source build needing ALSA headers on
+Linux, Xcode CLT on macOS and a C toolchain on Windows. That is a
+five-minute job on a laptop and a source-build dependency in CI, so it is
+left out deliberately rather than by oversight.
+
+Two notes on making the same `make check` run everywhere:
+
+- The Makefile cannot assume a POSIX layout. `VENV_BIN` is detected at
+  parse time because Windows puts console scripts in `.venv/Scripts`.
+- GitHub's Windows images do not ship GNU make, so CI installs it and
+  points `SHELL` at Git Bash. The recipes are POSIX sh — `audit-secrets`
+  uses `trap` — and would not survive cmd.exe.
+
+**A bug this found.** Running `make check` in a *clean* venv rather than
+the author's `--system-site-packages` one surfaced two deptry findings
+that had never appeared locally: `PIL` imported but missing from the
+dependencies, and `pillow` declared but unused. Both are the same
+mistake — deptry cannot guess that the distribution `pillow` is imported
+as `PIL` — and the local venv masked it because numpy and Pillow were
+present from the host. Fixed with `[tool.deptry.package_module_name_map]`,
+not by ignoring a code. Worth remembering: a dev environment that shares
+site-packages with the OS hides exactly this class of bug.
+
 ## ruff: 856 findings suppressed
 
 11 rules are ignored project-wide in `[tool.ruff.lint]`. Each is a style

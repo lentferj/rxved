@@ -8,8 +8,11 @@
 # [project.optional-dependencies].dev, so the versions that decide whether a
 # commit is acceptable are the same on every machine.
 
-PYTHON ?= .venv/bin/python
-VENV_BIN := .venv/bin
+# Where the venv keeps its console scripts: Windows uses .venv/Scripts,
+# everything else .venv/bin. CI runs `make check` on Linux, macOS and
+# Windows from this same file, so the layout cannot be assumed POSIX.
+VENV_BIN := $(shell [ -d .venv/Scripts ] && echo .venv/Scripts || echo .venv/bin)
+PYTHON ?= $(VENV_BIN)/python
 
 RUFF        := $(VENV_BIN)/ruff
 MYPY        := $(VENV_BIN)/mypy

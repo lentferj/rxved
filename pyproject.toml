@@ -261,6 +261,18 @@ DEP002 = [
     "pip-audit", "vulture", "deptry", "detect-secrets",
 ]
 
+# deptry cannot guess that the distribution `pillow` is imported as `PIL`,
+# so it reports both halves of one mistake: DEP001 ("PIL imported but
+# missing") and DEP002 ("pillow defined but unused"). Naming the mapping is
+# the fix. Ignoring either code would hide the same report for every
+# distribution added later.
+#
+# Caught by running `make check` in a clean venv rather than the author's
+# --system-site-packages one, where numpy and Pillow happened to be
+# installed and deptry never noticed the gap.
+[tool.deptry.package_module_name_map]
+pillow = ["PIL"]
+
 # --- mypy ------------------------------------------------------------------
 # Non-strict to start: the codebase predates these checks and `strict`
 # would be several hundred errors. `--strict` is on for the modules that

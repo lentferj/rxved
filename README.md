@@ -377,6 +377,10 @@ predates the `splat()` that setuptools ≥70 needs. Reasoning is in
 shellcheck and shfmt are wired into pre-commit but currently match
 nothing: rxved has no shell scripts, and `make` calls the tools directly.
 
+CI runs the same `make check` on **Linux, Windows and macOS** (`.github/workflows/checks.yml`,
+Python 3.11 and 3.12, six jobs), plus a job that runs every pre-commit
+hook over every file.
+
 ## License and third-party sources
 
 GPL-2.0-or-later. Full text in `COPYING`; attributions in `LICENSE`.

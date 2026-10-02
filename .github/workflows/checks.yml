@@ -1,0 +1,104 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Copyright (C) 2026  rxved contributors
+#
+# rxved's checks on all three platforms the README claims support for.
+# The matrix is deliberately the platforms rather than the Python
+# versions: this program talks to a MIDI port, so where it runs matters
+# more than which interpreter it runs under.
+
+name: checks
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege. Nothing here needs to write to the repository.
+permissions:
+  contents: read
+
+# A new push supersedes the run it replaces.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: ${{ matrix.os }} · py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      # One broken platform should not hide the others' results.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        # 3.11 is the floor in pyproject.toml and 3.12 is the next one up.
+        # 3.13 is listed as supported but is deliberately NOT tested here:
+        # python-rtmidi ships no cp313 wheel, so `pip install` would fall
+        # back to a source build needing ALSA headers (Linux), Xcode CLT
+        # (macOS) and a C toolchain (Windows). See docs/CHECKS.md.
+        python: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      # GitHub's Windows images do not ship GNU make, and `make check` is
+      # the one entry point CI and developers share. SHELL is pointed at
+      # Git Bash because the recipes in the Makefile are POSIX sh, not
+      # cmd.exe -- the audit-secrets target in particular uses `trap`.
+      - name: Install make (Windows)
+        if: runner.os == 'Windows'
+        run: choco install make --no-progress -y
+
+      - name: Point make at a POSIX shell (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "SHELL=C:/Program Files/Git/usr/bin/bash.exe" >> "$GITHUB_ENV"
+          make --version
+
+      # A clean venv, not the --system-site-packages one the README
+      # recommends. python-rtmidi ships wheels for all three platforms
+      # here, so nothing needs to be borrowed from the host.
+      - name: Create the virtualenv
+        run: python -m venv .venv
+
+      # shell: bash explicitly -- the default is PowerShell on Windows and
+      # would not understand the `[ -x ... ]` test below.
+      - name: Install rxved and the checks
+        shell: bash
+        run: |
+          if [ -x .venv/Scripts/python.exe ]; then PY=.venv/Scripts/python.exe; else PY=.venv/bin/python; fi
+          "$PY" -m pip install --upgrade pip
+          "$PY" -m pip install -e '.[dev]'
+
+      # The whole pipeline, exactly as a developer runs it locally.
+      - name: make check
+        shell: bash
+        run: make check
+
+  # The hooks are a separate promise from the pipeline: a change to
+  # .pre-commit-config.yaml can break commits on every platform while
+  # `make check` stays green.
+  pre-commit:
+    name: pre-commit hooks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      # `pre-commit autoupdate` is deliberately not run here. It rewrites
+      # the pinned revisions, and a hook that upgrades itself between the
+      # commit that pins it and the next run of that commit is not pinned.
+      - name: Run every hook over every file
+        uses: pre-commit/action@v3.0.1

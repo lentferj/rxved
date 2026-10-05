@@ -14,13 +14,22 @@
 VENV_BIN := $(shell [ -d .venv/Scripts ] && echo .venv/Scripts || echo .venv/bin)
 PYTHON ?= $(VENV_BIN)/python
 
-RUFF        := $(VENV_BIN)/ruff
-MYPY        := $(VENV_BIN)/mypy
-PYTEST      := $(VENV_BIN)/pytest
-PIP_AUDIT   := $(VENV_BIN)/pip-audit
-VULTURE     := $(VENV_BIN)/vulture
-DEPTRY      := $(VENV_BIN)/deptry
-DETECT_SECRETS := $(VENV_BIN)/detect-secrets
+# Invoked as `$(PYTHON) -m <tool>`, not as $(VENV_BIN)/<tool>, and that is
+# not a style preference. In a venv built with --system-site-packages (which
+# README recommends, for python-rtmidi's ALSA headers), pip treats a
+# requirement as satisfied if the *system* or *user* site-packages already
+# has that exact version, and then installs nothing -- no console script in
+# .venv/bin either. pytest 9.1.1 in ~/.local is enough to make `make test`
+# fail with "No such file or directory" while `pip list` cheerfully reports
+# the version present. `-m` asks the interpreter's own sys.path, which
+# resolves either way.
+RUFF        := $(PYTHON) -m ruff
+MYPY        := $(PYTHON) -m mypy
+PYTEST      := $(PYTHON) -m pytest
+PIP_AUDIT   := $(PYTHON) -m pip_audit
+VULTURE     := $(PYTHON) -m vulture
+DEPTRY      := $(PYTHON) -m deptry
+DETECT_SECRETS := $(PYTHON) -m detect_secrets
 
 # detect-secrets baseline handling: a scratch copy, and a comparator that
 # ignores `generated_at` so a clean scan does not dirty the tree.

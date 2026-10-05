@@ -1164,7 +1164,7 @@ class XvBridge:
         bridge = cls.standard(
             identity.send_port,
             recv_port_name=identity.recv_port,
-            device_id=identity.device_id,
+            device_id=identity.device_display,
             channel=channel if channel is not None else 0,
             timeout=timeout,
         )

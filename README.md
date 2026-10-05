@@ -53,19 +53,45 @@ patches.
   change channel or select something.
 - **Every bank the XV-2020 addresses**: USER, Preset A–D, GM2 and its nine
   variation banks, the internal and GM2 rhythm sets, all three performance
-  banks, and every SRX expansion board from SRX-01 to SRX-98 — 57 banks and
-  a little over 4000 addressable slots.
+  banks, and every SRX expansion board from SRX-01 to SRX-12 — 55 banks and
+  just under 5000 addressable slots (4612 of them patches). SRX-13 to
+  SRX-98 are not in the table: SN 132 lists them, but it is a guide to the
+  whole SRX series across every host that takes one, and none of them names
+  the XV-2020. See `docs/RESOLUTION_NOTES.md` §"SN 132 lists boards this
+  machine cannot play".
 - **Names**, from two sources kept deliberately distinct: the printed lists,
   and what the synth itself says. A name read from the hardware is shown in
-  bold; one that *disagrees* with the printed list gets a `*`. On a USER
-  bank somebody has saved into, that mark is the most useful thing on the
-  screen.
+  bold; one that *disagrees* with the printed list gets a `*`.
+
+  The `*` is worth a glance exactly when it is rare — somebody saved over
+  slot 42, and the marker says so. Once **nothing** in a bank agrees, the
+  marker goes: the printed list describes a bank as it shipped, so if the
+  machine disagrees everywhere, that description is history and marking all
+  128 rows tells the eye nothing. Measured on real hardware, a USER bank
+  somebody had been working in: 128 of 128 disagreeing, with only slot 128
+  left holding the factory `INIT PATCH`. The factory name is not lost — it
+  moves to the detail line for whichever slot is highlighted.
 - **Read names off the synth.** `r` reads a USER bank directly — genuinely
   read-only, nothing is selected, the instrument keeps playing whatever it
-  was playing.
+  was playing. The three writable banks (`USER`, `R-USER`, `P-USER`) are
+  also re-read in the background at every startup, and what they say is
+  kept in `live-names.json` beside the favourites database — so the browser
+  opens showing your patches rather than the factory list, and only the
+  highlight follows the hardware. Override the path with `--live-names`.
+  `rxvcli` shares the file: `rxvcli read USER` caches what it reads, and
+  `list`, `find` and `fav` report the cached names.
 - **Scan a bank.** `s` learns preset and SRX names the only way they can be
   learned: by selecting each slot and reading back. This **plays the
   instrument**, and asks first.
+
+  It only works in **PATCH** mode, and rxved refuses rather than guessing:
+  in any other mode a program change does not move the patch that gets read
+  back, so the scan would report the patch the synth is currently sitting on
+  once per slot. That is not hypothetical — it is what an XV-2020 in
+  PERFORM mode did here, answering all 128 reads with `Cutter Clav` (its
+  current patch) while rxved dutifully wrote it down as 128 names. If the
+  name never changes, the scan gives up after four slots and says why, and
+  puts the synth back where it found it.
 - **Find a fitted SRX board.** `x` probes for it, for boards Roland
   documented after rxved's table was written.
 - **Favourites**, with ratings, tags and notes, in a SQLite database in the
@@ -88,22 +114,53 @@ patches.
 
 ```sh
 python3 -m venv --system-site-packages .venv
+.venv/bin/python -m pip install --upgrade pip
 .venv/bin/pip install -e .
 ```
 
 Needs Python 3.11+, `python-rtmidi` and `textual`. On Linux you also need an
 ALSA sequencer — `rxvcli ports` will tell you plainly if there isn't one.
 
+The `pip install --upgrade pip` line is not optional housekeeping. A venv
+is seeded with whatever `ensurepip` carries, which on a distribution
+interpreter can be old enough to have published advisories — Debian 11
+ships pip 23.0.1, which has seven. `make audit-deps` audits the venv's own
+site-packages, so a stale pip there fails `make check` on packaging
+advisories that have nothing to do with rxved. CI upgrades pip for the
+same reason.
+
 `--system-site-packages` is deliberate: `python-rtmidi` needs ALSA headers
 that are awkward to build in a bare venv. The cost is that `pip-audit`
 sees the whole system site-packages, so `make audit-deps` scopes it with
 `--path` — see `docs/CHECKS.md`.
+
+It also means pip reads the metadata of every package on the system, so a
+distribution's own broken metadata shows up as a warning in the middle of
+rxved's install. On Debian that is `Send2Trash`, whose `Requires-Dist`
+lines are not valid PEP 508:
+
+```
+WARNING: Error parsing dependencies of send2trash: Expected matching
+RIGHT_PARENTHESIS for LEFT_PARENTHESIS, after version specifier
+    sys-platform (=="darwin") ; extra == 'objc'
+```
+
+It is safe to ignore: nothing rxved depends on requires it, the extra it
+belongs to is macOS-only, and the install finishes normally either way.
 
 For development, add the checks:
 
 ```sh
 .venv/bin/pip install -e '.[dev]'
 ```
+
+One consequence worth knowing, because it looks like a broken install:
+`--system-site-packages` means pip accepts a requirement as already
+satisfied when your *user* site-packages (`~/.local`) has that exact
+version, installs nothing, and writes no console script. So `.venv/bin/pytest`
+can be missing while `pip list` cheerfully reports pytest present. `make
+check` calls every tool as `python -m <tool>`, which resolves either way —
+running `.venv/bin/pytest` by hand is what does not work.
 
 And `tools/read_marked_list.py` additionally needs numpy and Pillow:
 
@@ -113,17 +170,51 @@ And `tools/read_marked_list.py` additionally needs numpy and Pillow:
 
 ## Run
 
+The install puts the two commands in the venv, so put that on `PATH`
+first — otherwise the shell answers `rxved: command not found`:
+
+```sh
+source .venv/bin/activate          # PowerShell: .venv\Scripts\Activate.ps1
+```
+
+Or skip activation and spell out the path: `.venv/bin/rxved`.
+
 ```sh
 rxved --demo          # built-in demo synth; opens no MIDI ports
-rxved                 # autodetect a real XV-2020
+rxved                 # the XV-2020 remembered in config.toml
+rxved --scan          # probe every port again and update config.toml
 rxved --port "Roland XV-2020:Roland XV-2020 MIDI 1 68:0"
 ```
 
-Autodetect broadcasts a Universal Identity Request on every bidirectional
-port and matches the XV-2020's family *number* — not just its family code,
+**Plain `rxved` does not scan.** It opens the port recorded in
+`config.toml` and sends one Identity Request to it — about 0.15 s. Only if
+nothing is recorded yet does it probe every port, and then it saves the
+answer. The sweep is the slow path (18 s and thirty Identity Requests on a
+machine with thirty MIDI ports, one to every device on the chain) and there
+is no reason to pay it on every launch to learn something already known.
+
+So the port is found once and then believed. When the synth moves — and USB
+re-enumeration renumbers the ALSA client, so `MIDI 1 68:0` becomes
+`MIDI 1 72:0` when you move it to another USB socket — the remembered name
+stops answering, and rxved says so and stops:
+
+```
+error: nothing answered an Identity Request on the remembered port
+  Midi Through:Midi Through Port-0 14:0
+which config.toml says is the XV-2020. It may be powered off, on a
+different port now (USB renumbers MIDI ports), or busy. Re-run with
+--scan to probe every port and update config.toml.
+```
+
+That is deliberate: a stale guess is reported rather than papered over with
+a silent sweep, so a launch never quietly takes the slow path for a reason
+you did not ask about. `--scan` is the way out, and it rewrites the file.
+
+The probe matches the XV-2020's family *number* — not just its family code,
 which it shares with the rest of the XV/JV line — so it will not adopt an
-XV-3080 on the same chain. The port that answered is remembered in
-`config.toml`, so the next run is one round trip rather than a sweep.
+XV-3080 on the same chain. It keeps going after the first answer rather than
+taking it, because two XV-2020s on one chain is worth refusing over.
+`--port` overrides both, and asks nothing: it is the port, unverified.
 
 ### Keys
 
@@ -131,11 +222,11 @@ XV-3080 on the same chain. The port that answered is remembered in
 |---|---|
 | arrows, `tab` | move; `tab` switches pane |
 | `enter` | select this slot **on the synth** — it will sound |
-| `f` / `F` | favourite / list favourites |
+| `f` | favourite this slot |
 | `t` / `n` | tags / note (on a favourite) |
 | `/` | search names |
-| `r` | read this bank's names from the synth (USER banks; read-only) |
-| `s` | scan this bank by selecting every slot (**plays the synth**) |
+| `r` | read this bank's names from the synth (`USER`/`R-USER`/`P-USER`; read-only) |
+| `s` | scan this bank by selecting every slot (**plays the synth**, PATCH mode only) |
 | `x` | probe for a fitted SRX board (**plays the synth**) |
 | `F` | cycle: all slots → this bank's favourites → every favourite |
 | `C` | filter by category (multi-select), on top of whichever view is showing |
@@ -159,10 +250,11 @@ any of them. And a channel no audible part listens on is not a muted
 channel. The report tells these apart.
 
 Type a number straight into a numeric cell, `⏎` edits the cell under the
-cursor, `space` toggles a switch, `+`/`-` adjust. **Edits go to Temporary Performance — the edit buffer, not a stored
-performance — and a power cycle undoes them.** rxved never performs the
-Write (store) operation. Each edit is read back and the row shows what the
-synth reports, not what was sent.
+cursor, `space` toggles a switch, `+`/`-` adjust. **Edits go to Temporary
+Performance — the edit buffer, not a stored performance — and a power cycle
+undoes them.** Nothing is written to a stored slot unless you ask for it
+with `W`, which backs up whatever is in the slot first. Each edit is read
+back and the row shows what the synth reports, not what was sent.
 
 This matters on an XV-2020 specifically: it is a half-rack module with a
 three-digit LED, and OM p. 116 lists what its four controls can reach.
@@ -209,21 +301,35 @@ rxvcli find "bass" --kind patch   # search names
 rxvcli resolve 87 65 28           # what does this MSB/LSB/PC select?
 rxvcli status                     # ask the synth who it is
 rxvcli channels                   # what each MIDI channel currently selects
+rxvcli multi                      # all 16 parts, and why a channel is silent
 rxvcli read USER                  # read USER names (read-only)
 rxvcli select PST-B:29            # select it on the synth
 rxvcli scan PST-A --yes           # learn a preset bank's names (plays it)
 rxvcli probe-srx --yes            # find the fitted board (plays it)
+
+rxvcli perf-backup --slot 5       # read a performance to a file (read-only)
+rxvcli perf-verify --slot 5 --yes # prove a user slot is writable, unchanged
+rxvcli perf-store --slot 5 --yes  # save the edit buffer to that slot
+                                  #   **DESTRUCTIVE** -- backs it up first
+rxvcli perf-restore FILE --slot 5 --yes   # **DESTRUCTIVE**
+rxvcli perf-list                  # backups on disk
 
 rxvcli fav --add PST-B:29 --tags "bass, trance" --note "for the intro"
 rxvcli fav --tag bass
 rxvcli tags
 ```
 
-`ports`, `banks`, `list`, `find`, `resolve`, `fav` and `tags` construct no
-bridge and open no port — they work on a headless box and while somebody
-else is using the hardware. `scan` and `probe-srx` refuse to run without
-`--yes`, because a shell is exactly where a recalled history line fires
-something you did not mean to fire.
+`ports`, `banks`, `list`, `find`, `resolve`, `fav`, `tags` and `perf-list`
+construct no bridge and open no port — they work on a headless box and
+while somebody else is using the hardware. `scan` and `probe-srx` refuse to
+run without `--yes`, because a shell is exactly where a recalled history
+line fires something you did not mean to fire; `perf-verify`, `perf-store`
+and `perf-restore` require it for the same reason.
+
+Global options go **before** the subcommand — `rxvcli --demo multi`, not
+`rxvcli multi --demo`. `--port` and `--scan` work the same way and mean the
+same thing here as in `rxved`: without them, the port recorded in
+`config.toml` is used and nothing else is probed.
 
 ## Patch names are not included
 
@@ -333,6 +439,7 @@ resolved and where every transcribed number came from.
 
 ```sh
 python3 -m venv --system-site-packages .venv
+.venv/bin/python -m pip install --upgrade pip
 .venv/bin/pip install -e '.[dev]'
 pre-commit install
 

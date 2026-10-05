@@ -1523,7 +1523,17 @@ def build_parser() -> argparse.ArgumentParser:
         prog="rxved",
         description="Terminal browser for the Roland XV-2020's sounds.",
     )
-    parser.add_argument("--port", help="MIDI port name (default: autodetect)")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--port",
+        help="MIDI port name (default: the one remembered in config.toml)",
+    )
+    group.add_argument(
+        "--scan",
+        action="store_true",
+        help="probe every MIDI port again and update config.toml, instead of "
+        "trusting the remembered port",
+    )
     parser.add_argument(
         "--recv-port", default=None, help="input port, if it differs from --port"
     )
@@ -1537,7 +1547,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="XV-2020 device ID as its display shows it "
-        "(17-32); default: autodetected, else 17",
+        "(17-32); default: whatever the synth's Identity Reply says, "
+        "else the saved value, else 17",
     )
     parser.add_argument(
         "--channel",
@@ -1602,9 +1613,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                     **kwargs,
                 )
             else:
-                bridge = b.XvBridge.autodetect(
+                bridge = b.XvBridge.connect(
                     config_path=config_path,
                     channel=channel,
+                    scan=args.scan,
                     on_try=lambda name: print(f"  probing {name}...", file=sys.stderr),
                     **kwargs,
                 )

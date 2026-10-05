@@ -41,7 +41,8 @@ channel. The XV-2020 answers a Universal Identity Request sent to device
 ``7F``, and its reply carries both the family number that identifies the
 model and the device ID it is set to. So discovery here is one message per
 port, and it comes back knowing what to talk to -- no channel sweep, no
-guessing. :meth:`XvBridge.autodetect` uses it.
+guessing. :meth:`XvBridge.connect` uses it, both to check the port it
+remembers and to sweep when asked to.
 
 The discriminator against a MIDI-Thru loop echoing our own bytes is that we
 send an Identity *Request* (sub-ID 01) and match only an Identity *Reply*
@@ -1143,12 +1144,16 @@ class XvBridge:
         probe_timeout: float = AUTODETECT_TIMEOUT,
         on_try: Optional[Callable[[str], None]] = None,
     ) -> "XvBridge":
-        """Find an XV-2020 by broadcasting an Identity Request.
+        """Find an XV-2020 by broadcasting an Identity Request on every port.
 
         Ports are tried in the order most likely to pay off: the pair
         remembered from last time first, then ports whose name mentions an
-        XV-2020, then everything else. The remembered pair turns the common
-        case into one round trip rather than a sweep of thirty ports.
+        XV-2020, then everything else. Every port is tried even after one
+        answers, because a second XV-2020 on the chain is worth refusing
+        over rather than picking one.
+
+        This is what :meth:`connect` falls back to, and what ``--scan``
+        forces. The answer is saved, so the next launch need not repeat it.
         """
         found = cls._sweep(config_path, probe_timeout, on_try)
         if not found:
@@ -1161,6 +1166,28 @@ class XvBridge:
         if len(found) > 1:
             raise AmbiguousDevice(found)
         identity = found[0]
+        bridge = cls._from_identity(identity, channel, timeout)
+        save_last_ports(identity.send_port, identity.recv_port, config_path)
+        # Stored as the panel number, since that is what the user reads off
+        # the machine and types back as --device-id.
+        save_device_id(identity.device_display, config_path)
+        return bridge
+
+    @classmethod
+    def _from_identity(
+        cls, identity: DeviceIdentity, channel: Optional[int], timeout: float
+    ) -> "XvBridge":
+        """A bridge aimed at the device that just identified itself.
+
+        `standard()` takes the **panel number**, and `identity.device_id` is
+        the wire byte straight out of the Identity Reply. Handing it over
+        unconverted is the same class of mistake `device_id_byte()`'s own
+        docstring is about, and it is fatal rather than silent: an XV-2020
+        set to 17 answers with 0x10, which is 16, and 16 is not a panel
+        number -- so `standard()` raised "device ID 16 is out of range" on
+        the port that had just answered. The sweep found the synth and the
+        failure looked like the opposite.
+        """
         bridge = cls.standard(
             identity.send_port,
             recv_port_name=identity.recv_port,
@@ -1169,11 +1196,85 @@ class XvBridge:
             timeout=timeout,
         )
         bridge.identity = identity
-        save_last_ports(identity.send_port, identity.recv_port, config_path)
-        # Stored as the panel number, since that is what the user reads off
-        # the machine and types back as --device-id.
-        save_device_id(m.device_id_display(identity.device_id), config_path)
         return bridge
+
+    @classmethod
+    def connect(
+        cls,
+        *,
+        config_path: str = DEFAULT_CONFIG_PATH,
+        channel: Optional[int] = None,
+        timeout: float = DEFAULT_TIMEOUT,
+        probe_timeout: float = AUTODETECT_TIMEOUT,
+        scan: bool = False,
+        on_try: Optional[Callable[[str], None]] = None,
+    ) -> "XvBridge":
+        """Open the synth, sweeping every port only when that is necessary.
+
+        The normal path is one Identity Request to the port remembered in
+        ``config_path``. That is not just an optimisation: a sweep sends an
+        Identity Request to *every* bidirectional port on the machine, which
+        on a studio box with thirty of them takes seconds, prints thirty
+        lines, and pings every piece of hardware on the chain once per
+        launch. Once the answer is known there is nothing to learn from
+        asking again.
+
+        So: use the remembered port if there is one, sweep if there is not,
+        and sweep on request. ``scan=True`` is what ``--scan`` reaches --
+        needed after the synth moves to another port, which USB
+        re-enumeration does by renumbering the ALSA client out from under
+        the saved name.
+
+        A remembered port that does not answer is an **error**, not a
+        licence to sweep. The guess is gone, but sweeping anyway would make
+        a launch silently take the slow path for a reason the user did not
+        ask about; naming ``--scan`` says what happened and what to do.
+        """
+        if not scan:
+            remembered = load_last_ports(config_path)
+            if remembered is not None:
+                return cls._open_remembered(
+                    remembered, config_path, channel, timeout, probe_timeout, on_try
+                )
+        return cls.autodetect(
+            config_path=config_path,
+            channel=channel,
+            timeout=timeout,
+            probe_timeout=probe_timeout,
+            on_try=on_try,
+        )
+
+    @classmethod
+    def _open_remembered(
+        cls,
+        remembered: Tuple[str, str],
+        config_path: str,
+        channel: Optional[int],
+        timeout: float,
+        probe_timeout: float,
+        on_try: Optional[Callable[[str], None]],
+    ) -> "XvBridge":
+        """One round trip to the saved port. Never writes to the config.
+
+        It does not re-save what is already there, and deliberately does
+        not re-save a device ID read back from the instrument: the file is
+        this function's input, so writing to it would make a plain launch
+        mutate the thing it is being asked to trust.
+        """
+        send_name, recv_name = remembered
+        if on_try is not None:
+            on_try(send_name)
+        identity = cls._try_pair(send_name, recv_name, probe_timeout)
+        if identity is None:
+            raise DeviceNotFound(
+                f"nothing answered an Identity Request on the remembered "
+                f"port\n  {send_name}\n"
+                f"which {config_path} says is the XV-2020. It may be powered "
+                f"off, on a different port now (USB renumbers MIDI ports), or "
+                f"busy. Re-run with --scan to probe every port and update "
+                f"{config_path}."
+            )
+        return cls._from_identity(identity, channel, timeout)
 
     @classmethod
     def _sweep(

@@ -787,7 +787,17 @@ def build_parser() -> argparse.ArgumentParser:
         prog="rxvcli",
         description="Command-line browser for the Roland XV-2020's sounds.",
     )
-    parser.add_argument("--port", help="MIDI port name (default: autodetect)")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--port",
+        help="MIDI port name (default: the one remembered in config.toml)",
+    )
+    group.add_argument(
+        "--scan",
+        action="store_true",
+        help="probe every MIDI port again and update config.toml, instead of "
+        "trusting the remembered port",
+    )
     parser.add_argument("--recv-port", default=None)
     parser.add_argument(
         "--demo",
@@ -935,9 +945,10 @@ def _build_bridge(args):
             channel=channel,
             **kwargs,
         )
-    return b.XvBridge.autodetect(
+    return b.XvBridge.connect(
         config_path=config_path,
         channel=channel,
+        scan=args.scan,
         on_try=lambda name: print(f"  probing {name}...", file=sys.stderr),
         **kwargs,
     )

@@ -2054,7 +2054,23 @@ class XvBridge:
         return m.decode_name(data[: m.PERFORMANCE_NAME_LEN])
 
     def user_rhythm_name(self, number: int, *, timeout: Optional[float] = None) -> str:
-        """The name stored in User Rhythm ``number`` (1-4)."""
+        """The name stored in User Rhythm ``number`` (1-4), read live.
+
+        Read at the base address, like patches and performances, with **no**
+        Rhythm Common offset added. This one used to add `OFF_RHYTHM_COMMON`
+        (0x00 0x10 0x00 0x00) on the strength of the address-map table, and
+        was wrong on hardware: R-USER's four names live at 40 00 / 40 10 /
+        40 20 / 40 30, so the offset shifted every one of them forward by a
+        slot -- slot 1 reported slot 2's name -- and slot 4 fell off the end
+        of the bank into an address the synth does not answer at all.
+
+        Caught by reading the four addresses against a real XV-2020, which
+        answered `R&B Kit`, `House Kit`, `Techno Kit` and `Jazz Kit` at
+        exactly those four, and nothing at all at 40 40. The map's
+        Rhythm Common row describes the offset *within* a rhythm set; the
+        user-rhythm base already points at one, which is why
+        `OFF_RHYTHM_COMMON` is zero.
+        """
         data = self.request(
             m.address_add(m.user_rhythm_address(number), m.OFF_RHYTHM_COMMON),
             m.RHYTHM_NAME_LEN,

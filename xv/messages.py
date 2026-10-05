@@ -167,8 +167,14 @@ ADDR_USER_RHYTHM: Address = (0x40, 0x00, 0x00, 0x00)
 #: rhythm set (OM p. 146, tables 1-4-1 and 1-4-2). Both are zero, and both
 #: are named rather than open-coded so the next person does not have to
 #: verify that they still are.
+#:
+#: `OFF_RHYTHM_COMMON` was 0x00 0x10 0x00 0x00 -- directly contradicting the
+#: sentence above it -- and every R-USER name was shifted a slot forward as a
+#: result. Read against a real XV-2020: the four user rhythm names are at
+#: 40 00 / 40 10 / 40 20 / 40 30 with nothing at 40 40, so the user-rhythm
+#: base already points at a Rhythm Common and the offset is zero.
 OFF_PATCH_COMMON: Address = (0x00, 0x00, 0x00, 0x00)
-OFF_RHYTHM_COMMON: Address = (0x00, 0x10, 0x00, 0x00)
+OFF_RHYTHM_COMMON: Address = (0x00, 0x00, 0x00, 0x00)
 
 #: Name field lengths. Patch Name 1..12 at Patch Common offset 00 00
 #: (OM p. 149); Performance Name 1..12; Rhythm Name 1..12. All ASCII in the

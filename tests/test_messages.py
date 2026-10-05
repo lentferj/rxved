@@ -115,6 +115,24 @@ class TestAddresses:
         assert m.user_rhythm_address(2) == (0x40, 0x10, 0x00, 0x00)
         assert m.user_rhythm_address(4) == (0x40, 0x30, 0x00, 0x00)
 
+    def test_the_user_rhythm_name_is_at_that_address(self):
+        """Not one stride on. Verified by reading a real XV-2020.
+
+        The four user rhythm names came back at 40 00, 40 10, 40 20 and
+        40 30 -- `R&B Kit`, `House Kit`, `Techno Kit`, `Jazz Kit` -- and the
+        synth answered nothing at all at 40 40. `OFF_RHYTHM_COMMON` used to
+        be 0x00 0x10 0x00 0x00, which shifted every name a slot forward and
+        put the fourth one past the end of the bank.
+        """
+        assert m.OFF_RHYTHM_COMMON == (0x00, 0x00, 0x00, 0x00)
+        for number in range(1, 5):
+            name_address = m.address_add(
+                m.user_rhythm_address(number), m.OFF_RHYTHM_COMMON
+            )
+            assert name_address == m.user_rhythm_address(number)
+        # And the four are inside the bank, not past its end.
+        assert m.user_rhythm_address(4)[1] == 0x30
+
     @pytest.mark.parametrize("number", [0, 129, -1])
     def test_out_of_range_patch_numbers_raise(self, number):
         with pytest.raises(ValueError):

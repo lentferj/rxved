@@ -88,6 +88,34 @@ def app(tmp_path):
         favorites=favorites,
         catalog=catalog,
         backup_dir=str(tmp_path / "backups"),
+        # The startup bank read would overwrite the catalog this fixture
+        # hands over -- the tests below are about the printed names -- and
+        # write the result into the real data directory. Both are why it is
+        # off here; TestStartupBankRead covers it deliberately.
+        live_names_path=str(tmp_path / "live-names.json"),
+        read_banks_at_startup=False,
+    )
+    yield application
+    favorites.close()
+
+
+@pytest.fixture
+def patch_mode_app(tmp_path):
+    """An app whose demo synth is in PATCH mode.
+
+    `scan_bank` can only work where a program change moves the current
+    patch, so the scan tests need this; the default fixture is in PERFORM
+    mode on purpose, to exercise the multitimbral paths.
+    """
+    bridge = DemoBridge(patch_mode=True)
+    favorites = Favorites(str(tmp_path / "f.db"))
+    application = RxvedApp(
+        bridge,
+        favorites=favorites,
+        catalog=cat.Catalog([cat.Entry("PST-A", 1, "Iron Drone")]),
+        backup_dir=str(tmp_path / "backups"),
+        live_names_path=str(tmp_path / "live-names.json"),
+        read_banks_at_startup=False,
     )
     yield application
     favorites.close()
@@ -104,6 +132,123 @@ class TestStartup:
         async with app.run_test() as pilot:
             await pilot.pause()
             assert app._current_bank == banks.bank_ids()[0]
+
+
+class TestStartupBankRead:
+    """The writable banks are re-read when the window opens.
+
+    USER is the bank that is about to be wrong: the catalog says what the
+    factory shipped, and a USER bank somebody has saved into says something
+    else. Only the instrument can tell the difference, so the browser asks
+    it -- silently, in the background, because `read_user_bank` is RQ1/DT1
+    against addresses in the parameter map and selects nothing.
+    """
+
+    async def _settled(self, pilot, app):
+        """Wait for the background read, rather than sleeping a guessed time.
+
+        A fixed pause is a test that passes on a fast machine and fails
+        under `make check`, which runs the suite with coverage on and takes
+        half again as long. This asks the worker manager instead.
+        """
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+    def _app(self, tmp_path, **kwargs):
+        bridge = DemoBridge()
+        favorites = Favorites(str(tmp_path / "f.db"))
+        application = RxvedApp(
+            bridge,
+            favorites=favorites,
+            catalog=cat.Catalog([cat.Entry("USER", 1, "Grand XV")]),
+            backup_dir=str(tmp_path / "backups"),
+            live_names_path=str(tmp_path / "live-names.json"),
+            **kwargs,
+        )
+        return application, favorites
+
+    async def test_it_reads_the_writable_banks(self, tmp_path):
+        application, favorites = self._app(tmp_path)
+        async with application.run_test() as pilot:
+            await self._settled(pilot, application)
+            assert application.catalog.is_live("USER", 1)
+            assert application.catalog.is_live("R-USER", 1)
+            assert application.catalog.is_live("P-USER", 1)
+        favorites.close()
+
+    async def test_it_selects_nothing(self, tmp_path):
+        """The whole reason this can run unattended at startup."""
+        application, favorites = self._app(tmp_path)
+        async with application.run_test() as pilot:
+            await self._settled(pilot, application)
+            assert application.bridge.selected_log == []
+        favorites.close()
+
+    async def test_hardware_beats_the_printed_list(self, tmp_path):
+        """A USER bank full of the user's own patches is not the factory one."""
+        application, favorites = self._app(tmp_path)
+        async with application.run_test() as pilot:
+            await self._settled(pilot, application)
+            assert application.catalog.display_name("USER", 1) != "Grand XV"
+            assert application.catalog.differs("USER", 1)
+        favorites.close()
+
+    async def test_it_persists_what_it_read(self, tmp_path):
+        """So the next run opens with the right names already up.
+
+        This is the bug: the names used to live only in the process, so
+        every restart fell back to the factory list.
+        """
+        from rxved import livenames
+
+        path = str(tmp_path / "live-names.json")
+        application, favorites = self._app(tmp_path)
+        async with application.run_test() as pilot:
+            await self._settled(pilot, application)
+        favorites.close()
+
+        stored = livenames.load(path)
+        assert stored, "nothing was written"
+        expected = application.bridge.read_user_bank("USER")  # cheap on the demo
+        for number, name in expected.items():
+            assert stored[f"USER:{number:03d}"] == name
+
+    async def test_a_keypress_during_the_read_is_refused(self, tmp_path):
+        """The background read holds `_busy`, so nothing else may start.
+
+        Deterministic rather than timed: `_busy` is set directly instead of
+        waiting for a real read to happen to still be in flight, which is a
+        race that passes on a fast machine and fails under coverage.
+        """
+        application, favorites = self._app(tmp_path, read_banks_at_startup=False)
+        async with application.run_test() as pilot:
+            await pilot.pause()
+            application._busy = True
+            application.action_read_bank()
+            await pilot.pause()
+            assert application.last_status_refused, "the read was not refused"
+            assert not application.catalog.is_live("USER", 1)
+        favorites.close()
+
+    async def test_the_startup_read_holds_busy_while_it_runs(self, tmp_path):
+        """Otherwise a keypress would open a second exchange on one port."""
+        application, favorites = self._app(tmp_path)
+        async with application.run_test() as pilot:
+            await pilot.pause(0.02)
+            seen_busy = application._busy
+            await self._settled(pilot, application)
+            assert seen_busy, "the read ran without marking the app busy"
+            assert not application._busy, "busy was never released"
+        favorites.close()
+
+    async def test_it_can_be_turned_off(self, tmp_path):
+        """The knob the shared fixture uses, and the reason it is injectable."""
+        application, favorites = self._app(tmp_path, read_banks_at_startup=False)
+        async with application.run_test() as pilot:
+            await self._settled(pilot, application)
+            assert not application.catalog.is_live("USER", 1)
+        favorites.close()
 
 
 class TestTheThreeNumbers:

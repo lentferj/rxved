@@ -68,6 +68,8 @@ from textual.widgets import DataTable, Header, Static
 from xv import banks
 from xv import catalog as cat
 
+from rxved import livenames
+
 __all__ = [
     "RxvedApp",
     "main",
@@ -199,6 +201,8 @@ class RxvedApp(App):
         channel: int = 0,
         backup_dir: Optional[str] = None,
         config_path: Optional[str] = None,
+        live_names_path: Optional[str] = None,
+        read_banks_at_startup: bool = True,
     ) -> None:
         super().__init__()
         self.bridge = bridge
@@ -206,6 +210,16 @@ class RxvedApp(App):
         #: None in tests, so a test cannot write a config into the working
         #: directory -- the same reason backup_dir is injected.
         self._config_path = config_path
+        #: Where names read off the synth are kept between runs. Injected for
+        #: the same reason: a test that exercises a bank read must not write
+        #: into the real data directory.
+        self._live_names_path = live_names_path
+        #: Whether to re-read the writable banks when the window opens.
+        #: Injectable for the same reason `backup_dir` is: a test that mounts
+        #: the app would otherwise start a background read that overwrites
+        #: the catalog it was handed and writes the result into the real
+        #: data directory.
+        self._read_banks_at_startup = read_banks_at_startup
         self.favorites = favorites
         #: Where performance backups are written. Injected rather than
         #: looked up inside the worker so that tests -- which exercise the
@@ -226,6 +240,11 @@ class RxvedApp(App):
         #: handler does not react to our own writes.
         self._filling = False
         self._busy = False
+        #: Set by :func:`_close_when_idle` before it starts waiting, so a
+        #: long background read can give up instead of holding shutdown for
+        #: its whole length. The bridge lock already makes closing safe; this
+        #: only makes it quick.
+        self._closing = False
         self.last_status = ""
         self.last_status_refused = False
         #: Which of VIEW_CYCLE the slot pane is showing.
@@ -293,6 +312,7 @@ class RxvedApp(App):
 
         bank_table.focus()
         self._read_channels_worker()
+        self._read_user_bank_at_startup()
         if not self.catalog:
             self.notify_status(
                 "no name catalog -- numbers only. Build one with "
@@ -325,6 +345,99 @@ class RxvedApp(App):
             )
             return
         self.call_from_thread(self._adopt_state, state, True)
+
+    #: The writable banks, and the only ones worth re-reading at startup.
+    #:
+    #: USER is here because it is the bank that is *about* to be wrong. The
+    #: printed list says what the factory shipped; anything the user has
+    #: saved into says something else, and nothing else in the program can
+    #: tell the difference -- only the instrument can. The other two are
+    #: cheap (about a second each) and just as authoritatively the user's
+    #: own, so there is no reason to leave them stale.
+    STARTUP_BANKS = ("USER", "R-USER", "P-USER")
+
+    def _read_user_bank_at_startup(self) -> None:
+        """Re-read the writable banks in the background, once, quietly.
+
+        Runs off the main thread and never asks, because it selects nothing:
+        `read_user_bank` is RQ1/DT1 against addresses in the parameter map,
+        so the instrument is not touched and keeps playing whatever it was
+        playing. About three seconds for all three banks, against a bridge
+        the user may be about to press a key on -- hence the background, and
+        hence sharing `_busy` with everything else so the two cannot overlap.
+
+        Whatever was read last time is already on screen by the time this
+        runs, so this only ever *corrects* the display. If it fails, the
+        stored names stand and there is nothing to undo.
+        """
+        if not self._read_banks_at_startup or not hasattr(
+            self.bridge, "read_user_bank"
+        ):
+            return
+        self._busy = True
+        self._startup_read_worker()
+
+    @work(thread=True)
+    def _startup_read_worker(self) -> None:
+        for bank_id in self.STARTUP_BANKS:
+            if self._closing:
+                self.call_from_thread(self._end_busy)
+                return
+
+            def progress(done: int, total: int, _bank=bank_id) -> None:
+                self.call_from_thread(
+                    self.notify_status, f"reading {_bank} names: {done}/{total}"
+                )
+
+            try:
+                with self._bridge_lock:
+                    names = self.bridge.read_user_bank(bank_id, on_progress=progress)
+            except _BRIDGE_ERRORS as exc:
+                self.call_from_thread(
+                    self.notify_status,
+                    f"could not read {bank_id} names ({exc}); keeping the "
+                    f"ones read last time",
+                    refused=True,
+                )
+                continue
+            self.call_from_thread(self._apply_names_quiet, bank_id, names)
+        self.call_from_thread(self._end_busy)
+
+    def _save_live_names(self, bank_id: str, names: Dict[int, str]) -> None:
+        """Persist one bank's hardware-read names, if we have somewhere to.
+
+        `live_names_path` is resolved by `main()` and injected, rather than
+        defaulted here, for the reason `backup_dir` is: a path this class
+        looks up for itself is a path a test can write to by accident. Two
+        tests in tests/test_legend.py build an app without one, and did --
+        writing DemoBridge's invented patch names into the real data
+        directory. None meaning "do not persist" makes that impossible.
+        """
+        if not self._live_names_path:
+            return
+        livenames.save(
+            {livenames.key(bank_id, n): name for n, name in names.items()},
+            self._live_names_path,
+        )
+
+    def _end_busy(self) -> None:
+        self._busy = False
+        self._refresh_current_bank()
+
+    def _apply_names_quiet(self, bank_id: str, names: Dict[int, str]) -> None:
+        """`_apply_names` without the status line.
+
+        The startup read is not something the user asked for and three
+        banks' worth of "read 128 names from USER" would bury the message
+        they are actually waiting for. It reports nothing on success; a
+        failure still speaks, because silently showing yesterday's names
+        for a bank that has since changed is the bug this whole thing
+        exists to fix.
+        """
+        for number, name in names.items():
+            self.catalog.set_live_name(bank_id, number, name)
+        self._save_live_names(bank_id, names)
+        self.favorites.refresh_names(lambda b, n: self.catalog.live_name(b, n))
 
     def _adopt_state(self, state, move_cursor: bool = False) -> None:
         """Take a freshly read DeviceState and redraw what depends on it."""
@@ -936,6 +1049,10 @@ class RxvedApp(App):
     def _apply_names(self, bank_id: str, names: Dict[int, str]) -> None:
         for number, name in names.items():
             self.catalog.set_live_name(bank_id, number, name)
+        # Persisted here rather than at exit: a crash, a power cut or a
+        # `q` during the read should not cost the read, and these names are
+        # the only authority there is for a bank somebody has saved into.
+        self._save_live_names(bank_id, names)
         changed = self.favorites.refresh_names(
             lambda b, n: self.catalog.live_name(b, n)
         )
@@ -1565,6 +1682,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--favorites", default=None, help="path to the favourites database"
     )
     parser.add_argument(
+        "--live-names",
+        default=None,
+        help="where names read from the synth are kept between runs "
+        "(default: beside the favourites database)",
+    )
+    parser.add_argument(
         "--backup-dir",
         default=None,
         help="where performance backups are written "
@@ -1626,6 +1749,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     from rxved.favorites import Favorites
 
     catalog = cat.load(args.catalog)
+    # Before the app is built, so the first frame already shows the names the
+    # synth gave last time. Waiting for the hardware read to come back would
+    # mean opening on the printed list and correcting it a moment later,
+    # which is the flicker this exists to remove -- and for a USER bank the
+    # printed list is not a rough version of the truth, it is a different
+    # bank's worth of names.
+    stored = livenames.load(args.live_names)
+    for slot_key, name in stored.items():
+        bank_id, _, number = slot_key.rpartition(":")
+        if bank_id and number.isdigit():
+            catalog.set_live_name(bank_id, int(number), name)
     try:
         favorites = Favorites(args.favorites)
     except (_BRIDGE_ERRORS, sqlite3.Error) as exc:
@@ -1642,6 +1776,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         channel=channel or 0,
         backup_dir=args.backup_dir,
         config_path=config_path,
+        live_names_path=args.live_names or livenames.default_path(),
     )
     try:
         app.run()
@@ -1671,6 +1806,10 @@ def _close_when_idle(app, bridge, grace: float = SHUTDOWN_GRACE) -> None:
     boundedly, because a hung worker must not hold the process open forever.
     """
     lock = getattr(app, "_bridge_lock", None)
+    # Tell a background worker to stop starting new work, before waiting on
+    # it -- otherwise quitting during the startup bank read waits for all
+    # three banks to finish.
+    app._closing = True
     acquired = False
     if lock is not None:
         acquired = lock.acquire(timeout=grace)

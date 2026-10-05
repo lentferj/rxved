@@ -1786,11 +1786,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # which is the flicker this exists to remove -- and for a USER bank the
     # printed list is not a rough version of the truth, it is a different
     # bank's worth of names.
-    stored = livenames.load(args.live_names)
-    for slot_key, name in stored.items():
-        bank_id, _, number = slot_key.rpartition(":")
-        if bank_id and number.isdigit():
-            catalog.set_live_name(bank_id, int(number), name)
+    livenames.apply_to(catalog, args.live_names)
     try:
         favorites = Favorites(args.favorites)
     except (_BRIDGE_ERRORS, sqlite3.Error) as exc:

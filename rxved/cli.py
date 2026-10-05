@@ -38,6 +38,8 @@ from typing import Callable, Dict, List, Optional
 from xv import banks
 from xv import catalog as cat
 
+from rxved import livenames
+
 __all__ = ["main", "build_parser"]
 
 
@@ -58,7 +60,16 @@ def _fmt_table(rows: List[List[str]], headers: List[str]) -> str:
 
 
 def _catalog(args) -> cat.Catalog:
-    return cat.load(getattr(args, "catalog", None))
+    """The printed catalog, with any hardware-read names laid over it.
+
+    The live layer matters here as much as in the browser: `rxvcli list USER`
+    reporting what the factory shipped rather than what is in the machine is
+    the same wrong answer the TUI used to give, reached by a different route.
+    `read` writes that layer, and everything else here reads it.
+    """
+    catalog = cat.load(getattr(args, "catalog", None))
+    livenames.apply_to(catalog, getattr(args, "live_names", None))
+    return catalog
 
 
 def _favorites(args):
@@ -307,9 +318,19 @@ def _cmd_status(bridge, _args) -> None:
 
 
 def _cmd_read(bridge, args) -> None:
-    """Read a USER bank's names. Read-only: nothing is selected."""
+    """Read a USER bank's names. Read-only over MIDI: nothing is selected.
+
+    Written to the live-names cache afterwards, so the next `rxved` opens
+    already showing them rather than waiting on its own startup read. The
+    read itself still touches nothing on the instrument; the write is to a
+    local file, and it is the same thing `rxved` does at every launch.
+    """
     names = bridge.read_user_bank(args.bank)
     catalog = _catalog(args)
+    livenames.save(
+        {livenames.key(args.bank, n): name for n, name in names.items()},
+        getattr(args, "live_names", None),
+    )
     rows = []
     for number in sorted(names):
         printed = catalog.name(args.bank, number)
@@ -836,6 +857,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", default=None)
     parser.add_argument("--catalog", default=None)
     parser.add_argument("--favorites", default=None)
+    parser.add_argument(
+        "--live-names",
+        default=None,
+        help="where names read from the synth are kept between runs "
+        "(default: beside the favourites database)",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("ports", help="list MIDI ports on this host")
@@ -911,7 +938,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--slot", type=int, required=True)
     sp.add_argument("--yes", action="store_true")
 
-    sp = sub.add_parser("read", help="read a USER bank's names (read-only)")
+    sp = sub.add_parser(
+        "read",
+        help="read a USER bank's names (read-only over MIDI) and cache them",
+    )
     sp.add_argument("bank", choices=["USER", "P-USER", "R-USER"])
 
     sp = sub.add_parser("select", help="select a slot ON THE SYNTH")

@@ -105,6 +105,32 @@ class TestStore:
         assert catalog.display_name("USER", 1) == "Analogue!"
         assert catalog.is_live("USER", 1)
 
+    def test_apply_to_skips_keys_that_do_not_parse(self, tmp_path):
+        """A name on the wrong slot is worse than a missing one.
+
+        It is a plausible wrong answer, and there is no marker for it: the
+        `*` only fires on a disagreement, so a key like "USER" or "USER:x"
+        would land silently on slot 0 and look like a real reading.
+        """
+        path = tmp_path / "live-names.json"
+        path.write_text(
+            json.dumps(
+                {"USER:001": "Fine", "USER": "No number", "USER:x": "Not digits"}
+            ),
+            encoding="utf-8",
+        )
+        catalog = cat.empty()
+        applied = livenames.apply_to(catalog, str(path))
+
+        assert applied == 1
+        assert catalog.display_name("USER", 1) == "Fine"
+        assert catalog.display_name("USER", 0) == cat.UNNAMED
+
+    def test_apply_to_reports_how_many(self, tmp_path):
+        path = str(tmp_path / "live-names.json")
+        livenames.save({livenames.key("USER", n): f"P{n}" for n in (1, 2, 3)}, path)
+        assert livenames.apply_to(cat.empty(), path) == 3
+
     def test_stored_names_beat_the_printed_list(self, tmp_path):
         """The disagreement is the point, so it must survive a restart too."""
         path = str(tmp_path / "live-names.json")
@@ -119,3 +145,65 @@ class TestStore:
         assert catalog.differs("USER", 1), "the * marker depends on this"
         # And the printed name is still there to disagree with.
         assert catalog.name("USER", 1) == "Grand XV"
+
+
+class TestTheCliUsesIt:
+    """`rxvcli` was the odd one out: it read names and threw them away.
+
+    `rxved` cached what it read at startup, so `rxvcli read USER` printing
+    the same names and keeping none of them meant the shell could not prime
+    the cache the browser then waited three seconds to fill.
+    """
+
+    def _args(self, tmp_path, *argv):
+        from rxved import cli
+
+        return cli.build_parser().parse_args(
+            [
+                "--live-names",
+                str(tmp_path / "live-names.json"),
+                "--favorites",
+                str(tmp_path / "f.db"),
+                *argv,
+            ]
+        )
+
+    def test_read_caches_what_it_reads(self, tmp_path):
+        from rxved import cli
+        from rxved.demo import DemoBridge
+
+        path = str(tmp_path / "live-names.json")
+        bridge = DemoBridge()
+        args = self._args(tmp_path, "read", "USER")
+
+        cli._cmd_read(bridge, args)
+
+        stored = livenames.load(path)
+        expected = bridge.read_user_bank("USER")
+        assert stored, "read saved nothing"
+        for number, name in expected.items():
+            assert stored[f"USER:{number:03d}"] == name
+
+    def test_list_shows_the_cached_names(self, tmp_path):
+        """Otherwise `read` would be pointless: nothing would use the result.
+
+        Before this, `rxvcli list USER` reported the factory list even
+        straight after a read -- the same wrong answer the browser used to
+        give, reached by a different route.
+        """
+        from rxved import cli
+
+        path = str(tmp_path / "live-names.json")
+        args = self._args(tmp_path, "list", "USER")
+        livenames.save({livenames.key("USER", 1): "Analogue!"}, path)
+
+        catalog = cli._catalog(args)
+
+        assert catalog.display_name("USER", 1) == "Analogue!"
+        assert catalog.is_live("USER", 1)
+
+    def test_no_cache_file_is_not_an_error(self, tmp_path):
+        from rxved import cli
+
+        args = self._args(tmp_path, "list", "USER")
+        assert cli._catalog(args) is not None

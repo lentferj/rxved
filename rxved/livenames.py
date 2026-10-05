@@ -103,6 +103,23 @@ def load(path: Optional[str] = None) -> Dict[str, str]:
     return {k: v for k, v in raw.items() if isinstance(k, str) and isinstance(v, str)}
 
 
+def apply_to(catalog, path: Optional[str] = None) -> int:
+    """Lay the stored names over `catalog`. Returns how many were applied.
+
+    Both front ends need this before they draw anything, and the parsing is
+    the part worth sharing: a key that does not parse is skipped rather than
+    guessed at, because a name attached to the wrong slot is worse than a
+    missing one -- it is a plausible wrong answer.
+    """
+    applied = 0
+    for stored, name in load(path).items():
+        bank_id, _, number = stored.rpartition(":")
+        if bank_id and number.isdigit():
+            catalog.set_live_name(bank_id, int(number), name)
+            applied += 1
+    return applied
+
+
 def save(names: Dict[str, str], path: Optional[str] = None) -> None:
     """Write the live layer out. Best effort -- a cache is not required.
 

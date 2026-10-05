@@ -997,6 +997,37 @@ class RxvedApp(App):
         if self._busy:
             self.notify_status("already talking to the synth", refused=True)
             return
+        # Checked before the confirmation, not after: in Performance mode the
+        # scan cannot work at all, and asking "play 128 notes?" first and
+        # then refusing is worse than saying so up front. Observed on real
+        # hardware -- the synth answered every read with the patch it was
+        # already on, and every slot came back with that one name.
+        state = getattr(self.bridge, "state", None)
+        if state is not None and not state.setup.is_patch_mode:
+            self.notify_status(
+                f"the synth is in [b]{state.setup.mode_name}[/b] mode, where a "
+                f"program change on the patch receive channel does not change "
+                f"the patch that gets read back -- so scanning would report "
+                f"the current patch's name for every one of {entry.count} "
+                f"slots. Switch to PATCH mode (SYSTEM/MIDI) and press s "
+                f"again. Nothing has been sent.",
+                refused=True,
+            )
+            return
+        if bank_id in ("USER", "P-USER", "R-USER"):
+            # Scanning these is not just slower than reading them, it is
+            # wrong: it plays 128 program changes to learn what `r` reads
+            # silently and exactly, and on a synth that is not following the
+            # program change it reports the patch the synth is sitting on,
+            # once per slot. Verified on hardware -- 128 slots all reading
+            # the current patch's name.
+            self.notify_status(
+                f"{bank_id} has addresses in the parameter map, so r reads it "
+                f"directly: silent, exact, and about 3 seconds. s is only "
+                f"for ROM and expansion banks, which have no address.",
+                refused=True,
+            )
+            return
 
         def go(confirmed: bool) -> None:
             if confirmed:

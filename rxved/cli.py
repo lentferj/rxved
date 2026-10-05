@@ -522,6 +522,27 @@ def _cmd_multi(bridge, args) -> None:
 
 def _cmd_scan(bridge, args) -> None:
     entry = banks.bank(args.bank)
+    if args.bank in ("USER", "P-USER", "R-USER"):
+        raise SystemExit(
+            f"error: {args.bank} has addresses in the parameter map, so "
+            f"`rxvcli read {args.bank}` gets the same names directly -- "
+            f"silently, exactly, in about 3 seconds. Scanning it instead "
+            f"plays {entry.count} program changes, and on a synth that is "
+            f"not following them it reports the patch the synth is sitting "
+            f"on, once per slot. Scan is for ROM and expansion banks, which "
+            f"have no address to read."
+        )
+    if args.bank not in ("USER", "P-USER", "R-USER"):
+        setup = getattr(getattr(bridge, "state", None), "setup", None)
+        if setup is not None and not setup.is_patch_mode:
+            raise SystemExit(
+                f"error: the synth is in {setup.mode_name} mode, where a "
+                f"program change on the patch receive channel does not change "
+                f"the patch that gets read back. Scanning {args.bank} would "
+                f"send {entry.count} program changes and report the current "
+                f"patch's name for every one of them. Switch to PATCH mode "
+                f"(SYSTEM/MIDI) and try again. Nothing has been sent."
+            )
     if not args.yes:
         raise SystemExit(
             f"error: scanning {args.bank} sends {entry.count} program "

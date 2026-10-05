@@ -34,6 +34,7 @@ from rxved.app import (
     StoreScreen,
     TextPromptScreen,
 )
+from rxved.screens import ConfirmScreen
 from rxved.demo import DemoBridge
 from rxved.favorites import Favorites
 from xv import banks
@@ -432,7 +433,54 @@ class TestScanAsksFirst:
             await pilot.pause(0.2)
             assert app.bridge.selected_log == []
 
-    async def test_scan_runs_once_confirmed(self, app):
+    async def test_scan_runs_once_confirmed(self, patch_mode_app):
+        async with patch_mode_app.run_test() as pilot:
+            await pilot.pause()
+            # A ROM/expansion bank: the only kind `s` is for. SRX-09-4 is the
+            # smallest at 30 slots, which keeps the test quick without
+            # weakening what it checks.
+            index = banks.bank_ids().index("SRX-09-4")
+            for _ in range(index):
+                await pilot.press("down")
+            await pilot.pause()
+            patch_mode_app.action_scan_bank()
+            await pilot.pause()
+            await pilot.press("y")
+            await pilot.pause(0.3)
+            assert len(patch_mode_app.bridge.selected_log) == 30
+            assert patch_mode_app.catalog.is_live("SRX-09-4", 1)
+
+    async def test_scan_refuses_in_performance_mode(self, app):
+        """Where a program change does not move the current patch.
+
+        Verified on real hardware: an XV-2020 in PERFORM mode answered all
+        128 reads with the patch it was already on, so the scan reported
+        that one name 128 times. Refused up front, before the confirmation,
+        rather than after playing the bank.
+        """
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            index = banks.bank_ids().index("PST-A")
+            for _ in range(index):
+                await pilot.press("down")
+            await pilot.pause()
+            app.action_scan_bank()
+            await pilot.pause()
+            assert app.bridge.selected_log == [], "sent program changes anyway"
+            assert "PERFORM" in app.last_status
+            assert app.last_status_refused
+            # And no confirmation dialog was raised to be escaped from.
+            assert not isinstance(app.screen, ConfirmScreen), (
+                "asked for consent before refusing"
+            )
+
+    async def test_scan_refuses_a_bank_that_can_be_read_directly(self, app):
+        """USER, R-USER and P-USER have addresses; `r` gets them silently.
+
+        Scanning them instead is not merely slower -- on a synth that is not
+        following the program change it reports the patch the synth is
+        sitting on, once per slot, which is exactly what it did.
+        """
         async with app.run_test() as pilot:
             await pilot.pause()
             index = banks.bank_ids().index("R-USER")
@@ -441,10 +489,21 @@ class TestScanAsksFirst:
             await pilot.pause()
             app.action_scan_bank()
             await pilot.pause()
-            await pilot.press("y")
+            assert app.bridge.selected_log == []
+            assert "r" in app.last_status
+
+    async def test_read_still_works_on_those_banks(self, app):
+        """The refusal points somewhere real."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            index = banks.bank_ids().index("R-USER")
+            for _ in range(index):
+                await pilot.press("down")
+            await pilot.pause()
+            app.action_read_bank()
             await pilot.pause(0.3)
-            assert len(app.bridge.selected_log) == 4
             assert app.catalog.is_live("R-USER", 1)
+            assert app.bridge.selected_log == [], "reading selected something"
 
     async def test_srx_probe_asks_first_too(self, app):
         async with app.run_test() as pilot:
@@ -593,18 +652,19 @@ class TestSweepsPutTheSynthBack:
     reading the browser's own status line after a probe.
     """
 
-    async def test_a_scan_restores_the_previous_patch(self, app):
-        async with app.run_test() as pilot:
+    async def test_a_scan_restores_the_previous_patch(self, patch_mode_app):
+        async with patch_mode_app.run_test() as pilot:
             await pilot.pause(0.4)
-            index = banks.bank_ids().index("R-USER")
+            # PST-A, a preset bank -- the kind of bank a scan is for.
+            index = banks.bank_ids().index("PST-A")
             for _ in range(index):
                 await pilot.press("down")
             await pilot.pause()
-            app.action_scan_bank()
+            patch_mode_app.action_scan_bank()
             await pilot.pause()
             await pilot.press("y")
             await pilot.pause(0.5)
-            assert app.bridge.raw_log, "scan left the synth where it stopped"
+            assert patch_mode_app.bridge.raw_log, "scan left the synth where it stopped"
 
     async def test_a_probe_restores_the_previous_patch(self, app):
         async with app.run_test() as pilot:

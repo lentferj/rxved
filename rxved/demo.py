@@ -98,7 +98,9 @@ class DemoBridge:
     point of this class is to work where that import fails.
     """
 
-    def __init__(self, *, latency: float = 0.0, channel: int = 0) -> None:
+    def __init__(
+        self, *, latency: float = 0.0, channel: int = 0, patch_mode: bool = False
+    ) -> None:
         self.description = "demo (no MIDI ports opened)"
         self.device_id = DEMO_DEVICE_ID
         self.channel = channel
@@ -121,6 +123,12 @@ class DemoBridge:
         #: real machine fails.
         self.channels: Optional[object] = None
         self.state: Optional[object] = None
+        #: PERFORM by default, because the multitimbral paths are the ones
+        #: with anything to get wrong. `patch_mode=True` gives a fake in
+        #: PATCH mode instead, which is what `scan_bank` needs -- a program
+        #: change only moves the current patch in PATCH mode, so a scan
+        #: against a PERFORM-mode fake correctly refuses.
+        self.patch_mode = patch_mode
         #: Edits made through the multi-mode screen, as the temporary
         #: performance would hold them: in memory, gone when this object is.
         self._part_edits: Dict[int, dict] = {}
@@ -231,7 +239,7 @@ class DemoBridge:
         # A demo synth in PERFORM mode, so the multitimbral paths -- which
         # are the ones with anything to get wrong -- are the ones exercised.
         return SetupState(
-            mode=SoundMode.PERFORM,
+            mode=SoundMode.PATCH if self.patch_mode else SoundMode.PERFORM,
             performance_msb=85,
             performance_lsb=0,
             performance_program=4,

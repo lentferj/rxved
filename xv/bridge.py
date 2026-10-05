@@ -177,6 +177,18 @@ DEFAULT_TIMEOUT = 2.0
 #: total cost is this times the number of ports.
 AUTODETECT_TIMEOUT = 0.6
 
+#: How many consecutive slots may read back a name *identical to the one
+#: before* during a scan before the scan gives up and says the synth is not
+#: moving. The first slot cannot be a repeat -- there is nothing to repeat
+#: -- so this is reached on the (limit + 1)th select.
+#:
+#: Two adjacent slots genuinely sharing a name is normal and must not trip
+#: this; the retry loop already re-reads those. Four repeats is past
+#: coincidence in any bank Roland or a user would build, and small enough
+#: that a broken scan stops after a handful of program changes rather than
+#: 128 of them.
+STUCK_SLOT_LIMIT = 4
+
 #: Raw value of Performance Control Channel meaning "OFF" (OM p. 147: the
 #: parameter runs 0-16 and its values read "1 - 16, OFF", so 0-15 are the
 #: channels and 16 is off). With it off, performances cannot be selected over
@@ -576,6 +588,20 @@ class SetupState:
     @property
     def multitimbral(self) -> bool:
         return self.mode in SoundMode.MULTITIMBRAL
+
+    @property
+    def is_patch_mode(self) -> bool:
+        """Whether a program change moves *the* patch this synth has.
+
+        True only in PATCH mode, and that is what makes it worth naming:
+        `scan_bank` works by selecting a slot and reading back the patch the
+        machine says it is now playing. In every other mode the read-back
+        does not follow the program change -- verified on a real XV-2020 in
+        PERFORM mode, which answered all 128 reads with the patch it was
+        already sitting on -- so a scan there cannot produce names, only a
+        plausible-looking row of the same wrong one.
+        """
+        return self.mode == SoundMode.PATCH
 
     @property
     def patch_slot(self) -> Optional[banks.Slot]:
@@ -2236,25 +2262,61 @@ class XvBridge:
         imperfect -- two adjacent slots genuinely sharing a name will retry
         and then, correctly, keep the duplicate -- but it fails towards
         slowness rather than towards quiet corruption.
+
+        **Unless the instrument never moved at all**, which is a different
+        failure with the same disguise: the retry loop gives up, accepts the
+        unchanged name, and reports it for all 128 slots. That is not a slow
+        load, it is a synth that is not following the program change -- in
+        Performance mode the patch receive channel does not move the current
+        patch, and a Bank Select receive switch switched off drops the bank
+        bytes while the program change still lands. Both were observed on
+        real hardware, and both produce a screen of one wrong name repeated
+        128 times, which looks exactly like a bank of identically-named
+        patches. :meth:`scan_bank` therefore refuses rather than reports it;
+        see :func:`_stuck_after`.
         """
         entries = banks.slots(bank_id)
         out: Dict[int, str] = {}
         previous: Optional[str] = None
+        stuck = 0
         before = self._remember_selection() if restore else None
-        for index, entry in enumerate(entries):
-            self.select(entry)
-            time.sleep(settle)
-            name = self.temporary_patch_name(timeout=timeout)
-            attempts = 0
-            while name == previous and attempts < 3:
+        try:
+            for index, entry in enumerate(entries):
+                self.select(entry)
                 time.sleep(settle)
                 name = self.temporary_patch_name(timeout=timeout)
-                attempts += 1
-            out[entry.number] = name
-            previous = name
-            if on_progress is not None:
-                on_progress(index + 1, len(entries), name)
-        self._restore_selection(before)
+                attempts = 0
+                while name == previous and attempts < 3:
+                    time.sleep(settle)
+                    name = self.temporary_patch_name(timeout=timeout)
+                    attempts += 1
+                if name == previous:
+                    stuck += 1
+                else:
+                    stuck = 0
+                out[entry.number] = name
+                previous = name
+                if on_progress is not None:
+                    on_progress(index + 1, len(entries), name)
+                # Bail out early rather than play the same wrong note 128
+                # times: the answer cannot change once the synth has
+                # declined to move three times running.
+                if stuck >= STUCK_SLOT_LIMIT:
+                    raise DeviceError(
+                        f"the synth did not change patch: slots 1-{stuck + 1} of "
+                        f"{bank_id} all read {name!r}. A program change is "
+                        f"either being ignored or is not moving the patch "
+                        f"that is read back.\n"
+                        f"Most likely the synth is in PERFORMANCE mode, "
+                        f"where the patch receive channel does not select the "
+                        f"current patch -- switch it to PATCH mode (SYSTEM/"
+                        f"MIDI) and try again. Otherwise check the Bank "
+                        f"Select receive switch for the send channel in `m` "
+                        f"(multi-mode setup): with rxBS off the bank bytes "
+                        f"are dropped and the program change still lands."
+                    )
+        finally:
+            self._restore_selection(before)
         return out
 
     def _remember_selection(self) -> Optional[Tuple[int, int, int]]:

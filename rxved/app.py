@@ -517,15 +517,24 @@ class RxvedApp(App):
         self._current_slots = self._visible_slots(bank_id)
         across_banks = self.view_mode == VIEW_ALL_FAVOURITES
         favorited = self.favorites.keys()
+        # When nothing in this bank agrees with the printed list any more --
+        # the normal state of a USER bank somebody works in -- marking every
+        # row tells the eye nothing. The printed name moves to the detail
+        # line for the slot you are actually on.
+        self._printed_void = self.catalog.printed_list_void(
+            bank_id, (s.number for s in self._current_slots)
+        )
         self._filling = True
         try:
             table.clear()
             for slot in self._current_slots:
                 name = self.catalog.display_name(slot.bank_id, slot.number)
-                if self.catalog.differs(slot.bank_id, slot.number):
-                    # The machine and the book disagree. For a USER slot this
-                    # is the normal state of a synth somebody uses, and it is
-                    # the single most useful thing this screen can point out.
+                if self.catalog.differs(slot.bank_id, slot.number) and not (
+                    self._printed_void and not across_banks
+                ):
+                    # The machine and the book disagree, and *rarely*, which
+                    # is what makes it worth a glance: somebody saved over
+                    # this slot.
                     shown = f"[b]{name}[/b] [dim]*[/dim]"
                 elif self.catalog.is_live(slot.bank_id, slot.number):
                     shown = f"[b]{name}[/b]"
@@ -601,8 +610,16 @@ class RxvedApp(App):
         slot = self._current_slots[row]
         name = self.catalog.display_name(slot.bank_id, slot.number)
         fav = self.favorites.get(slot.bank_id, slot.number)
+        header = f"[b]{slot.bank.label} {slot.number:03d}[/b]  {name}"
+        printed = self.catalog.name(slot.bank_id, slot.number)
+        if self.catalog.differs(slot.bank_id, slot.number) and printed:
+            # The factory name, for the slot you are on rather than on all
+            # 128 rows at once. On a bank nobody has saved into, the
+            # printed list still describes the machine and this is the only
+            # place it is shown.
+            header += f"   [dim]factory: {printed}[/dim]"
         lines = [
-            f"[b]{slot.bank.label} {slot.number:03d}[/b]  {name}",
+            header,
             f"Program Change [b]{slot.program_change}[/b] "
             f"[dim](wire, 0-based; the display shows "
             f"{slot.number})[/dim]   "
@@ -1090,7 +1107,14 @@ class RxvedApp(App):
         self._refresh_current_bank()
         differing = sum(1 for number in names if self.catalog.differs(bank_id, number))
         message = f"read {len(names)} name(s) from {bank_id}"
-        if differing:
+        void = self.catalog.printed_list_void(bank_id, names)
+        if void:
+            message += (
+                "; this bank has been saved into, so the printed list no "
+                "longer describes it (factory name of the highlighted slot "
+                "is shown below)"
+            )
+        elif differing:
             message += f"; {differing} differ from the printed list (marked *)"
         if changed:
             message += f"; relabelled {changed} favourite(s)"

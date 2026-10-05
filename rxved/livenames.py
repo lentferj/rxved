@@ -56,7 +56,7 @@ from typing import Dict, Optional
 
 from rxved.favorites import data_dir
 
-__all__ = ["FILE_NAME", "default_path", "load", "save", "key"]
+__all__ = ["FILE_NAME", "default_path", "load", "save", "key", "apply_to"]
 
 #: The filename, in the data directory beside ``favorites.db``.
 FILE_NAME = "live-names.json"

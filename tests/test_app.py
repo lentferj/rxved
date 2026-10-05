@@ -401,6 +401,64 @@ class TestReadingNames:
             # The demo's invented names are nothing like the fixture's.
             assert app.catalog.differs("USER", 1)
 
+
+class TestTheDisagreementMarker:
+    """`*` is worth a glance exactly when it is rare.
+
+    Measured on real hardware: a USER bank somebody works in had all 128
+    slots disagreeing with the printed list, and only slot 128 left holding
+    the factory `INIT PATCH`. A marker on every row is arithmetically true
+    and completely silent -- so when *nothing* agrees, the printed list has
+    stopped describing the bank and the marker goes, with the factory name
+    moved to the slot you are actually on.
+    """
+
+    async def test_one_saved_slot_still_gets_marked(self, app):
+        """The case the marker exists for, and it must keep working."""
+        app.catalog = cat.Catalog(
+            [cat.Entry("USER", n, f"Factory {n:03d}") for n in range(1, 129)]
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            # Read the demo's names, then put slot 1 back to the factory one,
+            # so exactly one slot agrees.
+            app.action_read_bank()
+            await settle(pilot)
+            app.catalog.set_live_name("USER", 1, "Factory 001")
+            app._refresh_current_bank()
+            await pilot.pause()
+            assert not app.catalog.printed_list_void("USER", range(1, 129))
+
+    async def test_a_fully_saved_bank_is_not_marked(self, app):
+        app.catalog = cat.Catalog(
+            [cat.Entry("USER", n, f"Factory {n:03d}") for n in range(1, 129)]
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_read_bank()
+            await settle(pilot)
+            assert app.catalog.printed_list_void("USER", range(1, 129))
+            assert "saved into" in app.last_status
+
+    async def test_the_factory_name_moves_to_the_detail_line(self, app):
+        """So the information is not lost -- it is just not on 128 rows."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_read_bank()
+            await settle(pilot)
+            app._update_detail(0)
+            await pilot.pause()
+            detail = str(app.query_one("#detail", Static).render())
+            assert "factory: Velvet Bell" in detail, detail
+            assert app.catalog.name("USER", 1) == "Velvet Bell"
+
+    async def test_an_unread_bank_is_not_void(self, app):
+        """No evidence from the synth is not evidence of disagreement."""
+        app.catalog = cat.Catalog([cat.Entry("USER", 1, "Grand XV")])
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert not app.catalog.printed_list_void("USER", range(1, 129))
+
     async def test_r_refuses_a_rom_bank_and_says_why(self, app):
         async with app.run_test() as pilot:
             await pilot.pause()

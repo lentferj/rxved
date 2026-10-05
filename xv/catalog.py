@@ -233,6 +233,43 @@ class Catalog:
         printed = self.name(bank_id, number)
         return live is not None and printed is not None and live != printed
 
+    def printed_list_void(self, bank_id: str, numbers: Iterable[int]) -> bool:
+        """Whether the printed list has stopped describing this bank at all.
+
+        The `*` marker means "the machine and the book disagree here", and it
+        is worth one glance exactly when it is rare: somebody saved over
+        slot 42 and the marker says so.
+
+        Once **nothing** in the bank agrees, it is not rare, it is the whole
+        bank, and the marker says nothing a glance can use. That is the
+        normal state of a USER bank somebody actually works in -- measured on
+        real hardware, 128 of 128 slots differing, with only slot 128 left
+        holding the factory `INIT PATCH`. Marking all 128 is arithmetically
+        true and completely silent.
+
+        The rule is deliberately "no slot agrees", not a ratio: the printed
+        list describes a bank as it shipped, so the moment the machine
+        disagrees everywhere, that description is history and there is
+        nothing left to compare against. It also needs no threshold and no
+        minimum sample size, so it behaves the same on a 4-slot R-USER as on
+        a 128-slot USER.
+
+        The names themselves are not lost -- they are still in the catalog,
+        and the browser shows the printed one for whichever slot is
+        highlighted. Only the per-row marker goes.
+        """
+        compared = 0
+        for number in numbers:
+            if self.name(bank_id, number) is None:
+                continue
+            if self.live_name(bank_id, number) is None:
+                # Not read from the synth: no evidence either way.
+                return False
+            compared += 1
+            if self.name(bank_id, number) == self.live_name(bank_id, number):
+                return False
+        return compared > 0
+
     def category(self, bank_id: str, number: int) -> str:
         """This slot's category code, or :data:`UNCATEGORISED`."""
         entry = self.entry(bank_id, number)

@@ -97,8 +97,8 @@ Source = "https://github.com/lentferj/rxved"
 Issues = "https://github.com/lentferj/rxved/issues"
 
 [project.scripts]
-rxved = "rxved.app:main"
-rxvcli = "rxved.cli:main"
+rxved = "rxved.entry:app"
+rxvcli = "rxved.entry:cli"
 
 [tool.setuptools]
 packages = ["xv", "rxved"]

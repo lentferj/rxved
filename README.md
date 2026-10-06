@@ -113,10 +113,23 @@ patches.
 ## Install
 
 ```sh
+git clone https://github.com/lentferj/vinsynlib.git ../vinsynlib
 python3 -m venv --system-site-packages .venv
 .venv/bin/python -m pip install --upgrade pip
+.venv/bin/pip install --no-deps -e ../vinsynlib
 .venv/bin/pip install -e .
 ```
+
+Two checkouts, side by side — this project and **vinsynlib**, the shared base
+of this family of terminal instrument tools: the settings cache, the
+favourites database, the keymap and legend, the command line and the port
+listing. vinsynlib is **not on PyPI**, so it is installed from the sibling
+checkout above, and installed *first* so that the second command finds the
+requirement already satisfied. `--no-deps` because its dependencies are this
+project's too, and a second copy of `textual` in the same venv is a version
+skew to diagnose somewhere else. `uv sync` reads the path from
+`[tool.uv.sources]` in `pyproject.toml` instead: the checkout has to exist,
+but neither `pip` line is needed.
 
 Needs Python 3.11+, `python-rtmidi` and `textual`. On Linux you also need an
 ALSA sequencer — `rxvcli ports` will tell you plainly if there isn't one.
@@ -437,30 +450,18 @@ resolved and where every transcribed number came from.
 
 ### Development checks
 
-rxved depends on **vinsynlib**, the shared base of this family of terminal
-instrument browsers — the settings cache, the favourites database, the
-keymap and legend, the command line, the port listing. It is **not on
-PyPI**: it is a sibling checkout, so it is installed from the working tree
-and installed *first*, so that the second command finds the requirement
-already satisfied.
+The same two checkouts as [Install](#install) above, plus the pinned
+toolchain and the git hook:
 
 ```sh
-python3 -m venv --system-site-packages .venv
-.venv/bin/python -m pip install --upgrade pip
-.venv/bin/pip install --no-deps -e ../vinsynlib
 .venv/bin/pip install -e '.[dev]'
 pre-commit install
 
 make check            # lint, types, tests, audit — fails on any error
 ```
 
-`--no-deps` on the first command because `vinsynlib`'s own dependencies are
-`rxved`'s too, and a second copy of `textual` in the venv is a version skew
-waiting to be diagnosed somewhere else. `uv` reads the sibling path from
-`[tool.uv.sources]` in `pyproject.toml` instead of being told.
-
-The checkout therefore has to be beside `vinsynlib`'s, which is how the
-family is arranged:
+The checkouts therefore sit beside each other, which is how the family is
+arranged:
 
 ```
 git-repos/

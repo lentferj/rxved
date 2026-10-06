@@ -35,7 +35,7 @@ which is the whole of what these tests are about.
 import pytest
 
 from xv import bridge as b
-from xv import config as cfg
+from xv import config
 from xv import messages as m
 
 XV_PORT = "Roland XV-2020:Roland XV-2020 MIDI 1 68:0"
@@ -104,10 +104,20 @@ class _Probe:
         return probe
 
 
-def _config(tmp_path, **settings):
+def _config(tmp_path, *, port=None, recv_port=None, device_id=None):
+    """A settings cache holding what the arguments say.
+
+    Written through xv.config's public names rather than a private TOML
+    writer. `port`/`recv_port`, not `send_port`/`recv_port`: the family
+    writes the output port under `port`, so a fixture that used the old key
+    name would exercise a file no version of rxved reads back -- and would
+    pass against a store that had stopped storing anything at all.
+    """
     path = str(tmp_path / "config.toml")
-    for key, value in settings.items():
-        cfg._update_config(path, **{key: value})
+    if port is not None:
+        config.save_last_ports(port, recv_port or port, path)
+    if device_id is not None:
+        config.save_device_id(device_id, path)
     return path
 
 
@@ -120,7 +130,7 @@ def test_a_remembered_port_is_used_without_sweeping(monkeypatch, tmp_path):
     The whole point: a sweep pings every MIDI device on the machine, once
     per launch, and takes seconds on a box with thirty ports.
     """
-    path = _config(tmp_path, send_port=XV_PORT, recv_port=XV_PORT, device_id=17)
+    path = _config(tmp_path, port=XV_PORT, device_id=17)
     probe = _Probe({XV_PORT: m.device_id_byte(17)}).install(monkeypatch)
 
     bridge = b.XvBridge.connect(config_path=path)
@@ -137,7 +147,7 @@ def test_the_remembered_path_takes_the_device_id_from_the_reply(monkeypatch, tmp
     the file is wrong. A wrongly addressed request is answered with
     silence, so the live answer is the only one that can be trusted.
     """
-    path = _config(tmp_path, send_port=XV_PORT, recv_port=XV_PORT, device_id=17)
+    path = _config(tmp_path, port=XV_PORT, device_id=17)
     _Probe({XV_PORT: m.device_id_byte(24)}).install(monkeypatch)
 
     bridge = b.XvBridge.connect(config_path=path)
@@ -152,13 +162,13 @@ def test_the_remembered_path_does_not_write_the_config(monkeypatch, tmp_path):
     the trusted thing silently changes under the next launch, and a stale
     port name would heal itself instead of being reported.
     """
-    path = _config(tmp_path, send_port=XV_PORT, recv_port=XV_PORT, device_id=20)
+    path = _config(tmp_path, port=XV_PORT, device_id=20)
     _Probe({XV_PORT: m.device_id_byte(21)}).install(monkeypatch)
 
     b.XvBridge.connect(config_path=path)
 
-    assert cfg.load_last_ports(path) == (XV_PORT, XV_PORT)
-    assert cfg.load_device_id(path) == 20
+    assert config.load_last_ports(path) == (XV_PORT, XV_PORT)
+    assert config.load_device_id(path) == 20
 
 
 # --- nothing remembered ------------------------------------------------------
@@ -172,8 +182,8 @@ def test_nothing_remembered_sweeps_and_saves(monkeypatch, tmp_path):
     b.XvBridge.connect(config_path=path)
 
     assert probe.swept == 1
-    assert cfg.load_last_ports(path) == (XV_PORT, XV_PORT)
-    assert cfg.load_device_id(path) == 17
+    assert config.load_last_ports(path) == (XV_PORT, XV_PORT)
+    assert config.load_device_id(path) == 17
 
 
 # --- --scan ------------------------------------------------------------------
@@ -181,19 +191,19 @@ def test_nothing_remembered_sweeps_and_saves(monkeypatch, tmp_path):
 
 def test_scan_sweeps_even_with_a_remembered_port(monkeypatch, tmp_path):
     """The way to recover a synth that has moved to another port."""
-    path = _config(tmp_path, send_port=OTHER_PORT, recv_port=OTHER_PORT)
+    path = _config(tmp_path, port=OTHER_PORT)
     probe = _Probe({XV_PORT: m.device_id_byte(17)}).install(monkeypatch)
 
     b.XvBridge.connect(config_path=path, scan=True)
 
     assert probe.swept == 1
-    assert cfg.load_last_ports(path) == (XV_PORT, XV_PORT)
-    assert cfg.load_device_id(path) == 17
+    assert config.load_last_ports(path) == (XV_PORT, XV_PORT)
+    assert config.load_device_id(path) == 17
 
 
 def test_scan_and_no_scan_agree_on_a_healthy_setup(monkeypatch, tmp_path):
     """A remembered port that still works gives the same answer either way."""
-    path = _config(tmp_path, send_port=XV_PORT, recv_port=XV_PORT, device_id=17)
+    path = _config(tmp_path, port=XV_PORT, device_id=17)
     _Probe({XV_PORT: m.device_id_byte(17)}).install(monkeypatch)
 
     quiet = b.XvBridge.connect(config_path=path)
@@ -212,7 +222,7 @@ def test_a_dead_remembered_port_is_an_error_naming_scan(monkeypatch, tmp_path):
     quietly take the slow path for a reason nobody asked about. Naming
     --scan says what happened and what to do about it.
     """
-    path = _config(tmp_path, send_port=XV_PORT, recv_port=XV_PORT, device_id=17)
+    path = _config(tmp_path, port=XV_PORT, device_id=17)
     probe = _Probe({}).install(monkeypatch)
 
     with pytest.raises(b.DeviceNotFound) as exc:
@@ -220,12 +230,12 @@ def test_a_dead_remembered_port_is_an_error_naming_scan(monkeypatch, tmp_path):
 
     assert "--scan" in str(exc.value)
     assert probe.swept == 0, "swept despite being told not to"
-    assert cfg.load_last_ports(path) == (XV_PORT, XV_PORT), "erased the guess"
+    assert config.load_last_ports(path) == (XV_PORT, XV_PORT), "erased the guess"
 
 
 def test_a_dead_remembered_port_can_be_recovered_with_scan(monkeypatch, tmp_path):
     """The documented way out actually works."""
-    path = _config(tmp_path, send_port=OTHER_PORT, recv_port=OTHER_PORT)
+    path = _config(tmp_path, port=OTHER_PORT)
     _Probe({XV_PORT: m.device_id_byte(17)}).install(monkeypatch)
 
     with pytest.raises(b.DeviceNotFound):
@@ -233,7 +243,7 @@ def test_a_dead_remembered_port_can_be_recovered_with_scan(monkeypatch, tmp_path
 
     b.XvBridge.connect(config_path=path, scan=True)
 
-    assert cfg.load_last_ports(path) == (XV_PORT, XV_PORT)
+    assert config.load_last_ports(path) == (XV_PORT, XV_PORT)
 
 
 # --- the device ID conversion, which autodetect used to get wrong -----------
@@ -242,7 +252,7 @@ def test_a_dead_remembered_port_can_be_recovered_with_scan(monkeypatch, tmp_path
 @pytest.mark.parametrize("panel", [17, 24, 32])
 def test_the_reply_is_converted_to_a_panel_number(monkeypatch, tmp_path, panel):
     """`standard()` takes the panel number; the reply carries the wire byte."""
-    path = _config(tmp_path, send_port=XV_PORT, recv_port=XV_PORT)
+    path = _config(tmp_path, port=XV_PORT)
     _Probe({XV_PORT: m.device_id_byte(panel)}).install(monkeypatch)
 
     bridge = b.XvBridge.connect(config_path=path, scan=True)

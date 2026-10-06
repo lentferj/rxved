@@ -437,13 +437,36 @@ resolved and where every transcribed number came from.
 
 ### Development checks
 
+rxved depends on **vinsynlib**, the shared base of this family of terminal
+instrument browsers — the settings cache, the favourites database, the
+keymap and legend, the command line, the port listing. It is **not on
+PyPI**: it is a sibling checkout, so it is installed from the working tree
+and installed *first*, so that the second command finds the requirement
+already satisfied.
+
 ```sh
 python3 -m venv --system-site-packages .venv
 .venv/bin/python -m pip install --upgrade pip
+.venv/bin/pip install --no-deps -e ../vinsynlib
 .venv/bin/pip install -e '.[dev]'
 pre-commit install
 
 make check            # lint, types, tests, audit — fails on any error
+```
+
+`--no-deps` on the first command because `vinsynlib`'s own dependencies are
+`rxved`'s too, and a second copy of `textual` in the venv is a version skew
+waiting to be diagnosed somewhere else. `uv` reads the sibling path from
+`[tool.uv.sources]` in `pyproject.toml` instead of being told.
+
+The checkout therefore has to be beside `vinsynlib`'s, which is how the
+family is arranged:
+
+```
+git-repos/
+  rxved/         <- this one
+  vinsynlib/     <- the shared base
+  emorphed/  ensqsqed/  s3ked/  ...
 ```
 
 `make check` is the whole pipeline; each piece also runs on its own
@@ -478,8 +501,11 @@ One thing to know before you trust the green: in a venv built with
 `--system-site-packages`, `pip-audit` ignores **three setuptools
 advisories**. That copy comes from the OS and cannot be upgraded — a
 newer setuptools needs a newer `jaraco.functools`, and the system copy
-wins over the venv's. CI builds a clean venv, upgrades pip and setuptools,
-and suppresses nothing at all. Reasoning is in `docs/CHECKS.md`.
+wins over the venv's. It also skips editable distributions, which is how
+`rxved` and `vinsynlib` are both installed — neither is on an index, so
+there is nothing for it to resolve against. CI builds a clean venv,
+upgrades pip and setuptools, and suppresses no advisories at all.
+Reasoning is in `docs/CHECKS.md`.
 
 Python 3.13 is not claimed and not tested: `python-rtmidi` has no cp313
 wheel, so installing there means a source build.
@@ -502,6 +528,7 @@ GPL-2.0-or-later. Full text in `COPYING`; attributions in `LICENSE`.
 | SRX Bank Select allocation, all boards | Roland Supplemental Note SN 132 v3.00 (2007), "Selecting Internal and SRX-Series Sounds Via MIDI" |
 | Patch / rhythm / performance names | Roland's XV-2020 Editor, Owner's Manual and Patch Listing — read locally, **not distributed** |
 | Transport layer | Ported from the author's s3ked, eosed, k2kremote and mpc2emu, all GPL-2.0-or-later |
+| Settings cache, favourites store, keymap, legend, parser, port listing | **vinsynlib**, this family's shared base, GPL-2.0-or-later — assembled from the copies in emorphed, ensqsqed, kwsed, nanosyned, p2ked, s3ked and x5ded, plus the defect fixes three of those copies had drifted into |
 
 Roland, XV-2020, SRX, JV and Fantom are trademarks of Roland Corporation.
 This is an independent project, not endorsed by or affiliated with Roland,

@@ -67,13 +67,13 @@ s3ked's, and must not be copied as if they were.
 
 from __future__ import annotations
 
-import signal
 import sys
 import time
 from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import rtmidi  # noqa: E402
+from vinsynlib import midi
 
 from xv import banks
 from xv import messages as m
@@ -280,14 +280,12 @@ def _enum_out() -> List[str]:
 
 def list_ports() -> Tuple[List[str], List[str]]:
     """``(input_port_names, output_port_names)`` available on this host."""
-    return _enum_in(), _enum_out()
+    return midi.list_ports()
 
 
 def bidirectional_ports() -> List[str]:
     """Names present as both an input and an output."""
-    ins, outs = list_ports()
-    in_set = set(ins)
-    return [name for name in outs if name in in_set]
+    return midi.bidirectional_ports()
 
 
 def likely_xv_ports() -> List[str]:
@@ -298,11 +296,17 @@ def likely_xv_ports() -> List[str]:
     interface has a port name that says nothing about it, and a port called
     "Roland XV-2020" is only evidence that the USB device is plugged in, not
     that it is powered up and listening.
+
+    The matching is the family's (:func:`vinsynlib.midi.likely_ports`); what
+    is added here is this instrument's name hints and the bidirectional
+    filter, because a port that cannot answer is not a candidate whatever it
+    is called. One enumeration serves both, so the two cannot disagree about
+    which ports exist.
     """
+    ins, outs = midi.list_ports()
+    both = set(ins) & set(outs)
     return [
-        name
-        for name in bidirectional_ports()
-        if any(hint in name.lower() for hint in _XV_PORT_HINTS)
+        name for name in midi.likely_ports(_XV_PORT_HINTS, (ins, outs)) if name in both
     ]
 
 
@@ -401,45 +405,28 @@ class MultiIn:
         self.ports = []
 
 
-#: Signals worth turning into a clean exit, filtered to those this platform
-#: HAS. Windows has no SIGHUP, and naming it in a default argument puts the
-#: lookup at import time where a try/except inside the function cannot catch
-#: it -- which in the sibling s3ked broke every test at collection.
-CLEAN_EXIT_SIGNALS = tuple(
-    number
-    for number in (getattr(signal, name, None) for name in ("SIGTERM", "SIGHUP"))
-    if number is not None
-)
+def install_clean_exit() -> None:
+    """Close the ports on a termination signal, so ``finally`` blocks run.
 
+    The family's :func:`vinsynlib.midi.install_clean_exit`, used here rather
+    than a fourth copy of it. See that function for why: Ctrl-C already
+    unwinds, and SIGTERM does not -- the default action ends the process
+    where it stands, leaving the MIDI port open and a request outstanding
+    that the synth is still composing an answer to.
 
-def install_clean_exit(signals=None) -> None:
-    """Turn termination signals into :class:`SystemExit`, so ports close.
+    Two properties this project's own copy had are gone with it, and both
+    were recorded:
 
-    Ctrl-C already unwinds: it raises ``KeyboardInterrupt`` and any
-    ``finally`` that closes the bridge runs. **SIGTERM does not** -- the
-    default action ends the process where it stands, leaving the MIDI port
-    open and a request outstanding that the synth is still composing an
-    answer to.
+    * It also handled **SIGHUP**, which is what closing the terminal window
+      sends. The shared one handles SIGINT and SIGTERM.
+    * It left alone a handler the caller had already installed. The shared
+      one installs over it.
 
-    Idempotent, and it leaves alone any handler the caller has already
-    installed -- a host application with its own shutdown is better at this
-    than we are.
+    Neither is a loss in this program, which is a whole terminal
+    application rather than a library embedded in a host that has its own
+    shutdown; both would be in the other direction if that changed.
     """
-    for number in CLEAN_EXIT_SIGNALS if signals is None else signals:
-        try:
-            existing = signal.getsignal(number)
-        except (ValueError, OSError):  # not available on this platform
-            continue
-        if existing not in (signal.SIG_DFL, None):
-            continue  # somebody else owns it
-        try:
-            signal.signal(
-                number,
-                lambda signum, _frame: (_ for _ in ()).throw(SystemExit(128 + signum)),
-            )
-        except (ValueError, OSError):
-            # signal() only works on the main thread of the main interpreter
-            continue
+    midi.install_clean_exit()
 
 
 # --- the bridge -------------------------------------------------------------

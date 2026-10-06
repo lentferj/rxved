@@ -45,15 +45,24 @@ xv/banks.py
   Cross-checked against the individual SRX-02/05/06/07/08 Owner's Manuals.
 
 xv/bridge.py
-  The throttled-output queue, the MultiIn merged-input facade, the
-  rtmidi-backend-client leak fix, the port-enumeration helpers, the
-  read-modify-write configuration store and the clean-exit signal handling
-  are ported from the author's sibling projects, all GPL-2.0-or-later:
+  The throttled-output queue, the MultiIn merged-input facade and the
+  rtmidi-backend-client leak fix are ported from the author's sibling
+  projects, all GPL-2.0-or-later:
 
     s3ked      Copyright (C) 2026  s3ked contributors
     eosed      Copyright (C) 2026  eosed contributors
     k2kremote  Copyright (C) 2026  k2kremote contributors
     mpc2emu    Copyright (C) 2025-2026  mpc2emu contributors
+
+xv/config.py, rxved/favorites.py, the legend widget and the parser
+  These were copies of code that now lives in vinsynlib, the shared base of
+  this family of terminal instrument browsers -- see README.md "Development
+  checks" for how it is installed. vinsynlib was itself assembled from the
+  copies these six projects carried, and is GPL-2.0-or-later:
+
+    vinsynlib   Copyright (C) 2026  vinsynLib contributors
+                (assembled from emorphed, ensqsqed, eosed, kwsed,
+                 nanosyned, p2ked, s3ked and x5ded contributors)
 
 tools/extract_catalog.py
   Reads, but does not redistribute, Roland's own files: the XV-2020 Editor

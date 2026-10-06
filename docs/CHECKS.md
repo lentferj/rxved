@@ -36,10 +36,10 @@ make help             # every target
 | Tool | Scope | Enforcing? |
 |---|---|---|
 | ruff lint | `E F I B S SIM UP C4 PL RUF C901`, max-complexity 10 | yes, minus the list below |
-| ruff format | 88 columns, double quotes, all 27 files | yes, in `check` and as a hook |
+| ruff format | 88 columns, double quotes, all files | yes, in `check` and as a hook |
 | mypy | `rxved`, `xv`, `tools` | yes, minus per-module disables |
 | pytest-cov | `xv`, `rxved`, branch coverage | yes, no threshold |
-| pip-audit | this venv's site-packages only | yes, minus 3 ignored IDs |
+| pip-audit | this venv's site-packages only, editable installs skipped | yes, minus 3 ignored IDs |
 | vulture | `rxved xv tools tests`, min-confidence 80 | yes, 0 findings |
 | deptry | declared vs imported | yes, minus DEP002 on dev tools |
 | detect-secrets | git-tracked files vs `.secrets.baseline` | yes, 0 findings |
@@ -226,6 +226,18 @@ pip-audit is also scoped with `--path $(SITE_PACKAGES)`. In a
 userland and reports CVEs in `brlapi`, `terminator`, `libtorrent` and two
 dozen other packages unrelated to rxved. That is 30+ findings of noise,
 silenced by scoping rather than by ignoring IDs.
+
+The same target passes `--skip-editable`, for `rxved` itself and for
+**vinsynlib** — the shared base of this family, which is installed editable
+from a sibling checkout rather than from an index (see `[tool.uv.sources]`
+in `pyproject.toml` and the README's Development-checks section). Neither
+is a distribution on PyPI, so there is nothing for pip-audit to resolve
+either against; without the flag both appear in the skip table on every
+run, which trains the reader to ignore that table. vinsynlib is this
+family's own source and is reviewed where it lives.
+
+Unlike the three setuptools IDs, this flag is **not** conditional on the
+venv shape: an editable install is an editable install in CI too.
 
 ## vulture and detect-secrets: nothing suppressed
 

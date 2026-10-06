@@ -110,6 +110,14 @@ audit: audit-deps audit-dead audit-secrets  ## Dependencies, dead code, secrets
 SITE_PACKAGES := $(shell $(PYTHON) -c \
 	'import sysconfig; print(sysconfig.get_paths()["purelib"])')
 
+# --skip-editable for the same reason, one level in. rxved and vinsynlib are
+# both installed editable from local checkouts -- vinsynlib from the sibling
+# directory, see [tool.uv.sources] in pyproject.toml -- so neither is a
+# distribution on an index and there is nothing for pip-audit to resolve or
+# report against. Left in, they appear in the skip table on every run, which
+# trains the reader to ignore that table. vinsynlib is this family's own
+# source and is reviewed where it lives.
+
 # Three setuptools advisories, ignored ONLY in a --system-site-packages
 # venv, and only for that package's sake. In such a venv setuptools comes
 # from Debian (66.1.1 here) and cannot be upgraded: setuptools>=70 imports
@@ -138,6 +146,7 @@ endif
 audit-deps: ## pip-audit: known CVEs in this project's dependencies
 	$(PIP_AUDIT) --progress-spinner off \
 		--path $(SITE_PACKAGES) \
+		--skip-editable \
 		$(PIP_AUDIT_IGNORES)
 
 audit-dead: ## vulture + deptry: unreachable code, unused/missing deps

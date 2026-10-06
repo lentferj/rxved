@@ -2,12 +2,6 @@
 # SPDX-FileCopyrightText: Copyright (C) 2026  rxved contributors
 #
 # This file is part of rxved.
-# `wrap_blocks` and `KeyHints` are ported from the sibling s3ked project's
-# s3ked/app.py, which ports them from eosed and k2kremote, all by the same
-# author and all GPL-2.0-or-later:
-#   Copyright (C) 2026  k2kremote contributors  - GPL-2.0-or-later
-#   Copyright (C) 2026  eosed contributors      - GPL-2.0-or-later
-#   Copyright (C) 2026  s3ked contributors      - GPL-2.0-or-later
 #
 # rxved is free software: you can redistribute it and/or modify it under the
 # terms of the GNU General Public License as published by the Free Software
@@ -25,6 +19,12 @@ Split out of :mod:`rxved.app` so the browser itself stays readable: this
 module holds every widget the application opens, plus the column allowlists
 and display-bias tables the multi-mode screen edits through. It imports
 nothing from :mod:`rxved.app`, so the dependency runs one way only.
+
+``wrap_blocks`` and ``KeyHints`` used to be defined here, ported from the
+sibling s3ked project and from there from eosed and k2kremote -- four copies
+of the same widget by the time this file's version was written. They are now
+the family's: :mod:`vinsynlib.keys` and :mod:`vinsynlib.ui.hints`, imported
+below and re-exported so every existing call site reads exactly as it did.
 """
 
 from __future__ import annotations
@@ -37,6 +37,9 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import DataTable, Input, Label, Static
+from vinsynlib import keys
+from vinsynlib.keys import wrap_blocks
+from vinsynlib.ui.hints import KeyHints
 
 from xv import banks
 from xv import params
@@ -185,90 +188,27 @@ class ReportScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
-#: Separator between key hints in the legend, matching k2kremote, eosed and
-#: s3ked.
-_LEGEND_SEP = " · "
-
-
-def wrap_blocks(blocks, width: int, sep: str = _LEGEND_SEP) -> str:
-    """Pack ``blocks`` into lines no wider than ``width``, joined by ``sep``.
-
-    Ported from the sibling s3ked, which ports it from eosed and k2kremote.
-    Breaks happen only *between* blocks, so a hint like ``[ ] channel`` is
-    never split mid-label; a block wider than ``width`` on its own simply
-    takes its own line rather than being cut.
-    """
-    lines, current = [], ""
-    for block in blocks:
-        candidate = block if not current else current + sep + block
-        if width and len(candidate) > width and current:
-            lines.append(current)
-            current = block
-        else:
-            current = candidate
-    if current:
-        lines.append(current)
-    return "\n".join(lines)
-
-
-class KeyHints(Static):
-    """The key legend, folded to the terminal's width over as many lines as it needs.
-
-    **Replaces Textual's ``Footer``**, which is hardcoded to one line and
-    truncates rather than wrapping. rxved hit exactly the failure the sibling
-    projects document: in a 132-column window the legend wanted 251 columns,
-    and the keys that fell off the end were the channel selector -- the
-    newest and least guessable part of the interface, and the one this
-    project had just spent an afternoon establishing was necessary.
-
-    Working around it by shortening labels and hiding bindings, which is what
-    rxved tried first, only moves which keys are invisible. Wrapping is the
-    fix: one line on a wide terminal, more on a narrow one, and nothing ever
-    hidden.
-    """
-
-    DEFAULT_CSS = "KeyHints { height: auto; background: $panel; padding: 0 1; }"
-
-    def __init__(self, blocks, *, id=None):
-        super().__init__(id=id)
-        self._blocks = list(blocks)
-
-    def on_mount(self) -> None:
-        self._render_hints()
-
-    def on_resize(self, event) -> None:
-        self._render_hints()
-
-    def set_blocks(self, blocks) -> None:
-        self._blocks = list(blocks)
-        self._render_hints()
-
-    def _render_hints(self) -> None:
-        self.update(wrap_blocks(self._blocks, self.size.width))
-
-
 #: The legend. Every binding the app has, in the order somebody meets them.
-#: Nothing is omitted, because KeyHints wraps rather than truncating.
-KEY_HINTS = (
-    "↑↓ move",
-    "tab pane",
-    "⏎ select on synth",
-    "[ ] channel",
-    "c set channel",
-    "C categories",
-    "R re-read",
-    "f favourite",
-    "F favourites view",
-    "t tags",
-    "n note",
-    "/ search",
-    "r read names",
-    "s scan bank",
-    "x probe SRX",
-    "m multi setup",
-    "i device",
-    "? help",
-    "q quit",
+#: Nothing is omitted, because :class:`vinsynlib.ui.hints.KeyHints` wraps
+#: rather than truncating.
+#:
+#: Built from the family's shared legend rather than hand-written. It used to
+#: be a tuple of its own, in its own order, and it had already drifted: the
+#: shared keys sat wherever they were added rather than in the shared order.
+#: ``keys.legend`` puts this tool's own hints in the one place the family
+#: leaves for them -- after `n note`, before `i device` -- so a reader's eye
+#: finds them in the same spot in all nine programs.
+KEY_HINTS = keys.legend(
+    (
+        # This synth's own: the two that read from the instrument rather than
+        # from the catalog, the two that re-read its whole state, and the
+        # one that changes what the synth itself is doing.
+        "s scan bank",
+        "x probe SRX",
+        "C categories",
+        "R re-read",
+        "m multi setup",
+    )
 )
 
 

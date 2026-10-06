@@ -123,24 +123,24 @@ class TestTheChannelIsRemembered:
     """
 
     def test_saving_then_loading_round_trips(self, tmp_path):
-        from xv import bridge as b
+        from xv import config
 
         path = str(tmp_path / "config.toml")
-        b.save_channel(9, path)
-        assert b.load_channel(path) == 9
+        config.save_channel(9, path)
+        assert config.load_channel(path) == 9
 
     def test_it_survives_other_settings_being_written(self, tmp_path):
-        from xv import bridge as b
+        from xv import config
 
         path = str(tmp_path / "config.toml")
-        b.save_channel(5, path)
-        b.save_device_id(21, path)
-        b.save_last_ports("a", "b", path)
-        assert b.load_channel(path) == 5, "another write must not drop it"
-        assert b.load_device_id(path) == 21
+        config.save_channel(5, path)
+        config.save_device_id(21, path)
+        config.save_last_ports("a", "b", path)
+        assert config.load_channel(path) == 5, "another write must not drop it"
+        assert config.load_device_id(path) == 21
 
     def test_the_app_writes_it_when_the_channel_changes(self, tmp_path):
-        from xv import bridge as b
+        from xv import config
 
         path = str(tmp_path / "config.toml")
         from rxved.app import RxvedApp
@@ -151,7 +151,7 @@ class TestTheChannelIsRemembered:
         try:
             app = RxvedApp(DemoBridge(), favorites=store, config_path=path)
             app._remember_channel(11)
-            assert b.load_channel(path) == 11
+            assert config.load_channel(path) == 11
         finally:
             store.close()
 
@@ -171,6 +171,41 @@ class TestTheChannelIsRemembered:
             )
         finally:
             store.close()
+
+    def test_a_device_id_outside_the_panel_range_is_refused(self, tmp_path):
+        """17-32 are panel numbers; 0x10-0x1F are the wire bytes they mean.
+
+        The two ranges overlap and neither is a subset of the other, so a
+        value from the wrong one is a value the panel cannot show and the
+        wire would answer with silence. ``device_id_byte`` takes panel
+        numbers only and raises on the rest.
+        """
+        from xv import config
+
+        path = str(tmp_path / "config.toml")
+        for rejected in (0, 16, 33, 127, True):
+            config.save_device_id(rejected, path)
+            assert config.load_device_id(path) is None, rejected
+
+    def test_a_port_name_containing_a_quote_still_reads_back(self, tmp_path):
+        """The escaping trap, in the file that is actually used.
+
+        A MIDI port name is whatever ALSA reports, and a quote in one
+        produces a file that is not TOML. The writer refuses to overwrite a
+        file it cannot parse, so the cache never heals: every later run
+        reads nothing and writes nothing until somebody deletes it by hand.
+        """
+        import tomllib
+
+        from xv import config
+
+        path = str(tmp_path / "config.toml")
+        awkward = 'Roland XV-2020:1 ("USB")'
+        config.save_last_ports(awkward, awkward, path)
+
+        with open(path, "rb") as handle:
+            tomllib.load(handle)  # must not raise
+        assert config.load_last_ports(path) == (awkward, awkward)
 
 
 class TestTheLegendIsComplete:

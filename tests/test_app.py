@@ -226,7 +226,7 @@ class TestStartupBankRead:
         async with application.run_test() as pilot:
             await pilot.pause()
             application._busy = True
-            application.action_read_bank()
+            application.action_read_names()
             await pilot.pause()
             assert application.last_status_refused, "the read was not refused"
             assert not application.catalog.is_live("USER", 1)
@@ -389,14 +389,14 @@ class TestReadingNames:
     async def test_r_reads_a_user_bank(self, app):
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.action_read_bank()
+            app.action_read_names()
             await settle(pilot)
             assert app.catalog.is_live("USER", 1)
 
     async def test_a_read_marks_names_that_disagree_with_print(self, app):
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.action_read_bank()
+            app.action_read_names()
             await settle(pilot)
             # The demo's invented names are nothing like the fixture's.
             assert app.catalog.differs("USER", 1)
@@ -422,7 +422,7 @@ class TestTheDisagreementMarker:
             await pilot.pause()
             # Read the demo's names, then put slot 1 back to the factory one,
             # so exactly one slot agrees.
-            app.action_read_bank()
+            app.action_read_names()
             await settle(pilot)
             app.catalog.set_live_name("USER", 1, "Factory 001")
             app._refresh_current_bank()
@@ -435,7 +435,7 @@ class TestTheDisagreementMarker:
         )
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.action_read_bank()
+            app.action_read_names()
             await settle(pilot)
             assert app.catalog.printed_list_void("USER", range(1, 129))
             assert "saved into" in app.last_status
@@ -444,7 +444,7 @@ class TestTheDisagreementMarker:
         """So the information is not lost -- it is just not on 128 rows."""
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.action_read_bank()
+            app.action_read_names()
             await settle(pilot)
             app._update_detail(0)
             await pilot.pause()
@@ -466,7 +466,7 @@ class TestTheDisagreementMarker:
             for _ in range(index):
                 await pilot.press("down")
             await pilot.pause()
-            app.action_read_bank()
+            app.action_read_names()
             await pilot.pause()
             assert "no address" in app.last_status
             assert app.last_status_refused
@@ -476,7 +476,7 @@ class TestTheDisagreementMarker:
         async with app.run_test() as pilot:
             await pilot.pause()
             app.favorites.add("USER", 1, name="Velvet Bell")
-            app.action_read_bank()
+            app.action_read_names()
             await settle(pilot)
             assert app.favorites.get("USER", 1).name != "Velvet Bell"
 
@@ -558,7 +558,7 @@ class TestScanAsksFirst:
             for _ in range(index):
                 await pilot.press("down")
             await pilot.pause()
-            app.action_read_bank()
+            app.action_read_names()
             await pilot.pause(0.3)
             assert app.catalog.is_live("R-USER", 1)
             assert app.bridge.selected_log == [], "reading selected something"
@@ -854,7 +854,7 @@ class TestCursorStaysPut:
             for _ in range(20):
                 await pilot.press("down")
             await pilot.pause()
-            app.action_read_bank()
+            app.action_read_names()
             await settle(pilot)
             assert app.query_one("#slot-table").cursor_row == 20
             assert app._current_bank == "USER"

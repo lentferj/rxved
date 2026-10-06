@@ -35,6 +35,9 @@ import os
 import sys
 from typing import Callable, Dict, List, Optional
 
+from vinsynlib.cli import add_common_arguments, make_parser, validate_common
+from vinsynlib.spec import flag_help
+
 from xv import banks
 from xv import catalog as cat
 
@@ -86,10 +89,11 @@ def _cmd_ports(_bridge, _args) -> None:
     # Imported here, not at module scope: xv.bridge imports rtmidi eagerly,
     # and every other command in this file must work on a host with no MIDI
     # stack at all.
-    from xv.bridge import MidiUnavailable, likely_xv_ports, list_ports
+    from xv.bridge import MidiUnavailable, likely_xv_ports
+    from vinsynlib import midi
 
     try:
-        ins, outs = list_ports()
+        ins, outs = midi.list_ports()
         likely = set(likely_xv_ports())
     except MidiUnavailable as exc:
         raise SystemExit(
@@ -99,19 +103,14 @@ def _cmd_ports(_bridge, _args) -> None:
             f"through."
         ) from exc
 
-    both = set(ins) & set(outs)
-    for label, names in (("inputs", ins), ("outputs", outs)):
-        print(f"{label}:")
-        for name in names:
-            marks = []
-            if name in both:
-                marks.append("bidirectional")
-            if name in likely:
-                marks.append("looks like an XV-2020")
-            suffix = f"   [{', '.join(marks)}]" if marks else ""
-            print(f"  {name}{suffix}")
-        if not names:
-            print("  (none)")
+    print(
+        midi.render_ports(
+            ins,
+            outs,
+            likely=likely,
+            likely_label="looks like an XV-2020",
+        )
+    )
     if not likely:
         print(
             "\nNo port name mentions an XV-2020. That is not a problem: one "
@@ -825,38 +824,33 @@ _OFFLINE = {"ports", "banks", "list", "find", "resolve", "fav", "tags", "perf-li
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="rxvcli",
-        description="Command-line browser for the Roland XV-2020's sounds.",
+    parser = make_parser(
+        "rxvcli",
+        "Command-line browser for the Roland XV-2020's sounds.",
     )
+    # The mutually exclusive --port/--scan pair is this tool's own rule; see
+    # rxved.app.build_parser, which says why. Everything else is the
+    # family's, with the family's help text.
     group = parser.add_mutually_exclusive_group()
+    group.add_argument("--port", default=None, help=flag_help("port"))
     group.add_argument(
-        "--port",
-        help="MIDI port name (default: the one remembered in config.toml)",
+        "--scan", action="store_true", default=False, help=flag_help("scan")
     )
-    group.add_argument(
-        "--scan",
-        action="store_true",
-        help="probe every MIDI port again and update config.toml, instead of "
-        "trusting the remembered port",
+    add_common_arguments(
+        parser,
+        port=False,
+        scan=False,
+        recv_port=True,
+        channel=True,
+        device_id=True,
+        demo=True,
+        timeout=True,
+        catalog=True,
+        config=True,
+        favorites=True,
     )
-    parser.add_argument("--recv-port", default=None)
-    parser.add_argument(
-        "--demo",
-        action="store_true",
-        help="use the built-in demo synth; opens no ports",
-    )
-    parser.add_argument(
-        "--device-id",
-        type=int,
-        default=None,
-        help="device ID as the synth displays it (17-32)",
-    )
-    parser.add_argument("--channel", type=int, default=None, help="1-16")
-    parser.add_argument("--timeout", type=float, default=None)
-    parser.add_argument("--config", default=None)
-    parser.add_argument("--catalog", default=None)
-    parser.add_argument("--favorites", default=None)
+    # rxved's own, and stays: the family has no opinion about where names
+    # read off a synth are cached between runs.
     parser.add_argument(
         "--live-names",
         default=None,
@@ -1009,8 +1003,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     handler = _COMMANDS[args.command]
 
-    if args.channel is not None and not 1 <= args.channel <= 16:
-        sys.exit("error: --channel is 1-16")
+    # Before any bridge is built: a mistyped channel costs a message rather
+    # than a program change sent to a live instrument, and a wrong channel
+    # is not an error anywhere -- the synth simply plays nothing, or
+    # something else does.
+    validate_common(args)
+    # ...and then this unit's own narrower device-ID range, which is panel
+    # numbers here and a byte everywhere else in the family.
+    if args.device_id is not None and not 17 <= args.device_id <= 32:
+        sys.exit("error: --device-id is 17-32, as the panel shows it")
 
     if args.command in _OFFLINE:
         try:

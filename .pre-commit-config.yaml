@@ -28,27 +28,27 @@ repos:
       - id: ruff-format
 
   # --- mypy ----------------------------------------------------------------
-  # Uses the config in pyproject.toml, including which modules are strict.
-  # additional_dependencies keeps the hook's own environment aligned with
-  # the pinned dev extra so a type error cannot differ between here and CI.
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.18.2
+  # A LOCAL hook, not mirrors-mypy. That one runs mypy in an isolated
+  # virtualenv built from `additional_dependencies`, and vinsynlib cannot be
+  # named there: it is a sibling checkout, not a package on an index, so
+  # there is nothing to install and no version to pin. In an environment
+  # without it every `from vinsynlib...` resolved to Any, which turned the
+  # strict checks this project holds itself to into 15 errors about the
+  # imports rather than about the code -- and would have hidden a real
+  # error behind them on every commit after this one.
+  #
+  # Running the project's own .venv is both correct and the same
+  # interpreter the rest of the gate uses, so a hook and `make typecheck`
+  # cannot disagree -- which was the reason this was a mirrors hook.
+  - repo: local
     hooks:
       - id: mypy
-        files: ^(rxved|xv|tools)/
-        args: [--strict, --no-error-summary]
-        # Pinned to the versions actually installed in .venv, so this hook
-        # and `make typecheck` see the same stubs. python-rtmidi is absent
-        # deliberately: it ships no stubs, and pyproject.toml already tells
-        # mypy to ignore its import, so installing it would only add build
-        # time to every commit.
-        additional_dependencies:
-          - pytest==9.1.1
-          - pytest-asyncio==1.4.0
-          - pytest-cov==7.0.0
-          - rich==15.0.0
-          - textual==8.2.8
-          - typing_extensions==4.16.0
+        name: mypy
+        entry: .venv/bin/python -m mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+        args: [--strict, --no-error-summary, rxved, xv, tools]
 
   # --- secrets -------------------------------------------------------------
   # Fails on anything new since .secrets.baseline. To adopt a finding as

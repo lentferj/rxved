@@ -2,12 +2,6 @@
 # SPDX-FileCopyrightText: Copyright (C) 2026  rxved contributors
 #
 # This file is part of rxved.
-# `wrap_blocks` and `KeyHints` are ported from the sibling s3ked project's
-# s3ked/app.py, which ports them from eosed and k2kremote, all by the same
-# author and all GPL-2.0-or-later:
-#   Copyright (C) 2026  k2kremote contributors  - GPL-2.0-or-later
-#   Copyright (C) 2026  eosed contributors      - GPL-2.0-or-later
-#   Copyright (C) 2026  s3ked contributors      - GPL-2.0-or-later
 #
 # rxved is free software: you can redistribute it and/or modify it under the
 # terms of the GNU General Public License as published by the Free Software
@@ -64,6 +58,8 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import DataTable, Header, Static
+from vinsynlib.cli import add_common_arguments, make_parser, validate_common
+from vinsynlib.spec import flag_help
 
 from xv import banks
 from xv import catalog as cat
@@ -131,7 +127,6 @@ from rxved.screens import (  # noqa: E402
     _BIAS,
     _CHANNEL_FIELDS,
     _KIND_LABEL,
-    _LEGEND_SEP,
     wrap_blocks,
 )
 
@@ -182,7 +177,7 @@ class RxvedApp(App):
         Binding("t", "edit_tags", "Tags"),
         Binding("n", "edit_note", "Note"),
         Binding("slash", "search", "Search"),
-        Binding("r", "read_bank", "Read names"),
+        Binding("r", "read_names", "Read names"),
         Binding("s", "scan_bank", "Scan bank"),
         Binding("x", "probe_srx", "Probe SRX"),
         Binding("m", "multi_setup", "Multi-mode setup"),
@@ -960,12 +955,17 @@ class RxvedApp(App):
 
         self.push_screen(TextPromptScreen("Search names"), run)
 
-    def action_read_bank(self) -> None:
+    def action_read_names(self) -> None:
         """Read the highlighted bank's names off the synth, if it has an address.
 
         Genuinely read-only -- nothing is selected and the instrument keeps
         playing whatever it was playing -- so unlike scan it needs no
         confirmation.
+
+        Named ``read_names`` because that is what the family calls this key:
+        ``r`` means *re-read from the device*, and it was bound to
+        ``read_bank`` here, which said the same thing in a way no other tool
+        in the family used.
         """
         bank_id = self._current_bank
         if bank_id not in ("USER", "P-USER", "R-USER"):
@@ -1691,51 +1691,38 @@ saved into, and the most useful thing on the screen.
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="rxved",
-        description="Terminal browser for the Roland XV-2020's sounds.",
-    )
+    parser = make_parser("rxved", "Terminal browser for the Roland XV-2020's sounds.")
+    # --port and --scan are mutually exclusive here, and are added by hand
+    # rather than by add_common_arguments for that reason: --scan says "do
+    # not trust the remembered port", which is not a question --port can
+    # also be answering, and a flag accepted and then ignored is worse than
+    # no flag. The help text is still the family's, from vinsynlib.spec.
+    #
+    # This is the one place this tool's command line is not entirely
+    # assembled by the shared helper. It is a real divergence and it is
+    # deliberate: the group is this project's rule, not the family's.
     group = parser.add_mutually_exclusive_group()
+    group.add_argument("--port", default=None, help=flag_help("port"))
     group.add_argument(
-        "--port",
-        help="MIDI port name (default: the one remembered in config.toml)",
+        "--scan", action="store_true", default=False, help=flag_help("scan")
     )
-    group.add_argument(
-        "--scan",
-        action="store_true",
-        help="probe every MIDI port again and update config.toml, instead of "
-        "trusting the remembered port",
+    add_common_arguments(
+        parser,
+        port=False,
+        scan=False,
+        recv_port=True,
+        channel=True,
+        device_id=True,
+        demo=True,
+        timeout=True,
+        catalog=True,
+        config=True,
+        favorites=True,
     )
-    parser.add_argument(
-        "--recv-port", default=None, help="input port, if it differs from --port"
-    )
-    parser.add_argument(
-        "--demo",
-        action="store_true",
-        help="run against the built-in demo synth; opens no MIDI ports",
-    )
-    parser.add_argument(
-        "--device-id",
-        type=int,
-        default=None,
-        help="XV-2020 device ID as its display shows it "
-        "(17-32); default: whatever the synth's Identity Reply says, "
-        "else the saved value, else 17",
-    )
-    parser.add_argument(
-        "--channel",
-        type=int,
-        default=None,
-        help="MIDI channel to send Bank Select / Program Change on, 1-16 (default 1)",
-    )
-    parser.add_argument("--timeout", type=float, default=None)
-    parser.add_argument("--config", default=None)
-    parser.add_argument(
-        "--catalog", default=None, help="path to a generated name catalog"
-    )
-    parser.add_argument(
-        "--favorites", default=None, help="path to the favourites database"
-    )
+    # --live-names and --backup-dir are rxved's own, and stay: they name
+    # concepts this family has no opinion about -- where names read off a
+    # synth are cached, and where performance backups go. A flag the family
+    # has no contract for is not a flag the family should be given.
     parser.add_argument(
         "--live-names",
         default=None,
@@ -1754,9 +1741,20 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
 
-    if args.channel is not None and not 1 <= args.channel <= 16:
-        sys.exit("error: --channel is 1-16")
+    # The family's range checks, before anything is opened: a mistyped
+    # channel costs a message rather than a wrong program change sent to a
+    # live instrument, and a wrong channel is not an error anywhere -- the
+    # synth simply plays nothing, or something else does.
+    validate_common(args)
     channel = (args.channel - 1) if args.channel is not None else None
+
+    # --device-id is a byte family-wide, because that is what a SysEx device
+    # ID is in most of these protocols. This one is not: the XV-2020
+    # *displays* it as 17-32, and :func:`xv.messages.device_id_byte` takes a
+    # panel number and refuses a wire byte. So the shared check is followed
+    # by this unit's own, which is the one that can say so.
+    if args.device_id is not None and not 17 <= args.device_id <= 32:
+        sys.exit("error: --device-id is 17-32, as the panel shows it")
 
     if args.demo:
         from rxved.demo import DemoBridge

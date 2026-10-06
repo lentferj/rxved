@@ -229,19 +229,28 @@ class TestWhereItLives:
     ``sys.platform`` is patched rather than skipped-around: the point is that
     a change to :func:`data_dir` cannot quietly break the two platforms the
     author does not develop on.
+
+    ``sys`` is the module :mod:`vinsynlib.favorites` reads, which is a
+    patch of the shared implementation rather than of a private copy. That
+    is the whole reason these assertions can be shared across the family at
+    all: patching the local module would only test the local module.
     """
 
     def test_linux_follows_xdg(self, monkeypatch):
+        import sys
+
         import rxved.favorites as mod
 
-        monkeypatch.setattr(mod.sys, "platform", "linux")
+        monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setenv("XDG_DATA_HOME", "/data/xdg")
         assert mod.data_dir() == os.path.join("/data/xdg", "rxved")
 
     def test_linux_falls_back_to_local_share(self, monkeypatch):
+        import sys
+
         import rxved.favorites as mod
 
-        monkeypatch.setattr(mod.sys, "platform", "linux")
+        monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.delenv("XDG_DATA_HOME", raising=False)
         monkeypatch.setenv("HOME", "/home/someone")
         assert mod.data_dir() == "/home/someone/.local/share/rxved"
@@ -252,25 +261,31 @@ class TestWhereItLives:
         Honouring one would put the database wherever the process happened to
         be started, which for a TUI is wherever the user last ran `cd`.
         """
+        import sys
+
         import rxved.favorites as mod
 
-        monkeypatch.setattr(mod.sys, "platform", "linux")
+        monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setenv("XDG_DATA_HOME", "relative/path")
         monkeypatch.setenv("HOME", "/home/someone")
         assert mod.data_dir() == "/home/someone/.local/share/rxved"
 
     def test_macos_uses_application_support(self, monkeypatch):
+        import sys
+
         import rxved.favorites as mod
 
-        monkeypatch.setattr(mod.sys, "platform", "darwin")
+        monkeypatch.setattr(sys, "platform", "darwin")
         monkeypatch.setenv("HOME", "/Users/someone")
         assert mod.data_dir() == ("/Users/someone/Library/Application Support/rxved")
 
     def test_windows_uses_local_appdata_not_roaming(self, monkeypatch):
         """Roaming syncs the file; a synced SQLite database is a corrupt one."""
+        import sys
+
         import rxved.favorites as mod
 
-        monkeypatch.setattr(mod.sys, "platform", "win32")
+        monkeypatch.setattr(sys, "platform", "win32")
         monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\someone\AppData\Local")
         monkeypatch.setenv("APPDATA", r"C:\Users\someone\AppData\Roaming")
         result = mod.data_dir()
@@ -280,27 +295,33 @@ class TestWhereItLives:
 
     def test_windows_falls_back_to_roaming_if_local_is_missing(self, monkeypatch):
         """A wrong-looking but writable path beats refusing to start."""
+        import sys
+
         import rxved.favorites as mod
 
-        monkeypatch.setattr(mod.sys, "platform", "win32")
+        monkeypatch.setattr(sys, "platform", "win32")
         monkeypatch.delenv("LOCALAPPDATA", raising=False)
         monkeypatch.setenv("APPDATA", r"C:\Users\someone\AppData\Roaming")
         assert mod.data_dir().endswith("rxved")
         assert "Roaming" in mod.data_dir()
 
     def test_windows_with_no_environment_at_all_still_answers(self, monkeypatch):
+        import sys
+
         import rxved.favorites as mod
 
-        monkeypatch.setattr(mod.sys, "platform", "win32")
+        monkeypatch.setattr(sys, "platform", "win32")
         monkeypatch.delenv("LOCALAPPDATA", raising=False)
         monkeypatch.delenv("APPDATA", raising=False)
         monkeypatch.delenv("XDG_DATA_HOME", raising=False)
         assert mod.data_dir().endswith("rxved")
 
     def test_the_database_sits_in_that_directory(self, monkeypatch):
+        import sys
+
         import rxved.favorites as mod
 
-        monkeypatch.setattr(mod.sys, "platform", "linux")
+        monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setenv("XDG_DATA_HOME", "/data/xdg")
         assert mod.default_path() == os.path.join("/data/xdg", "rxved", "favorites.db")
 

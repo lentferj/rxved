@@ -827,6 +827,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = make_parser(
         "rxvcli",
         "Command-line browser for the Roland XV-2020's sounds.",
+        distribution="rxved",
     )
     # The mutually exclusive --port/--scan pair is this tool's own rule; see
     # rxved.app.build_parser, which says why. Everything else is the

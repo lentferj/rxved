@@ -261,17 +261,20 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
 
 ## Install
 
-First, ensure you have the **rxved** repository checked out (you already do if you’re reading this).  
-Then, alongside it, check out the shared base **vinsynlib**:
+Clone both repositories side by side:
 
 ```sh
-# Assuming you are in the rxved directory:
-git clone https://github.com/lentferj/vinsynlib.git ../vinsynlib
+# Choose a parent directory, e.g. ~/git-repos
+mkdir -p ~/git-repos && cd ~/git-repos
+git clone https://github.com/lentferj/rxved.git
+git clone https://github.com/lentferj/vinsynlib.git
+cd rxved
 python3 -m venv --system-site-packages .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/pip install --no-deps -e ../vinsynlib
 .venv/bin/pip install -e .
 ```
+
 Two checkouts, side by side — this project (**rxved**) and **vinsynlib**, the shared base
 of this family of terminal instrument tools: the settings cache, the
 favourites database, the keymap and legend, the command line and the port
@@ -282,18 +285,6 @@ project's too, and a second copy of `textual` in the same venv is a version
 skew to diagnose somewhere else. `uv sync` reads the path from
 `[tool.uv.sources]` in `pyproject.toml` instead: the checkout has to exist,
 but neither `pip` line is needed.
-
-Two checkouts, side by side — this project and **vinsynlib**, the shared base
-of this family of terminal instrument tools: the settings cache, the
-favourites database, the keymap and legend, the command line and the port
-listing. vinsynlib is **not on PyPI**, so it is installed from the sibling
-checkout above, and installed *first* so that the second command finds the
-requirement already satisfied. `--no-deps` because its dependencies are this
-project's too, and a second copy of `textual` in the same venv is a version
-skew to diagnose somewhere else. `uv sync` reads the path from
-`[tool.uv.sources]` in `pyproject.toml` instead: the checkout has to exist,
-but neither `pip` line is needed.
-
 Needs Python 3.11+, `python-rtmidi` and `textual`. On Linux you also need an
 ALSA sequencer — `rxvcli ports` will tell you plainly if there isn't one.
 

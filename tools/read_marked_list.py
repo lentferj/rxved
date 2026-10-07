@@ -39,10 +39,17 @@ footnote, and the other 63 are stepped back from it at the measured pitch.
 marker is dense it washes out the digits underneath, so a row can be marked
 *and* invisible to a detector looking for dark pixels in the number cell.
 
-**The signal is blue-minus-red, not a colour match.** The marker fades, the
+**The signal is a channel lift, not a colour match.** The marker fades, the
 photocopier lifts it further, and by the time it reaches the scan some marks
 are barely tinted. But black text is neutral and white paper is neutral, so
-any positive blue lift at all is the highlighter and nothing else.
+any positive lift in the marker's own direction is the highlighter and
+nothing else. Three markers are offered: ``blue`` (blue ahead of red),
+``yellow`` (red and green ahead of blue) and ``orange`` (red ahead of blue).
+**Only the blue marker has been tested on real paper** -- a pale blue text
+marker on Roland's printed Patch List pages. The yellow and orange signals
+are synthetic approximations from the ink colours; their thresholds are
+starting points, not measurements, so check the borderline report and use
+``--threshold`` if the cut looks wrong.
 
 Rows scoring just under the threshold are reported rather than dropped
 quietly. When this was first run, all nine such rows turned out to sit
@@ -89,9 +96,15 @@ from xv import catalog as cat  # noqa: E402
 #: bands to separate cleanly.
 DPI = 300
 
-#: Blue lift (blue channel minus red) that counts as marker rather than
-#: paper, ink or scanner noise.
-BLUE_LIFT = 8
+#: Markers this tool knows. Only ``blue`` has been measured on real paper (a
+#: pale blue text marker on Roland's printed Patch List pages); ``yellow``
+#: and ``orange`` are synthetic approximations and are untested.
+MARKERS = ("blue", "yellow", "orange")
+
+#: Per-pixel lift in the marker's own direction above which a pixel counts as
+#: marker rather than paper, ink or scanner noise. Measured for blue; applied
+#: to the approximations too, which is why --threshold exists.
+LIFT = 8
 
 #: Marked pixels in a number cell above which the row counts as highlighted.
 #: Set at the natural gap in the sorted scores, which is wide on real scans:
@@ -300,16 +313,39 @@ def fit_grid(a: Any, x0: int, x1: int, rows: int) -> Tuple[List[float], int]:
     return [last - (rows - 1 - n) * pitch for n in range(rows)], accounted
 
 
+def marker_lift(rgb, marker: str):
+    """The per-pixel marker signal for one marker, as an integer array.
+
+    Each is the difference between the channels the marker reflects and the
+    channels it absorbs: blue reflects blue and absorbs red; yellow reflects
+    red and green and absorbs blue; orange reflects red and absorbs blue and
+    some green. Black text and white paper are neutral in all three.
+    """
+    red = rgb[:, :, 0]
+    green = rgb[:, :, 1]
+    blue = rgb[:, :, 2]
+    if marker == "blue":
+        return blue - red
+    if marker == "yellow":
+        return np.minimum(red, green) - blue
+    if marker == "orange":
+        return red - blue
+    raise SystemExit(
+        f"error: unknown marker {marker!r}; choose from {', '.join(MARKERS)}"
+    )
+
+
 def score_page(
-    path: str, layout: str, starts: List[int], counts: List[int]
+    path: str, layout: str, starts: List[int], counts: List[int], marker: str = "blue"
 ) -> Dict[int, int]:
     """``{patch number: marked pixel count}`` for one page.
 
     ``starts`` is the first patch number in each column and ``counts`` how
     many rows each holds; together they say what every row on the page is.
+    ``marker`` selects the channel lift that counts as a mark.
     """
     a = np.asarray(Image.open(path).convert("RGB")).astype(int)
-    mask = np.clip(a[:, :, 2] - a[:, :, 0], 0, None) >= BLUE_LIFT
+    mask = np.clip(marker_lift(a, marker), 0, None) >= LIFT
     columns = LAYOUTS[layout]
     if len(starts) != len(columns):
         raise SystemExit(
@@ -454,6 +490,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="marked-pixel cut (default: from the data)",
     )
     parser.add_argument(
+        "--marker",
+        choices=MARKERS,
+        default="blue",
+        help="highlighter colour: blue (tested on real paper), or the "
+        "synthetic yellow/orange approximations",
+    )
+    parser.add_argument(
         "--apply",
         action="store_true",
         help="also add the rows to the favourites database",
@@ -510,7 +553,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             card, firsts = pages[page]
             counts = plan[page]
             layout = "srx" if len(firsts) == 3 else "wide"
-            scores = score_page(images[page - 1], layout, firsts, counts)
+            scores = score_page(
+                images[page - 1], layout, firsts, counts, marker=args.marker
+            )
             cut = args.threshold or auto_threshold(scores)
             hits = sorted(n for n, v in scores.items() if v >= cut)
             near = sorted(n for n, v in scores.items() if cut * 0.5 <= v < cut)
@@ -553,9 +598,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     header = [
         f"XV-2020 favourites, read from {source}",
         "",
-        "Rows marked with a highlighter on a printed patch list, detected by",
-        "measuring the blue-minus-red lift over each number cell. Names come",
-        "from the local catalog where it has them, not from OCR of the scan.",
+        f"Rows marked with a {args.marker} highlighter on a printed patch",
+        "list, detected by measuring the marker's channel lift over each",
+        "number cell. Names come from the local catalog where it has them,",
+        "not from OCR of the scan.",
         "",
     ]
     out = args.output or os.path.splitext(args.pdf)[0] + ".txt"

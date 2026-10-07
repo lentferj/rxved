@@ -201,6 +201,10 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   copies files wholesale at logon and logoff, and a SQLite database caught
   mid-copy — or opened from two machines against one synced file — is a
   known way to corrupt one. Override any of it with `--favorites`.
+
+  A printed patch list you marked up at the keyboard becomes favourites too:
+  see [Reading a marked-up printout into
+  favourites](#reading-a-marked-up-printout-into-favourites).
 - **A CLI** (`rxvcli`) for everything, most of which needs no synth at all.
 - **Multi-mode setup** (`m`) — all 16 Performance Parts editable, with a report on why any channel is silent.
 
@@ -565,13 +569,14 @@ than the defaults.
 Without it, rxved still works — you get numbers instead of names, and `r`
 and `s` fill names in from the synth itself.
 
-## Reading a marked-up printout
+## Reading a marked-up printout into favourites
 
-If you print a patch list, go through it at the keyboard with a highlighter
-and want the result in software afterwards:
+If you print a patch list, go through it at the keyboard with a highlighter,
+and want those picks as favourites in software afterwards:
 
 ```sh
-python3 tools/read_marked_list.py scan.pdf --bank 1=PST-C --bank 2=PST-D --apply
+python3 tools/read_marked_list.py scan.pdf \
+    --page 1=PST-C:1,65 --page 2=PST-D:1,65 --apply
 ```
 
 It writes a text list beside the PDF and, with `--apply`, adds the rows to
@@ -579,11 +584,23 @@ the favourites database. Names come from the local catalog rather than from
 OCR of the scan, so they are exact.
 
 The marker fades, and a photocopier and a scanner each fade it further, so
-detection measures how far blue runs ahead of red rather than matching a
-colour — black text and white paper are both neutral, and any blue lift at
-all is the highlighter. Rows that score just under the line are listed rather
-than dropped quietly; in practice they are rows sitting directly beneath a
-marked one, catching the top edge of its mark.
+detection measures the marker's channel lift rather than matching a colour —
+black text and white paper are both neutral, and any lift in the marker's own
+direction is the highlighter. `--marker` picks the colour:
+
+- `blue` (the default) — blue ahead of red. **The only marker tested on real
+  material**: a pale blue text marker on Roland's printed Patch List pages.
+- `yellow` — red and green ahead of blue.
+- `orange` — red ahead of blue.
+
+**`yellow` and `orange` are synthetic approximations and have not been tested
+against a real scan**; their thresholds are starting points, not measurements.
+Run with the default cut first and check the borderline report, or pass
+`--threshold` to set the cut yourself.
+
+Rows that score just under the line are listed rather than dropped quietly;
+in practice they are rows sitting directly beneath a marked one, catching the
+top edge of its mark.
 
 ## How much of this is verified?
 

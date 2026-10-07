@@ -634,5 +634,5 @@ Roland, XV-2020, SRX, JV and Fantom are trademarks of Roland Corporation.
 This is an independent project, not endorsed by or affiliated with Roland,
 and uses those names only to say what hardware it talks to.
 
-rxved was written by Jan Lentfer with the assistance of Anthropic's Claude;
+rxved was written by Jan Lentfer with the assistance of AI coding assistance;
 see `DISCLAIMER.md` for who did what.

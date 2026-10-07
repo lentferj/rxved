@@ -2072,6 +2072,18 @@ class XvBridge:
         )
         return m.decode_name(data[: m.PATCH_NAME_LEN])
 
+    def temporary_patch(self, *, timeout: Optional[float] = None) -> Tuple[str, int]:
+        """The current patch's name and its Patch Category byte.
+
+        The category sits at offset 12, immediately after the 12-byte name
+        (Patch Category, OM p. 148). It is 1-based into
+        :data:`xv.catalog.CATEGORIES`, or 0 for a slot with no category.
+        """
+        data = self.request(
+            m.temporary_patch_address(), m.PATCH_NAME_LEN + 1, timeout=timeout
+        )
+        return m.decode_name(data[: m.PATCH_NAME_LEN]), data[m.PATCH_NAME_LEN]
+
     def read_user_bank(
         self,
         bank_id: str,
@@ -2240,7 +2252,7 @@ class XvBridge:
         self._restore_selection(before)
         return found
 
-    def scan_bank(
+    def scan_bank_with_categories(
         self,
         bank_id: str,
         *,
@@ -2248,8 +2260,12 @@ class XvBridge:
         settle: float = SELECT_GAP,
         restore: bool = True,
         timeout: Optional[float] = None,
-    ) -> Dict[int, str]:
-        """Learn a whole bank's names by selecting each slot and reading back.
+    ) -> Dict[int, Tuple[str, int]]:
+        """Learn a bank's names and category bytes by selecting every slot.
+
+        Same as :meth:`scan_bank`, but keeps the Patch Category byte that
+        sits after the name, so a catalog built from a scan carries
+        categories without the editor binary or a manual.
 
         **This plays the instrument.** It is the only way to get preset
         names off the hardware -- the preset banks are ROM and have no
@@ -2275,11 +2291,11 @@ class XvBridge:
         bytes while the program change still lands. Both were observed on
         real hardware, and both produce a screen of one wrong name repeated
         128 times, which looks exactly like a bank of identically-named
-        patches. :meth:`scan_bank` therefore refuses rather than reports it;
+        patches. This method therefore refuses rather than reports it;
         see :func:`_stuck_after`.
         """
         entries = banks.slots(bank_id)
-        out: Dict[int, str] = {}
+        out: Dict[int, Tuple[str, int]] = {}
         previous: Optional[str] = None
         stuck = 0
         before = self._remember_selection() if restore else None
@@ -2287,17 +2303,17 @@ class XvBridge:
             for index, entry in enumerate(entries):
                 self.select(entry)
                 time.sleep(settle)
-                name = self.temporary_patch_name(timeout=timeout)
+                name, category = self.temporary_patch(timeout=timeout)
                 attempts = 0
                 while name == previous and attempts < 3:
                     time.sleep(settle)
-                    name = self.temporary_patch_name(timeout=timeout)
+                    name, category = self.temporary_patch(timeout=timeout)
                     attempts += 1
                 if name == previous:
                     stuck += 1
                 else:
                     stuck = 0
-                out[entry.number] = name
+                out[entry.number] = (name, category)
                 previous = name
                 if on_progress is not None:
                     on_progress(index + 1, len(entries), name)
@@ -2321,6 +2337,29 @@ class XvBridge:
         finally:
             self._restore_selection(before)
         return out
+
+    def scan_bank(
+        self,
+        bank_id: str,
+        *,
+        on_progress: Optional[Callable[[int, int, str], None]] = None,
+        settle: float = SELECT_GAP,
+        restore: bool = True,
+        timeout: Optional[float] = None,
+    ) -> Dict[int, str]:
+        """Learn a whole bank's names by selecting each slot and reading back.
+
+        The name-only view of :meth:`scan_bank_with_categories`, which the
+        browser uses because its live layer holds names, not categories.
+        """
+        detailed = self.scan_bank_with_categories(
+            bank_id,
+            on_progress=on_progress,
+            settle=settle,
+            restore=restore,
+            timeout=timeout,
+        )
+        return {number: name for number, (name, _category) in detailed.items()}
 
     def _remember_selection(self) -> Optional[Tuple[int, int, int]]:
         """The patch triple to put back after a sweep, if it can be read."""

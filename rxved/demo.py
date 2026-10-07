@@ -504,6 +504,32 @@ class DemoBridge:
         self.raw_log.append((msb, lsb, program_change))
         self._tick()
 
+    def temporary_patch(self, *, timeout=None):
+        # No category in the demo; a subclass can override to exercise the
+        # category path.
+        return self.temporary_patch_name(timeout=timeout), 0
+
+    def scan_bank_with_categories(
+        self,
+        bank_id: str,
+        *,
+        on_progress=None,
+        settle: float = 0.0,
+        restore: bool = True,
+        timeout=None,
+    ) -> Dict[int, tuple]:
+        entries = banks.slots(bank_id)
+        out: Dict[int, tuple] = {}
+        before = (87, 0, 0) if restore else None
+        for index, entry in enumerate(entries):
+            self.select(entry)
+            out[entry.number] = self.temporary_patch()
+            if on_progress is not None:
+                on_progress(index + 1, len(entries), out[entry.number][0])
+        if before is not None:
+            self.select_raw(*before)
+        return out
+
     def scan_bank(
         self,
         bank_id: str,
@@ -513,17 +539,14 @@ class DemoBridge:
         restore: bool = True,
         timeout=None,
     ) -> Dict[int, str]:
-        entries = banks.slots(bank_id)
-        out: Dict[int, str] = {}
-        before = (87, 0, 0) if restore else None
-        for index, entry in enumerate(entries):
-            self.select(entry)
-            out[entry.number] = _demo_name(bank_id, entry.number)
-            if on_progress is not None:
-                on_progress(index + 1, len(entries), out[entry.number])
-        if before is not None:
-            self.select_raw(*before)
-        return out
+        detailed = self.scan_bank_with_categories(
+            bank_id,
+            on_progress=on_progress,
+            settle=settle,
+            restore=restore,
+            timeout=timeout,
+        )
+        return {number: name for number, (name, _category) in detailed.items()}
 
     def probe_srx(
         self,

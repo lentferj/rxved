@@ -110,3 +110,27 @@ def test_a_writable_bank_is_refused(tmp_path, capsys):
     with pytest.raises(SystemExit):
         cli._cmd_scan_catalog(DemoBridge(patch_mode=True), args)
     assert "rxvcli read USER" in capsys.readouterr().err
+
+
+class _CategorisedDemo(DemoBridge):
+    """A demo whose scan reports a category byte, to exercise the mapping."""
+
+    def temporary_patch(self, *, timeout=None):
+        name, _ = super().temporary_patch(timeout=timeout)
+        return name, 1  # 1 -> PNO
+
+
+def test_it_captures_the_category_byte(tmp_path, capsys):
+    args = _args(tmp_path, "scan-catalog", "PST-A", "--yes")
+    cli._cmd_scan_catalog(_CategorisedDemo(patch_mode=True), args)
+    capsys.readouterr()
+    raw = json.loads((tmp_path / "catalog.json").read_text())
+    assert raw["banks"]["PST-A"][0]["category"] == "PNO"
+
+
+def test_category_code_maps_the_synth_byte():
+    from xv import catalog as cat
+
+    assert cat.category_code(1) == "PNO"
+    assert cat.category_code(0) is None
+    assert cat.category_code(len(cat.CATEGORIES) + 1) is None

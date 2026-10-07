@@ -81,8 +81,8 @@ class _StuckBridge(_FakeBridge):
         super().__init__()
         self.name = name
 
-    def temporary_patch_name(self, *, timeout=None):
-        return self.name
+    def temporary_patch(self, *, timeout=None):
+        return self.name, 0
 
 
 class _ScriptedBridge(_FakeBridge):
@@ -97,11 +97,11 @@ class _ScriptedBridge(_FakeBridge):
         super().__init__()
         self.script = list(script)
 
-    def temporary_patch_name(self, *, timeout=None):
+    def temporary_patch(self, *, timeout=None):
         index = len(self.selected) - 1
         if index < len(self.script):
-            return self.script[index]
-        return f"Patch {index + 1:03d}"
+            return self.script[index], 0
+        return f"Patch {index + 1:03d}", 0
 
 
 @pytest.fixture

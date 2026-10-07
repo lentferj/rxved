@@ -773,7 +773,7 @@ def _cmd_scan_catalog(bridge, args) -> None:
             )
 
         try:
-            names = bridge.scan_bank(bank_id, on_progress=progress)
+            names = bridge.scan_bank_with_categories(bank_id, on_progress=progress)
         except (LookupError, TimeoutError, ValueError, RuntimeError) as exc:
             # One bank that will not answer must not cost the others: a
             # discovery run is the one place a single bad page is most
@@ -786,8 +786,10 @@ def _cmd_scan_catalog(bridge, args) -> None:
             )
             continue
         print("", file=sys.stderr)
-        for number, name in names.items():
-            catalog.set_name(bank_id, number, name)
+        for number, (name, category_byte) in names.items():
+            catalog.set_name(
+                bank_id, number, name, category=cat.category_code(category_byte)
+            )
         counts[bank_id] = len(names)
         total += len(names)
 

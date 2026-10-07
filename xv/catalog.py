@@ -64,6 +64,7 @@ __all__ = [
     "DEFAULT_CATALOG_PATH",
     "CATEGORIES",
     "CATEGORY_NAMES",
+    "category_code",
     "UNCATEGORISED",
     "UNNAMED",
     "load",
@@ -123,6 +124,19 @@ CATEGORIES = (
 
 #: Code -> display name, for anything that has to show one.
 CATEGORY_NAMES = dict(CATEGORIES)
+
+
+def category_code(byte: int) -> Optional[str]:
+    """The code for the synth's 1-based Patch Category byte, or ``None``.
+
+    The byte is what sits at offset 12 of the temporary patch (OM p. 148)
+    and what the editor binary stores after each preset name. 0 means no
+    category; the codes themselves are 1-based into :data:`CATEGORIES`.
+    """
+    if 1 <= byte <= len(CATEGORIES):
+        return CATEGORIES[byte - 1][0]
+    return None
+
 
 #: Shown in a category filter for slots the catalog has no category for --
 #: every SRX slot today, since the expansion lists have not been extracted.

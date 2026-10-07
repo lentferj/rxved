@@ -461,23 +461,24 @@ board that is not currently fitted.
 ### From the fitted synth (discovery)
 
 `rxvcli scan-catalog` finds what is actually fitted — the internal presets
-plus every SRX card the probe finds — and writes the names into the catalog
-file:
+plus every SRX card the probe finds — and writes the names and categories
+into the catalog file:
 
 ```sh
 rxvcli scan-catalog --yes
 ```
 
 It selects every slot and reads the temporary patch area back, which is the
-only way to get ROM and expansion names off the hardware. `--yes` is required
-because the scan changes what the synth is set to play. It does not make a
-note sound by itself, but if anything is already playing — a sequencer, an
-arpeggiator, a held chord — every slot change is heard under it, so **turn
-the volume down first**. The patch the synth was on is restored when each
-bank finishes. The synth must be in **PATCH mode**: in PERFORM mode a program
-change on the patch receive channel does not move the patch that gets read
-back, so the command refuses rather than reporting the current patch's name
-for every slot.
+only way to get ROM and expansion names off the hardware. The 12-byte name
+is followed by the **Patch Category** byte, so the catalog comes out with
+categories too, not just names. `--yes` is required because the scan changes
+what the synth is set to play. It does not make a note sound by itself, but
+if anything is already playing — a sequencer, an arpeggiator, a held chord —
+every slot change is heard under it, so **turn the volume down first**. The
+patch the synth was on is restored when each bank finishes. The synth must be
+in **PATCH mode**: in PERFORM mode a program change on the patch receive
+channel does not move the patch that gets read back, so the command refuses
+rather than reporting the current patch's name for every slot.
 
 A card is only scanned if probing finds it, so a machine with one board
 fitted does not spend a minute scanning four empty ones. To scan a named card
@@ -489,15 +490,15 @@ rxvcli scan-catalog PST-A PST-B --yes        # internal preset banks
 rxvcli --catalog my-catalog.json scan-catalog --yes
 ```
 
-By default the scan merges into the existing catalog, so categories from the
-editor/PDF catalog are kept and the banks you did not scan are left alone.
-`--no-merge` writes only the scanned banks. The writable banks (USER,
-P-USER, R-USER) are not scanned — `rxvcli read` gets those silently — and
-neither are the GM banks (selecting a GM patch leaves the temporary patch
-area unreadable) or the rhythm banks (there is no temporary rhythm area to
-read back); their names still come from the editor and the manual. Where the
-printed list and the card disagree, the scan is right: it is what is actually
-fitted.
+By default the scan merges into the existing catalog, so the banks you did
+not scan are left alone; where the scan finds no category (a 0 byte), any
+category already in the catalog is kept. `--no-merge` writes only the scanned
+banks. The writable banks (USER, P-USER, R-USER) are not scanned — `rxvcli
+read` gets those silently — and neither are the GM banks (selecting a GM
+patch leaves the temporary patch area unreadable) or the rhythm banks (there
+is no temporary rhythm area to read back); their names still come from the
+editor and the manual. Where the printed list and the card disagree, the scan
+is right: it is what is actually fitted.
 
 ### The editor binary
 

@@ -15,8 +15,12 @@ from __future__ import annotations
 import importlib.util
 import os
 
-import numpy as np
 import pytest
+
+# read_marked_list.py needs numpy and Pillow, which are the optional `tools`
+# extra. Skip rather than fail where they are not installed.
+np = pytest.importorskip("numpy")
+pytest.importorskip("PIL")
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _TOOL = os.path.join(os.path.dirname(_HERE), "tools", "read_marked_list.py")

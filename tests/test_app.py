@@ -385,6 +385,99 @@ class TestFavorites:
             assert app.last_status_refused
 
 
+class TestUndo:
+    """`z`/`Z`, the sibling editors' undo, over the favourites store.
+
+    Built for the wrong `f` press -- the one keystroke that writes -- but the
+    log is data rather than a closure, so preset editing can ride the same
+    two keys later.
+    """
+
+    async def test_z_undoes_a_wrong_favourite(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("tab")
+            await pilot.press("f")
+            await pilot.pause()
+            assert ("USER", 1) in app.favorites
+            await pilot.press("z")
+            await pilot.pause()
+            assert ("USER", 1) not in app.favorites
+
+    async def test_z_restores_an_unfavourited_slot(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("tab")
+            await pilot.press("f")
+            await pilot.press("f")
+            await pilot.pause()
+            assert ("USER", 1) not in app.favorites
+            await pilot.press("z")
+            await pilot.pause()
+            assert ("USER", 1) in app.favorites
+
+    async def test_undo_all_reverses_every_change(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("tab")
+            await pilot.press("f")
+            await pilot.press("down")
+            await pilot.press("f")
+            await pilot.pause()
+            assert len(app.favorites) == 2
+            await pilot.press("Z")
+            await pilot.pause()
+            assert len(app.favorites) == 0
+            assert app._changes == []
+
+    async def test_z_with_nothing_to_undo_says_so(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("z")
+            await pilot.pause()
+            assert app.last_status == "nothing to undo"
+
+    async def test_the_subtitle_counts_pending_changes(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("tab")
+            await pilot.press("f")
+            await pilot.pause()
+            assert "Δ1" in app.sub_title
+            await pilot.press("z")
+            await pilot.pause()
+            assert "Δ" not in app.sub_title
+
+    async def test_z_restores_the_previous_tags(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("tab")
+            await pilot.press("f")
+            await pilot.pause()
+            await pilot.press("t")
+            await pilot.pause()
+            await pilot.press("b", "a", "s", "s")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.favorites.get("USER", 1).tags == "bass"
+            await pilot.press("z")
+            await pilot.pause()
+            assert app.favorites.get("USER", 1).tags == ""
+
+    async def test_undo_restores_a_non_empty_old_value(self, app):
+        """Not just "clear it": the value before the edit comes back."""
+        from rxved.app import _Change
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="Velvet Bell", tags="pad")
+            app._record_change(_Change("tags", "USER", 1, old="pad", new="lead"))
+            app.favorites.set_tags("USER", 1, "lead")
+            app.action_undo()
+            await pilot.pause()
+            assert app.favorites.get("USER", 1).tags == "pad"
+
+
 class TestReadingNames:
     async def test_r_reads_a_user_bank(self, app):
         async with app.run_test() as pilot:
@@ -1275,7 +1368,7 @@ class TestMultiEditing:
     async def test_a_non_editable_column_is_refused_not_ignored(self, app):
         async with app.run_test() as pilot:
             screen = await self._open(app, pilot)
-            await self._cell(screen, pilot, 1, "patch")
+            await self._cell(screen, pilot, 1, "part")
             await pilot.press("enter")
             await pilot.pause()
             # Still the multi screen: no prompt opened.
@@ -1339,7 +1432,7 @@ class TestMultiEditing:
     async def test_digits_do_nothing_on_a_non_editable_cell(self, app):
         async with app.run_test() as pilot:
             screen = await self._open(app, pilot)
-            await self._cell(screen, pilot, 1, "patch")
+            await self._cell(screen, pilot, 1, "part")
             await pilot.press("7")
             await pilot.pause()
             assert isinstance(app.screen, MultiScreen)

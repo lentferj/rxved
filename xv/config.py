@@ -66,9 +66,11 @@ __all__ = [
     "load_channel",
     "load_device_id",
     "load_last_ports",
+    "load_ui_state",
     "save_channel",
     "save_device_id",
     "save_last_ports",
+    "save_ui_state",
     "settings",
 ]
 
@@ -124,6 +126,43 @@ def load_channel(path: str = DEFAULT_CONFIG_PATH) -> Optional[int]:
 
 def save_channel(channel: int, path: str = DEFAULT_CONFIG_PATH) -> None:
     settings.save_channel(channel, path)
+
+
+def save_ui_state(
+    path: str = DEFAULT_CONFIG_PATH,
+    *,
+    bank_index: Optional[int] = None,
+    slot_cursor: Optional[int] = None,
+    view_mode: Optional[str] = None,
+    categories: Optional[list[str]] = None,
+) -> None:
+    """Save UI state (bank position, slot cursor, view mode, categories)."""
+    changes = {}
+    if bank_index is not None:
+        changes["bank_index"] = bank_index
+    if slot_cursor is not None:
+        changes["slot_cursor"] = slot_cursor
+    if view_mode is not None:
+        changes["view_mode"] = view_mode
+    if categories is not None:
+        changes["categories"] = sorted(categories)
+    if changes:
+        settings.update(path, **changes)
+
+
+def load_ui_state(path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]:
+    """Load UI state: bank index, slot cursor, view mode, categories."""
+    data = _read_dict(path)
+    result = {}
+    if "bank_index" in data and isinstance(data["bank_index"], int):
+        result["bank_index"] = data["bank_index"]
+    if "slot_cursor" in data and isinstance(data["slot_cursor"], int):
+        result["slot_cursor"] = data["slot_cursor"]
+    if "view_mode" in data and isinstance(data["view_mode"], str):
+        result["view_mode"] = data["view_mode"]
+    if "categories" in data and isinstance(data["categories"], list):
+        result["categories"] = data["categories"]
+    return result
 
 
 def _read_dict(path: str) -> Dict[str, Any]:

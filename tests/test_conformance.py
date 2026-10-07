@@ -36,6 +36,8 @@ EXTRA_HINTS = (
     "C categories",
     "R re-read",
     "m multi setup",
+    "z undo",
+    "Z undo all",
 )
 
 

@@ -30,13 +30,13 @@ below and re-exported so every existing call site reads exactly as it did.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Vertical, Horizontal
 from textual.screen import ModalScreen
-from textual.widgets import DataTable, Input, Label, Static
+from textual.widgets import DataTable, Input, Label, Static, Checkbox
 from vinsynlib import keys
 from vinsynlib.keys import wrap_blocks
 from vinsynlib.ui.hints import KeyHints
@@ -67,6 +67,7 @@ __all__ = [
     "StoreScreen",
     "MultiScreen",
     "CategoryScreen",
+    "SearchScreen",
 ]
 
 
@@ -155,6 +156,73 @@ class TextPromptScreen(ModalScreen[Optional[str]]):
         self.dismiss(None)
 
 
+class SearchScreen(ModalScreen[Optional[Tuple[str, Dict[str, bool]]]]):
+    """Search prompt with checkboxes for what to search in.
+
+    Returns (needle, options) or None if cancelled.
+    """
+
+    DEFAULT_CSS = """
+    SearchScreen { align: center middle; }
+    SearchScreen > Vertical {
+        width: 70; height: auto; border: thick $accent;
+        background: $surface; padding: 1 2;
+    }
+    SearchScreen .checkbox-row { height: auto; margin-top: 1; }
+    SearchScreen Checkbox { margin-right: 2; }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        # Tab moves between input and checkboxes
+    ]
+
+    def __init__(
+        self,
+        *,
+        search_names: bool = True,
+        search_tags: bool = True,
+        search_notes: bool = True,
+    ) -> None:
+        super().__init__()
+        self._search_names = search_names
+        self._search_tags = search_tags
+        self._search_notes = search_notes
+
+    def compose(self) -> ComposeResult:
+        from textual.widgets import Checkbox
+
+        with Vertical():
+            yield Label("Search")
+            yield Input(placeholder="search term…", id="value")
+            with Horizontal(classes="checkbox-row"):
+                yield Checkbox("names", value=self._search_names, id="opt-names")
+                yield Checkbox("tags", value=self._search_tags, id="opt-tags")
+                yield Checkbox("notes", value=self._search_notes, id="opt-notes")
+
+    def on_mount(self) -> None:
+        field = self.query_one("#value", Input)
+        field.focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self._finish(event.value)
+
+    def _finish(self, needle: str) -> None:
+        options = {
+            "names": self.query_one("#opt-names", Checkbox).value,
+            "tags": self.query_one("#opt-tags", Checkbox).value,
+            "notes": self.query_one("#opt-notes", Checkbox).value,
+        }
+        # Require at least one option
+        if not any(options.values()):
+            self.app.notify_status("select at least one field", refused=True)
+            return
+        self.dismiss((needle, options))
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class ReportScreen(ModalScreen[None]):
     """A scrollable block of text: device details, help, scan results."""
 
@@ -208,6 +276,10 @@ KEY_HINTS = keys.legend(
         "C categories",
         "R re-read",
         "m multi setup",
+        # The family keeps undo in its editor tier; this browser writes the
+        # favourites store, so it carries the same two keys as its own.
+        "z undo",
+        "Z undo all",
     )
 )
 
@@ -533,6 +605,7 @@ class MultiScreen(ModalScreen[None]):
         # Opens the arm-then-fire screen. Opening it writes nothing; the
         # destructive step is two further keys inside it, on purpose.
         Binding("W", "store", "Write to a slot", show=False),
+        Binding("r", "refresh", "Refresh", show=False),
         Binding("plus", "bump(1)", "+1", show=False),
         Binding("equals_sign", "bump(1)", "+1", show=False),
         Binding("minus", "bump(-1)", "-1", show=False),
@@ -544,7 +617,16 @@ class MultiScreen(ModalScreen[None]):
         for digit in range(10)
     ]
 
-    def __init__(self, state, catalog, *, on_write=None, on_write_channel=None) -> None:
+    def __init__(
+        self,
+        state,
+        catalog,
+        *,
+        on_write=None,
+        on_write_channel=None,
+        on_refresh=None,
+        on_close=None,
+    ) -> None:
         super().__init__()
         self._state = state
         self._catalog = catalog
@@ -555,6 +637,11 @@ class MultiScreen(ModalScreen[None]):
         self._on_write = on_write
         #: ``on_write_channel(channel, offset, value, adopt)``.
         self._on_write_channel_cb = on_write_channel
+        #: ``on_refresh()`` -- called when the user presses 'r' to re-read
+        #: the full state from the synth.
+        self._on_refresh = on_refresh
+        #: ``on_close()`` -- called when the screen is dismissed.
+        self._on_close = on_close
 
     # --- building ------------------------------------------------------------
 
@@ -582,7 +669,8 @@ class MultiScreen(ModalScreen[None]):
         nxt = COLUMN_VIEWS[(self._view + 1) % len(COLUMN_VIEWS)][0]
         return (
             f"[b]{which}[/b] columns · tab for {nxt} · type a number, or "
-            f"⏎ to edit · space toggles · +/- adjust · W writes to a slot · "
+            f"⏎ to edit · space toggles · +/- adjust · r refresh · W writes "
+            f"to a slot · "
             f"edits go to the temporary performance, so a power cycle undoes "
             f"them"
         )
@@ -700,9 +788,11 @@ class MultiScreen(ModalScreen[None]):
             return None, None
         row_key, column_key = table.coordinate_to_cell_key(table.cursor_coordinate)
         column = column_key.value
+        # Allow "patch" column to be editable (maps to "pc" for bump/type)
         if (
             column not in EDITABLE_PART_COLUMNS
             and column not in EDITABLE_CHANNEL_COLUMNS
+            and column != "patch"
         ):
             return None, column
         part = next(
@@ -764,6 +854,9 @@ class MultiScreen(ModalScreen[None]):
         part, column = self._cursor()
         if part is None:
             return
+        # "patch" column maps to "pc" for editing
+        if column == "patch":
+            column = "pc"
         if self._is_switch(column):
             if digit in ("0", "1"):
                 self._apply(part, column, int(digit))
@@ -782,6 +875,9 @@ class MultiScreen(ModalScreen[None]):
                 refused=True,
             )
             return
+        # "patch" column maps to "pc" for editing
+        if column == "patch":
+            column = "pc"
         if self._is_switch(column):
             self.action_toggle_cell()
             return
@@ -848,6 +944,9 @@ class MultiScreen(ModalScreen[None]):
         part, column = self._cursor()
         if part is None:
             return
+        # "patch" column maps to "pc" for bump operations
+        if column == "patch":
+            column = "pc"
         _offset, _label, low, high = self._spec(column)
         value = self._current_value(part, column) + delta
         if low <= value <= high:
@@ -916,7 +1015,24 @@ class MultiScreen(ModalScreen[None]):
             name = self._state.common.name
         self.app.open_store_screen(name)
 
+    def action_refresh(self) -> None:
+        """Re-read the full multi-mode state from the synth."""
+        if self._on_refresh is None:
+            self.app.notify_status("not connected to a synth", refused=True)
+            return
+        self._on_refresh()
+
+    def update_state(self, state) -> None:
+        """Replace the screen's state with fresh data from the synth."""
+        self._state = state
+        self._build_table()
+        self.query_one("#fx", Static).update(self._fx_summary())
+        self.query_one("#report", Static).update(self._report_text())
+        self.query_one("#hint", Static).update(self._hint_text())
+
     def action_close(self) -> None:
+        if self._on_close is not None:
+            self._on_close()
         self.dismiss(None)
 
 

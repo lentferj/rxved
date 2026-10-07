@@ -49,7 +49,8 @@ import argparse
 import sqlite3
 import sys
 import threading
-from typing import Dict, List, Optional
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
 
 from rich.text import Text
 
@@ -57,12 +58,13 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import DataTable, Header, Static
+from textual.widgets import DataTable, Header, Static, Checkbox
 from vinsynlib.cli import add_common_arguments, make_parser, validate_common
 from vinsynlib.spec import flag_help
 
 from xv import banks
 from xv import catalog as cat
+from xv.config import load_ui_state, save_ui_state
 
 from rxved import livenames
 
@@ -90,6 +92,7 @@ __all__ = [
     "_BIAS",
 ]
 
+sys.setrecursionlimit(10000)
 
 #: What a bridge call can raise when the synth, the port or the arguments
 #: are at fault. Workers catch exactly this -- not bare ``Exception`` -- so
@@ -122,6 +125,7 @@ from rxved.screens import (  # noqa: E402
     KeyHints,
     MultiScreen,
     ReportScreen,
+    SearchScreen,
     StoreScreen,
     TextPromptScreen,
     _BIAS,
@@ -132,6 +136,40 @@ from rxved.screens import (  # noqa: E402
 
 
 # --- the application --------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _Change:
+    """One recorded change to the favourites store, enough to undo it.
+
+    Favourites are the only thing rxved writes today, so a change is a slot
+    plus the value before and after: ``old``/``new`` are the active flag for
+    a toggle, the tag or note text for those. The shape is data rather than a
+    closure so that the same log and the same ``z``/``Z`` keys can carry a
+    preset write when editing arrives.
+    """
+
+    kind: str  # "favourite" | "tags" | "note" | "rating"
+    bank_id: str
+    number: int
+    old: object
+    new: object
+    #: The displayed name, for re-favouriting an un-favourited slot: the
+    #: store's ``toggle`` uses the stored name first, this as the fallback.
+    name: str = ""
+
+    @property
+    def key(self) -> str:
+        return f"{self.bank_id}:{self.number:03d}"
+
+    @property
+    def label(self) -> str:
+        return {
+            "favourite": "favourite",
+            "tags": "tags",
+            "note": "note",
+            "rating": "rating",
+        }.get(self.kind, self.kind)
 
 
 class RxvedApp(App):
@@ -176,6 +214,8 @@ class RxvedApp(App):
         Binding("F", "cycle_favorites", "Favourites view"),
         Binding("t", "edit_tags", "Tags"),
         Binding("n", "edit_note", "Note"),
+        Binding("z", "undo", "Undo"),
+        Binding("Z", "undo_all", "Undo all"),
         Binding("slash", "search", "Search"),
         Binding("r", "read_names", "Read names"),
         Binding("s", "scan_bank", "Scan bank"),
@@ -242,6 +282,10 @@ class RxvedApp(App):
         self._closing = False
         self.last_status = ""
         self.last_status_refused = False
+        #: Undo log, oldest first, in-memory only. Favourites are the only
+        #: thing written today, so an entry is a slot and the value before
+        #: and after; `z`/`Z` replay it backwards.
+        self._changes: List[_Change] = []
         #: Which of VIEW_CYCLE the slot pane is showing.
         self.view_mode = VIEW_ALL
         #: Category codes to narrow to; empty means no narrowing. Applied on
@@ -252,7 +296,39 @@ class RxvedApp(App):
         #: synth's own Patch Receive Channel once that has been read --
         #: until then it is whatever was configured, and the UI says so.
         self.target_channel = channel
+        #: Whether the channel came from config (not default). If True, we
+        #: don't overwrite it with the device's Patch Receive Channel.
+        self._channel_from_config = channel != 0
         self.channel_is_from_device = False
+        #: The currently open MultiScreen, if any. Used by the refresh callback.
+        self._multi_screen: Optional[MultiScreen] = None
+        #: Saved search options (names, tags, notes). Defaults to all on.
+        self._search_options: Dict[str, bool] = {
+            "names": True,
+            "tags": True,
+            "notes": True,
+        }
+
+        # Load persisted UI state (bank position, slot cursor, view mode, categories)
+        if self._config_path is not None:
+            ui_state = load_ui_state(self._config_path)
+            if "bank_index" in ui_state:
+                idx = ui_state["bank_index"]
+                if 0 <= idx < len(self._bank_ids):
+                    self._current_bank = self._bank_ids[idx]
+                    self._saved_bank_index = idx
+            if "slot_cursor" in ui_state:
+                self._saved_slot_cursor = ui_state["slot_cursor"]
+            else:
+                self._saved_slot_cursor = None
+            if "view_mode" in ui_state:
+                vm = ui_state["view_mode"]
+                if vm in VIEW_CYCLE:
+                    self.view_mode = vm
+            if "categories" in ui_state:
+                self.categories = set(ui_state["categories"])
+        else:
+            self._saved_slot_cursor = None
 
     # --- layout -------------------------------------------------------------
 
@@ -284,6 +360,11 @@ class RxvedApp(App):
             bank_table.add_column(label, key=key)
         self._fill_banks()
 
+        # Restore bank table cursor position from saved state
+        saved_bank_index = getattr(self, "_saved_bank_index", 0)
+        if 0 <= saved_bank_index < len(self._bank_ids):
+            bank_table.move_cursor(row=saved_bank_index)
+
         slot_table = self.query_one("#slot-table", DataTable)
         # PC, LSB, MSB -- least significant first. Not the order the
         # manual's tables print, but the order a sequencer's MIDI track
@@ -303,9 +384,18 @@ class RxvedApp(App):
             ("cat", "cat"),
         ):
             slot_table.add_column(label, key=key)
-        self._fill_slots(self._current_bank)
+        # Use saved slot cursor on first fill
+        saved_cursor = getattr(self, "_saved_slot_cursor", 0)
+        self._fill_slots(self._current_bank, cursor=saved_cursor or 0)
+        self._saved_slot_cursor = None  # Only use once
 
         bank_table.focus()
+
+        # Re-apply slot cursor after bank table gets focus -- focus changes
+        # can reset the visual cursor, so we re-apply it once the dust settles.
+        if saved_cursor:
+            # Use a timer with a small delay to ensure focus changes have settled
+            self.set_timer(0.1, lambda: self._restore_slot_cursor(saved_cursor))
         self._read_channels_worker()
         self._read_user_bank_at_startup()
         if not self.catalog:
@@ -436,9 +526,14 @@ class RxvedApp(App):
 
     def _adopt_state(self, state, move_cursor: bool = False) -> None:
         """Take a freshly read DeviceState and redraw what depends on it."""
-        if move_cursor and not self.channel_is_from_device:
+        if (
+            move_cursor
+            and not self.channel_is_from_device
+            and not self._channel_from_config
+        ):
             # Start where the synth is actually listening rather than on
-            # channel 1 by assumption.
+            # channel 1 by assumption. But don't override a channel loaded
+            # from config (non-default).
             self.target_channel = state.channels.patch_receive
             self.channel_is_from_device = True
         self._update_detail(self.query_one("#slot-table", DataTable).cursor_row)
@@ -561,6 +656,15 @@ class RxvedApp(App):
         self._update_subtitle()
         self._update_detail(table.cursor_row)
 
+    def _restore_slot_cursor(self, cursor: int) -> None:
+        """Re-apply slot cursor after focus changes have settled."""
+        try:
+            table = self.query_one("#slot-table", DataTable)
+            if 0 <= cursor < len(self._current_slots):
+                table.move_cursor(row=cursor)
+        except (LookupError, ValueError, AttributeError):
+            pass
+
     def _update_subtitle(self) -> None:
         entry = banks.bank(self._current_bank)
         shown = len(self._current_slots)
@@ -584,7 +688,10 @@ class RxvedApp(App):
             )
         if self.categories:
             what += "   ·   " + "/".join(sorted(self.categories))
-        self.sub_title = f"{what}   ·   ch {self.target_channel + 1}"
+        line = f"{what}   ·   ch {self.target_channel + 1}"
+        if self._changes:
+            line += f"   ·   Δ{len(self._changes)}"
+        self.sub_title = line
 
     def _update_detail(self, row: int) -> None:
         if not 0 <= row < len(self._current_slots):
@@ -676,8 +783,15 @@ class RxvedApp(App):
                     return
                 if bank_id != self._current_bank:
                     self._fill_slots(bank_id)
+                    self._save_ui_state(bank_index=row)
         elif event.data_table.id == "slot-table":
             self._update_detail(event.cursor_row)
+            # Only save slot cursor when the slot table is focused -- i.e. the
+            # user is actively navigating. This prevents programmatic cursor
+            # moves during startup (when bank table gets focus) from
+            # overwriting the saved position.
+            if self._focused_table().id == "slot-table":
+                self._save_ui_state(slot_cursor=event.cursor_row)
 
     # --- status -------------------------------------------------------------
 
@@ -812,10 +926,13 @@ class RxvedApp(App):
         if slot is None:
             return
         name = self.catalog.display_name(slot.bank_id, slot.number)
-        now = self.favorites.toggle(
-            slot.bank_id,
-            slot.number,
-            name="" if name == cat.UNNAMED else name,
+        label = "" if name == cat.UNNAMED else name
+        was = self.favorites.get(slot.bank_id, slot.number) is not None
+        now = self.favorites.toggle(slot.bank_id, slot.number, name=label)
+        self._record_change(
+            _Change(
+                "favourite", slot.bank_id, slot.number, old=was, new=now, name=label
+            )
         )
         self._mark_favorite(slot, now)
         self.notify_status(
@@ -837,7 +954,11 @@ class RxvedApp(App):
         def apply(value: Optional[str]) -> None:
             if value is None:
                 return
+            old = existing.tags
             self.favorites.set_tags(slot.bank_id, slot.number, value)
+            self._record_change(
+                _Change("tags", slot.bank_id, slot.number, old=old, new=value)
+            )
             self._update_detail(self.query_one("#slot-table", DataTable).cursor_row)
             self.notify_status(f"{slot} tags set")
 
@@ -860,11 +981,89 @@ class RxvedApp(App):
         def apply(value: Optional[str]) -> None:
             if value is None:
                 return
+            old = existing.note
             self.favorites.set_note(slot.bank_id, slot.number, value)
+            self._record_change(
+                _Change("note", slot.bank_id, slot.number, old=old, new=value)
+            )
             self._update_detail(self.query_one("#slot-table", DataTable).cursor_row)
             self.notify_status(f"{slot} note set")
 
         self.push_screen(TextPromptScreen(f"Note for {slot}", existing.note), apply)
+
+    # --- undo ---------------------------------------------------------------
+
+    def _record_change(self, change: _Change) -> None:
+        """Append one change to the undo log and show the pending count."""
+        self._changes.append(change)
+        self._update_subtitle()
+
+    def action_undo(self) -> None:
+        self._undo(1)
+
+    def action_undo_all(self) -> None:
+        self._undo(len(self._changes))
+
+    def _undo(self, count: int) -> None:
+        """Reverse the last ``count`` changes, newest first.
+
+        In-memory and unbounded, like the sibling editors: there is nothing
+        here worth surviving a restart, and a cap would only ever be hit by
+        the person who wants it least.
+        """
+        if not self._changes:
+            self.notify_status("nothing to undo")
+            return
+        reverted: List[_Change] = []
+        for _ in range(min(count, len(self._changes))):
+            change = self._changes[-1]
+            try:
+                self._apply_undo(change)
+            except Exception as exc:
+                # Popped only after the write succeeded, so a failure part-way
+                # leaves the log describing what is still applied -- the same
+                # rule the sibling editors' undo follows.
+                self.notify_status(f"undo failed: {exc}", refused=True)
+                break
+            self._changes.pop()
+            reverted.append(change)
+        if not reverted:
+            return
+        self._refresh_after_undo(reverted)
+        self._update_subtitle()
+        if len(reverted) == 1:
+            change = reverted[0]
+            left = f" — Δ{len(self._changes)} left" if self._changes else ""
+            self.notify_status(f"undid {change.label} on {change.key}{left}")
+        else:
+            self.notify_status(f"undid {len(reverted)} change(s)")
+
+    def _apply_undo(self, change: _Change) -> None:
+        """Reverse one recorded change in the favourites store."""
+        if change.kind == "favourite":
+            # toggle is its own inverse: it flips the active flag and restores
+            # whatever annotations the row was carrying.
+            self.favorites.toggle(change.bank_id, change.number, name=change.name)
+        elif change.kind == "tags":
+            self.favorites.set_tags(change.bank_id, change.number, str(change.old))
+        elif change.kind == "note":
+            self.favorites.set_note(change.bank_id, change.number, str(change.old))
+        elif change.kind == "rating":
+            self.favorites.set_rating(change.bank_id, change.number, int(change.old))
+        else:
+            raise ValueError(f"unknown change kind {change.kind!r}")
+
+    def _refresh_after_undo(self, reverted: List[_Change]) -> None:
+        """Repaint what an undo touched: the slot table, bank counts, detail."""
+        bank_table = self.query_one("#bank-table", DataTable)
+        for bank_id in {c.bank_id for c in reverted if c.kind == "favourite"}:
+            marked = len(self.favorites.keys_for_bank(bank_id))
+            try:
+                bank_table.update_cell(bank_id, "fav", str(marked) if marked else "")
+            except (KeyError, ValueError, LookupError, AttributeError):
+                pass
+        self._refresh_current_bank()
+        self._update_detail(self.query_one("#slot-table", DataTable).cursor_row)
 
     def action_cycle_favorites(self) -> None:
         """Step: all slots -> this bank's favourites -> every favourite.
@@ -881,6 +1080,7 @@ class RxvedApp(App):
         index = VIEW_CYCLE.index(self.view_mode)
         self.view_mode = VIEW_CYCLE[(index + 1) % len(VIEW_CYCLE)]
         self._fill_slots(self._current_bank)
+        self._save_ui_state(view_mode=self.view_mode)
         self.query_one("#slot-table", DataTable).focus()
         shown = len(self._current_slots)
         if self.view_mode == VIEW_ALL:
@@ -927,33 +1127,82 @@ class RxvedApp(App):
                 self.notify_status(
                     f"{'/'.join(sorted(self.categories))} — {shown} of {len(rows)} rows"
                 )
+            self._save_ui_state(categories=list(self.categories))
 
         self.push_screen(CategoryScreen(counts, self.categories), apply)
 
     def action_search(self) -> None:
-        def run(needle: Optional[str]) -> None:
-            if not needle:
-                return
-            hits = self.catalog.search(needle)
-            if not hits:
-                self.notify_status(f"nothing matching {needle!r}")
-                return
-            lines = [f"{len(hits)} match(es) for {needle!r}", ""]
-            for bank_id, number, name in hits[:400]:
-                try:
-                    slot = banks.slot(bank_id, number)
-                    wire = (
-                        f"PC {slot.program_change:>3}  "
-                        f"LSB {slot.lsb:>3}  MSB {slot.msb:>3}"
-                    )
-                except LookupError:
-                    wire = ""
-                lines.append(f"{bank_id:<10} {number:03d}  {name:<14} {wire}")
-            if len(hits) > 400:
-                lines.append(f"... and {len(hits) - 400} more")
-            self.push_screen(ReportScreen(f"Search: {needle}", "\n".join(lines)))
+        """Prompt for search term with checkboxes for what to search in."""
+        opts = self._search_options
 
-        self.push_screen(TextPromptScreen("Search names"), run)
+        def run(result: Optional[Tuple[str, Dict[str, bool]]]) -> None:
+            if result is None:
+                return
+            needle, options = result
+            # Remember the options for next time
+            self._search_options = options
+            self._perform_search(needle, options)
+
+        self.push_screen(
+            SearchScreen(
+                search_names=opts.get("names", True),
+                search_tags=opts.get("tags", True),
+                search_notes=opts.get("notes", True),
+            ),
+            run,
+        )
+
+    def _perform_search(self, needle: str, options: Dict[str, bool]) -> None:
+        """Run the search with the given options and show results."""
+        hits: List[Tuple[str, int, str]] = []
+        search_names = options.get("names", False)
+        search_tags = options.get("tags", False)
+        search_notes = options.get("notes", False)
+
+        # Search catalog names if requested
+        if search_names:
+            hits.extend(self.catalog.search(needle))
+
+        # Search favorites if requested
+        if search_tags or search_notes:
+            fav_hits = self.favorites.search(needle)
+            # Filter by what the user selected
+            for fav in fav_hits:
+                match = False
+                if search_tags and fav.tags and needle.lower() in fav.tags.lower():
+                    match = True
+                if search_notes and fav.note and needle.lower() in fav.note.lower():
+                    match = True
+                if match:
+                    hits.append((fav.bank_id, fav.number, fav.name))
+
+        # Deduplicate by (bank_id, number)
+        seen = set()
+        unique_hits = []
+        for bank_id, number, name in hits:
+            key = (bank_id, number)
+            if key not in seen:
+                seen.add(key)
+                unique_hits.append((bank_id, number, name))
+
+        if not unique_hits:
+            self.notify_status(f"nothing matching {needle!r}")
+            return
+
+        unique_hits.sort(key=lambda row: (row[0], row[1]))
+        lines = [f"{len(unique_hits)} match(es) for {needle!r}", ""]
+        for bank_id, number, name in unique_hits[:400]:
+            try:
+                slot = banks.slot(bank_id, number)
+                wire = (
+                    f"PC {slot.program_change:>3}  LSB {slot.lsb:>3}  MSB {slot.msb:>3}"
+                )
+            except LookupError:
+                wire = ""
+            lines.append(f"{bank_id:<10} {number:03d}  {name:<14} {wire}")
+        if len(unique_hits) > 400:
+            lines.append(f"... and {len(unique_hits) - 400} more")
+        self.push_screen(ReportScreen(f"Search: {needle}", "\n".join(lines)))
 
     def action_read_names(self) -> None:
         """Read the highlighted bank's names off the synth, if it has an address.
@@ -1222,6 +1471,28 @@ class RxvedApp(App):
         except OSError:
             pass
 
+    def _save_ui_state(
+        self,
+        *,
+        bank_index: Optional[int] = None,
+        slot_cursor: Optional[int] = None,
+        view_mode: Optional[str] = None,
+        categories: Optional[List[str]] = None,
+    ) -> None:
+        """Persist UI state (bank, slot cursor, view mode, categories)."""
+        if self._config_path is None:
+            return
+        try:
+            save_ui_state(
+                self._config_path,
+                bank_index=bank_index,
+                slot_cursor=slot_cursor,
+                view_mode=view_mode,
+                categories=categories,
+            )
+        except OSError:
+            pass
+
     def action_pick_channel(self) -> None:
         def apply(value):
             if value is None:
@@ -1254,6 +1525,7 @@ class RxvedApp(App):
         """
         self.target_channel = channel
         self.channel_is_from_device = True
+        self._channel_from_config = True
         self._remember_channel(channel)
         self._update_subtitle()
         self._update_detail(self.query_one("#slot-table", DataTable).cursor_row)
@@ -1359,14 +1631,63 @@ class RxvedApp(App):
                 )
             )
             return
-        self.push_screen(
+        # push_screen returns an AwaitMount; the screen is mounted synchronously,
+        # so we can get the actual screen instance via the screen stack.
+        awaitable = self.push_screen(
             MultiScreen(
                 state,
                 self.catalog,
                 on_write=self._write_part_param,
                 on_write_channel=self._write_channel_param,
+                on_refresh=self._refresh_multi_setup,
+                on_close=lambda: setattr(self, "_multi_screen", None),
             )
         )
+        # The screen is now the active screen; grab it from the screen stack.
+        self._multi_screen = self.screen
+
+    def _refresh_multi_setup(self) -> None:
+        """Re-read the full multi-mode state from the synth."""
+        if self._busy:
+            self.notify_status("busy", refused=True)
+            return
+        if self._multi_screen is None:
+            self.notify_status("multi-mode screen not open", refused=True)
+            return
+        self._busy = True
+        self._refresh_multi_worker()
+
+    @work(thread=True)
+    def _refresh_multi_worker(self) -> None:
+        """**MIDI only** -- re-read the full state for the multi-mode screen."""
+        try:
+
+            def progress(done, total):
+                self.call_from_thread(
+                    self.notify_status, f"reading part {done}/{total}"
+                )
+
+            with self._bridge_lock:
+                state = self.bridge.read_state(with_parts=True, on_progress=progress)
+        except _BRIDGE_ERRORS as exc:
+            self.call_from_thread(
+                self.notify_status, f"multi refresh: {exc}", refused=True
+            )
+            return
+        finally:
+            self._busy = False
+        self.call_from_thread(self._on_multi_refresh_complete, state)
+
+    def _on_multi_refresh_complete(self, state) -> None:
+        """Update the multi-mode screen with fresh state."""
+        self._adopt_state(state)
+        # Prefer the tracked screen reference, but fall back to the current
+        # screen if it's a MultiScreen (e.g., if the reference wasn't captured).
+        screen = self._multi_screen
+        if screen is None and isinstance(self.screen, MultiScreen):
+            screen = self.screen
+        if screen is not None:
+            screen.update_state(state)
 
     def _write_part_param(self, part: int, offset: int, value: int, adopt) -> None:
         """Hand one part-parameter write to a worker. Main thread."""
@@ -1671,6 +1992,7 @@ Keys
                  every favourite. The filtered views are the real table, so
                  enter still selects and f still un-favourites.
   t / n          tags / note (favourites only)
+  z / Z          undo / undo all (favourite toggles, tags, notes)
   C              filter by category — multi-select, and it stacks on top of
                  whichever favourites view is showing
   /              search names

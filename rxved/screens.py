@@ -266,25 +266,41 @@ class ReportScreen(ModalScreen[None]):
 #: ``keys.legend`` puts this tool's own hints in the one place the family
 #: leaves for them -- after `n note`, before `i device` -- so a reader's eye
 #: finds them in the same spot in all nine programs.
-KEY_HINTS = keys.legend(
-    (
-        # This synth's own: the two that read from the instrument rather than
-        # from the catalog, the two that re-read its whole state, and the
-        # one that changes what the synth itself is doing.
-        "s scan bank",
-        "x probe SRX",
-        "C categories",
-        "R re-read",
-        "m multi setup",
-        # The family keeps undo in its editor tier; this browser writes the
-        # favourites store, so it carries the same two keys as its own.
-        "z undo",
-        "Z undo all",
+def _view_key(blocks):
+    """Swap the family's ``F favourites view`` for this tool's ``v``.
+
+    ``f`` writes the favourites database and ``F`` does not, so the family's
+    shift-pair left a write one slip away from a read. ``v`` has no such
+    twin. The family asks a tool that renames a shared key to say why in its
+    own test; see tests/test_conformance.py.
+    """
+    return tuple(
+        "v favourites view" if block == "F favourites view" else block
+        for block in blocks
+    )
+
+
+KEY_HINTS = _view_key(
+    keys.legend(
+        (
+            # This synth's own: the two that read from the instrument rather
+            # than from the catalog, the two that re-read its whole state, and
+            # the one that changes what the synth itself is doing.
+            "s scan bank",
+            "x probe SRX",
+            "C categories",
+            "R re-read",
+            "m multi setup",
+            # The family keeps undo in its editor tier; this browser writes
+            # the favourites store, so it carries the same two keys as its own.
+            "z undo",
+            "Z undo all",
+        )
     )
 )
 
 
-#: What the right-hand pane is showing. Cycled by `F`.
+#: What the right-hand pane is showing. Cycled by `v`.
 #:
 #: ``BANK`` and ``FAVOURITES`` are filters over the same table rather than a
 #: separate read-only screen, because the point of a favourites list is to
@@ -294,7 +310,7 @@ VIEW_ALL = "all"
 VIEW_BANK_FAVOURITES = "bank-favourites"
 VIEW_ALL_FAVOURITES = "all-favourites"
 
-#: The order `F` steps through.
+#: The order `v` steps through.
 VIEW_CYCLE = (VIEW_ALL, VIEW_BANK_FAVOURITES, VIEW_ALL_FAVOURITES)
 
 VIEW_LABEL = {

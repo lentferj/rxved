@@ -211,7 +211,7 @@ class RxvedApp(App):
         Binding("C", "pick_categories", "Categories"),
         Binding("R", "refresh_state", "Re-read the synth"),
         Binding("f", "toggle_favorite", "Favourite"),
-        Binding("F", "cycle_favorites", "Favourites view"),
+        Binding("v", "cycle_favorites", "Favourites view"),
         Binding("t", "edit_tags", "Tags"),
         Binding("n", "edit_note", "Note"),
         Binding("z", "undo", "Undo"),
@@ -1988,7 +1988,7 @@ Keys
   R              re-read everything, including each part's receive channel
   enter          select this slot ON THE SYNTH -- it will sound
   f              favourite / un-favourite
-  F              cycle the right pane: all slots → this bank's favourites →
+  v              cycle the right pane: all slots → this bank's favourites →
                  every favourite. The filtered views are the real table, so
                  enter still selects and f still un-favourites.
   t / n          tags / note (favourites only)

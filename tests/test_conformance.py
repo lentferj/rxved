@@ -67,13 +67,29 @@ def test_the_browser_binds_the_shared_keys() -> None:
     # would fire over modal screens too, which silently broke the category
     # picker, so it arrives as the table's own RowSelected and calls
     # action_select_slot from there. The key works and the legend promises it.
-    assert not conformance.check_bindings(
+    problems = conformance.check_bindings(
         RxvedApp, favourites=True, channel=True, select=True
     )
+    # One deliberate divergence: rxved moves the favourites view off the
+    # family's `F` and onto `v`. `f` writes the favourites database and `F`
+    # does not, so the shift-pair left a write one slip away from a read;
+    # `v` has no such twin. The family asks a tool that renames a shared key
+    # to say why in its own test, and these two lines are the whole of the
+    # divergence -- anything else appearing here is a real drift.
+    assert set(problems) == {
+        "F is not bound; the family binds it to cycle_favorites",
+        "cycle_favorites is not reachable from F; it is bound to v",
+    }, "\n".join(problems)
 
 
 def test_the_legend_is_the_family_legend() -> None:
-    assert not conformance.check_legend(KEY_HINTS, extras=EXTRA_HINTS)
+    problems = conformance.check_legend(KEY_HINTS, extras=EXTRA_HINTS)
+    # The same deliberate divergence as the bindings test above: the legend
+    # promises `v favourites view` where the family promises `F`.
+    assert set(problems) == {
+        "the legend is missing 'F favourites view'",
+        "the legend shows 'v favourites view', which is not in the family's",
+    }, "\n".join(problems)
 
 
 def test_the_two_front_ends_agree_on_the_shared_flags() -> None:

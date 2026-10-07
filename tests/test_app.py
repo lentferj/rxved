@@ -954,7 +954,7 @@ class TestCursorStaysPut:
 
 
 class TestFavouritesView:
-    """`F` filters the real table, in two steps, and stays playable.
+    """`v` filters the real table, in two steps, and stays playable.
 
     The point of a favourites list is to play the things on it, so these
     views are the same DataTable with fewer rows — not a read-only report.
@@ -977,7 +977,7 @@ class TestFavouritesView:
         async with app.run_test() as pilot:
             await pilot.pause(0.4)
             await self._mark(app, pilot, [2, 5, 9])
-            await pilot.press("F")
+            await pilot.press("v")
             await pilot.pause(0.3)
             assert app.view_mode == "bank-favourites"
             assert app.query_one("#slot-table").row_count == 3
@@ -990,9 +990,9 @@ class TestFavouritesView:
             app.favorites.add("PST-B", 29)
             app.favorites.add("GM", 7)
             app._fill_slots(app._current_bank)
-            await pilot.press("F")
+            await pilot.press("v")
             await pilot.pause(0.2)
-            await pilot.press("F")
+            await pilot.press("v")
             await pilot.pause(0.3)
             assert app.view_mode == "all-favourites"
             assert {s.bank_id for s in app._current_slots} == {"USER", "PST-B", "GM"}
@@ -1002,7 +1002,7 @@ class TestFavouritesView:
             await pilot.pause(0.4)
             app.favorites.add("USER", 1)
             for _ in range(3):
-                await pilot.press("F")
+                await pilot.press("v")
                 await pilot.pause(0.2)
             assert app.view_mode == "all"
             assert app.query_one("#slot-table").row_count == 128
@@ -1012,9 +1012,9 @@ class TestFavouritesView:
         async with app.run_test() as pilot:
             await pilot.pause(0.4)
             app.favorites.add("PST-B", 29)
-            await pilot.press("F")
+            await pilot.press("v")
             await pilot.pause(0.2)
-            await pilot.press("F")
+            await pilot.press("v")
             await pilot.pause(0.3)
             assert app.view_mode == "all-favourites"
             await pilot.press("enter")
@@ -1028,9 +1028,9 @@ class TestFavouritesView:
             app.favorites.add("PST-B", 29)
             table = app.query_one("#slot-table")
             assert str(table.columns["num"].label) == "#"
-            await pilot.press("F")
+            await pilot.press("v")
             await pilot.pause(0.2)
-            await pilot.press("F")
+            await pilot.press("v")
             await pilot.pause(0.3)
             assert str(table.columns["num"].label) == "bank / #"
 
@@ -1038,7 +1038,7 @@ class TestFavouritesView:
         async with app.run_test() as pilot:
             await pilot.pause(0.4)
             await self._mark(app, pilot, [1, 4])
-            await pilot.press("F")
+            await pilot.press("v")
             await pilot.pause(0.3)
             assert app.query_one("#slot-table").row_count == 2
             await pilot.press("f")
@@ -1051,9 +1051,9 @@ class TestFavouritesView:
             await pilot.pause(0.4)
             app.favorites.add("USER", 29)
             app.favorites.add("PST-B", 29)
-            await pilot.press("F")
+            await pilot.press("v")
             await pilot.pause(0.2)
-            await pilot.press("F")
+            await pilot.press("v")
             await pilot.pause(0.3)
             assert app.query_one("#slot-table").row_count == 2
 
@@ -1061,7 +1061,7 @@ class TestFavouritesView:
         """F is always three steps; an empty one says so rather than jumping."""
         async with app.run_test() as pilot:
             await pilot.pause(0.4)
-            await pilot.press("F")
+            await pilot.press("v")
             await pilot.pause(0.3)
             assert app.view_mode == "bank-favourites"
             assert app.query_one("#slot-table").row_count == 0
@@ -1072,7 +1072,7 @@ class TestFavouritesView:
         async with app.run_test() as pilot:
             await pilot.pause(0.4)
             app.favorites.add("PST-B", 29)  # nothing in the current bank
-            await pilot.press("F")
+            await pilot.press("v")
             await pilot.pause(0.3)
             assert app.view_mode == "bank-favourites"
 

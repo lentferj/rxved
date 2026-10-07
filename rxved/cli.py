@@ -21,16 +21,17 @@ are listed in :data:`_OFFLINE` and never construct a bridge, so they work on
 a headless box, in a container, and while somebody else is using the
 hardware.
 
-``select`` and ``scan`` are the two that make the instrument sound, and
-``scan`` -- which sends a program change per slot -- refuses to run without
-``--yes``. A shell is exactly the place where a recalled history line fires
-something you did not mean to fire, and 475 program changes into a live set
-is not a recoverable mistake.
+``select``, ``scan`` and ``scan-catalog`` change what the instrument is set
+to play, and the two scans -- which send a program change per slot -- refuse
+to run without ``--yes``. A shell is exactly the place where a recalled
+history line fires something you did not mean to fire, and 475 program
+changes into a live set is not a recoverable mistake.
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime
 import os
 import sys
 from typing import Callable, Dict, List, Optional
@@ -614,6 +615,215 @@ def _cmd_probe_srx(bridge, args) -> None:
     print(_fmt_table(rows, ["LSB", "patch 1", "card"]))
 
 
+#: The internal patch banks that can be scanned. GM is not among them: on the
+#: XV-2020, selecting a GM patch (MSB 121) leaves the temporary patch area
+#: unreadable -- the read times out, measured on hardware -- so GM names come
+#: from the editor/PDF catalog instead. The GM variations (``GM-1``..``GM-9``)
+#: are the same, and are sparse besides.
+_INTERNAL_PATCH_BANKS = ("PST-A", "PST-B", "PST-C", "PST-D")
+
+
+def _scan_targets(names: List[str]) -> List[str]:
+    """Bank ids to scan, expanding an SRX card id to its patch pages.
+
+    ``SRX-07`` is not a bank id -- the card is split across ``SRX-07-1`` to
+    ``SRX-07-4`` -- so it is expanded here. Its rhythm bank is left out:
+    there is no temporary rhythm area to read back, so it cannot be scanned.
+    """
+    out: List[str] = []
+    for name in names:
+        try:
+            card = banks.srx_card(name)
+        except LookupError:
+            out.append(name)
+        else:
+            out.extend(b.id for b in card.patch_banks())
+    seen = set()
+    unique: List[str] = []
+    for bank_id in out:
+        if bank_id not in seen:
+            seen.add(bank_id)
+            unique.append(bank_id)
+    return unique
+
+
+def _discovery_targets(bridge) -> List[str]:
+    """Every patch bank the synth actually answers for.
+
+    The internal presets are always there. The SRX pages are not assumed from
+    the table -- a card is only scanned if probing finds it -- so a machine
+    with one board fitted does not spend a minute scanning four empty ones.
+    """
+    targets = list(_INTERNAL_PATCH_BANKS)
+    found = bridge.probe_srx(
+        on_progress=lambda lsb, name: print(
+            f"\r  probing SRX LSB {lsb:2d}  {name or '':<16}",
+            end="",
+            file=sys.stderr,
+        )
+    )
+    print("", file=sys.stderr)
+    seen = set()
+    for lsb in sorted(found):
+        for card in banks.SRX_CARDS:
+            if lsb in card.patch_lsbs and card.id not in seen:
+                seen.add(card.id)
+                targets.extend(b.id for b in card.patch_banks())
+                break
+    return targets
+
+
+def _require_patch_mode(bridge) -> None:
+    """Refuse before touching the synth if it is not in PATCH mode.
+
+    In PERFORM mode a program change on the patch receive channel does not
+    move the patch that gets read back, so a scan would report the current
+    patch's name for every slot. Checked up front rather than left to the
+    first stuck bank, so discovery does not probe 64 LSBs to learn nothing.
+    """
+    try:
+        setup = bridge.read_setup()
+    except (
+        LookupError,
+        TimeoutError,
+        ValueError,
+        RuntimeError,
+        OSError,
+        SystemError,
+    ):
+        return
+    if not setup.is_patch_mode:
+        raise SystemExit(
+            f"error: the synth is in {setup.mode_name} mode, where a program "
+            f"change on the patch receive channel does not move the patch "
+            f"that gets read back. Switch it to PATCH mode (SYSTEM/MIDI) and "
+            f"try again. Nothing has been sent."
+        )
+
+
+def _patch_targets(targets: List[str]) -> List[str]:
+    """Drop the banks a scan cannot serve, saying why for each."""
+    out: List[str] = []
+    for bank_id in targets:
+        entry = banks.bank(bank_id)
+        if bank_id in ("USER", "P-USER", "R-USER"):
+            print(
+                f"note: skipping {bank_id}: it has addresses, so "
+                f"`rxvcli read {bank_id}` gets it silently",
+                file=sys.stderr,
+            )
+        elif entry.kind != "patch":
+            print(
+                f"note: skipping {bank_id}: only patch banks have a "
+                f"temporary area to read back",
+                file=sys.stderr,
+            )
+        else:
+            out.append(bank_id)
+    return out
+
+
+def _cmd_scan_catalog(bridge, args) -> None:
+    """Build or update the name catalog from a hardware scan.
+
+    The scan selects every slot in a bank and reads the temporary patch area
+    back, so it changes what the synth is set to play (and puts it back when
+    the bank is done). It is the only way to get ROM and expansion names off
+    the hardware; the writable banks are not scanned, because `rxvcli read`
+    gets those silently and exactly.
+    """
+    discovery = args.discover or not args.banks
+
+    if not args.yes:
+        raise SystemExit(
+            "error: scanning selects every slot in a bank and changes what "
+            "the synth is set to play. That does not make a note sound by "
+            "itself, but if anything is already playing, every slot change is "
+            "heard: turn the volume down first. The patch the synth was on is "
+            "restored at the end. Re-run with --yes."
+        )
+
+    if discovery:
+        _require_patch_mode(bridge)
+        targets = _discovery_targets(bridge)
+    else:
+        targets = _scan_targets(args.banks)
+
+    # Decided before the scan: confirming a sweep and then watching it skip
+    # everything is a poor way to find out the bank cannot be scanned.
+    patch_targets = _patch_targets(targets)
+    if not patch_targets:
+        raise SystemExit("error: nothing to scan")
+    if not discovery:
+        _require_patch_mode(bridge)
+
+    path = getattr(args, "catalog", None) or cat.DEFAULT_CATALOG_PATH
+    catalog = cat.empty() if args.no_merge else cat.load(path)
+    existing_source = catalog.source
+    total = 0
+    counts: Dict[str, int] = {}
+    failures: Dict[str, str] = {}
+    for bank_id in patch_targets:
+
+        def progress(done: int, total_: int, name: str, bank_id=bank_id) -> None:
+            print(
+                f"\r  {bank_id}: {done}/{total_}  {name:<16}",
+                end="",
+                file=sys.stderr,
+            )
+
+        try:
+            names = bridge.scan_bank(bank_id, on_progress=progress)
+        except (LookupError, TimeoutError, ValueError, RuntimeError) as exc:
+            # One bank that will not answer must not cost the others: a
+            # discovery run is the one place a single bad page is most
+            # likely, and the catalog is still worth writing for the rest.
+            print("", file=sys.stderr)
+            failures[bank_id] = str(exc)
+            print(
+                f"  {bank_id}: FAILED -- {str(exc).splitlines()[0]}",
+                file=sys.stderr,
+            )
+            continue
+        print("", file=sys.stderr)
+        for number, name in names.items():
+            catalog.set_name(bank_id, number, name)
+        counts[bank_id] = len(names)
+        total += len(names)
+
+    if not counts:
+        raise SystemExit("error: no bank could be scanned; the catalog was not written")
+
+    scan_source = "hardware scan (rxvcli scan-catalog)"
+    source = (
+        f"{existing_source}; {scan_source}"
+        if existing_source and not args.no_merge
+        else scan_source
+    )
+    cat.dump(
+        catalog,
+        path,
+        source=source,
+        generated=datetime.date.today().isoformat(),
+        note=(
+            "Built by scanning the connected XV-2020, one program change per "
+            "slot. Names come from the instrument, not from Roland's printed "
+            "documents. Not distributed with rxved."
+        ),
+    )
+    print(f"wrote {path}: {total} name(s) across {len(counts)} bank(s)")
+    for bank_id in sorted(counts):
+        print(f"  {bank_id:<10} {counts[bank_id]:>4}")
+    if failures:
+        print(
+            f"note: {len(failures)} bank(s) failed and were left as they were:",
+            file=sys.stderr,
+        )
+        for bank_id, message in failures.items():
+            print(f"  {bank_id}: {message.splitlines()[0]}", file=sys.stderr)
+        raise SystemExit(1)
+
+
 # --- plumbing ---------------------------------------------------------------
 
 
@@ -814,6 +1024,7 @@ _COMMANDS: Dict[str, Callable] = {
     "read": _cmd_read,
     "select": _cmd_select,
     "scan": _cmd_scan,
+    "scan-catalog": _cmd_scan_catalog,
     "probe-srx": _cmd_probe_srx,
 }
 
@@ -955,6 +1166,34 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--last-lsb", type=int, default=63)
     sp.add_argument(
         "--yes", action="store_true", help="required: this plays the instrument"
+    )
+
+    sp = sub.add_parser(
+        "scan-catalog",
+        help="build/update the name catalog by scanning the synth "
+        "(changes the selected patch)",
+    )
+    sp.add_argument(
+        "banks",
+        nargs="*",
+        help="bank ids or SRX card ids to scan, e.g. SRX-07 or PST-A; "
+        "omit to discover the whole synth",
+    )
+    sp.add_argument(
+        "--discover",
+        action="store_true",
+        help="scan the internal presets and every fitted SRX card "
+        "(the default when no banks are named)",
+    )
+    sp.add_argument(
+        "--no-merge",
+        action="store_true",
+        help="write only the scanned banks, discarding the rest of the catalog",
+    )
+    sp.add_argument(
+        "--yes",
+        action="store_true",
+        help="required: this changes the selected patch on the synth",
     )
 
     return parser

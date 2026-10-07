@@ -183,6 +183,38 @@ class Catalog:
         found = self.entry(bank_id, number)
         return found.name if found is not None else None
 
+    def set_name(
+        self,
+        bank_id: str,
+        number: int,
+        name: str,
+        *,
+        category: Optional[str] = None,
+        voices: Optional[int] = None,
+    ) -> None:
+        """Set a slot's printed name, for a catalog built from a scan.
+
+        A scan supplies names only, so category and voices are carried over
+        from whatever the slot already had; passing them replaces that.
+        """
+        key = f"{bank_id}:{number:03d}"
+        existing = self._entries.get(key)
+        self._entries[key] = Entry(
+            bank_id=bank_id,
+            number=number,
+            name=name,
+            category=(
+                category
+                if category is not None
+                else (existing.category if existing is not None else None)
+            ),
+            voices=(
+                voices
+                if voices is not None
+                else (existing.voices if existing is not None else None)
+            ),
+        )
+
     def has(self, bank_id: str) -> bool:
         """Whether any slot in this bank is named."""
         prefix = f"{bank_id}:"
@@ -378,7 +410,14 @@ def load(path: Optional[str] = None) -> Catalog:
     )
 
 
-def dump(catalog: Catalog, path: str, *, source: str = "", generated: str = "") -> None:
+def dump(
+    catalog: Catalog,
+    path: str,
+    *,
+    source: str = "",
+    generated: str = "",
+    note: str = "",
+) -> None:
     """Write a catalog back out in the format :func:`load` reads."""
     by_bank: Dict[str, List[dict]] = {}
     for entry in catalog._entries.values():  # noqa: SLF001 - same module
@@ -390,16 +429,14 @@ def dump(catalog: Catalog, path: str, *, source: str = "", generated: str = "") 
         by_bank.setdefault(entry.bank_id, []).append(row)
     for rows in by_bank.values():
         rows.sort(key=lambda r: r["n"])
+    payload: Dict[str, object] = {
+        "source": source or catalog.source,
+        "generated": generated or catalog.generated,
+    }
+    if note:
+        payload["note"] = note
+    payload["banks"] = by_bank
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
-        json.dump(
-            {
-                "source": source or catalog.source,
-                "generated": generated or catalog.generated,
-                "banks": by_bank,
-            },
-            handle,
-            indent=1,
-            ensure_ascii=False,
-        )
+        json.dump(payload, handle, indent=1, ensure_ascii=False)
         handle.write("\n")

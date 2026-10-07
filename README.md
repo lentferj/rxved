@@ -129,6 +129,10 @@ unit or emulator **before** connecting irreplaceable equipment.
 
 ## What it does
 
+rxved is a terminal browser for the Roland XV-2020 that displays the three numbers that actually select a sound — Program Change, Bank Select LSB and MSB — on every row, plus a local favourites database and a multi-mode editor for the temporary performance.
+
+![General view](docs/screenshots/general.png)
+
 - **A send channel, because Bank Select and Program Change are per
   channel.** Which channel you send on decides what a select actually hits,
   and the synth never volunteers that: in Patch mode only the Patch Receive
@@ -185,6 +189,8 @@ unit or emulator **before** connecting irreplaceable equipment.
   platform's own application-data directory — so a `git clean` in a checkout
   cannot take it:
 
+  ![Favourites filter](docs/screenshots/favourites.png)
+
   | | |
   |---|---|
   | Linux / BSD | `$XDG_DATA_HOME/rxved/favorites.db`, else `~/.local/share/rxved/favorites.db` |
@@ -196,6 +202,62 @@ unit or emulator **before** connecting irreplaceable equipment.
   mid-copy — or opened from two machines against one synced file — is a
   known way to corrupt one. Override any of it with `--favorites`.
 - **A CLI** (`rxvcli`) for everything, most of which needs no synth at all.
+- **Multi-mode setup** (`m`) — all 16 Performance Parts editable, with a report on why any channel is silent.
+
+  ![Multi-mode setup](docs/screenshots/multimode.png)
+
+  The one screen that writes. It shows every Performance Part — its MIDI
+  settings and its effects routing — and underneath, a report on why any
+  channel makes no sound.
+
+  That report exists because the obvious answer is usually wrong. In PATCH
+  mode the synth is single-timbral and the parts are not in use at all, so
+  fifteen channels are silent with every part parameter reading perfectly
+  normal. Solo Part Select silences fifteen parts from one byte nowhere near
+  any of them. And a channel no audible part listens on is not a muted
+  channel. The report tells these apart.
+
+  Type a number straight into a numeric cell, `⏎` edits the cell under the
+  cursor, `space` toggles a switch, `+`/`-` adjust. **Edits go to Temporary
+  Performance — the edit buffer, not a stored performance — and a power cycle
+  undoes them.** Nothing is written to a stored slot unless you ask for it
+  with `W`, which backs up whatever is in the slot first. Each edit is read
+  back and the row shows what the synth reports, not what was sent.
+
+  This matters on an XV-2020 specifically: it is a half-rack module with a
+  three-digit LED, and OM p. 116 lists what its four controls can reach.
+  Receive Switch, Mute Switch and Solo Part Select are **not** on that list —
+  without the editor or SysEx there is no way to see or change them at all.
+
+  `tab` cycles the middle columns through four sets — **MIDI** (ch, rx, lvl,
+  PC, LSB, MSB), **FX / routing** (mute, dry, cho, rev, out, mfx), **receive
+  switches** (rxPC, rxBS, bend, mod, vol, hold) and **tone** (pan, oct, crs,
+  fin, bend, mono, lo, hi). The patch name and the silence verdict stay in all
+  four.
+
+  Pan, octave and the two tunes are stored **biased by 64** — the wire byte is
+  not the number the manual prints — so they are shown as the manual prints
+  them and converted in one place. Key ranges show note names (`C4`), not the
+  raw note number. Because `-` steps down, a negative value is typed by
+  pressing `⏎` first: that pre-selects the current value so the first
+  keystroke replaces it. Above the table, the performance's
+  MFX type and routing, chorus and reverb.
+
+  The receive switches are the ones that matter most to rxved, and they are
+  per **MIDI channel**, not per part (OM p. 74 marks them `+` where the
+  per-part parameters are `#`). **rxBS off is the nasty one**: the Bank Select
+  bytes are dropped and the Program Change still lands, so a select appears to
+  work and puts the part on the wrong patch. rxPC off means a select does
+  nothing at all. Neither produces any response from the synth, so nothing
+  downstream can detect it — the report names the channels.
+
+  Output-assign values this model ignores are shown with a star (`6*`) rather
+  than hidden — a performance written on an XV-5080 can carry one, and that
+  explains a silent part where a blank would not.
+
+  **Moving the cursor never sends anything.** That is enforced by a test, not
+  just by intent: it is the property that decides whether you can leave this
+  open next to a running sequencer.
 
 ## Install
 
@@ -335,61 +397,6 @@ taking it, because two XV-2020s on one chain is worth refusing over.
 | `m` | multi-mode setup: all 16 parts, **editable**, and why a channel is silent |
 | `W` | (in `m`) write the edit buffer to a user performance slot — **destructive** |
 | `i` / `?` / `q` | device identity / help / quit |
-
-### Multi-mode setup (`m`)
-
-The one screen that writes. It shows every Performance Part — its MIDI
-settings and its effects routing — and underneath, a report on why any
-channel makes no sound.
-
-That report exists because the obvious answer is usually wrong. In PATCH
-mode the synth is single-timbral and the parts are not in use at all, so
-fifteen channels are silent with every part parameter reading perfectly
-normal. Solo Part Select silences fifteen parts from one byte nowhere near
-any of them. And a channel no audible part listens on is not a muted
-channel. The report tells these apart.
-
-Type a number straight into a numeric cell, `⏎` edits the cell under the
-cursor, `space` toggles a switch, `+`/`-` adjust. **Edits go to Temporary
-Performance — the edit buffer, not a stored performance — and a power cycle
-undoes them.** Nothing is written to a stored slot unless you ask for it
-with `W`, which backs up whatever is in the slot first. Each edit is read
-back and the row shows what the synth reports, not what was sent.
-
-This matters on an XV-2020 specifically: it is a half-rack module with a
-three-digit LED, and OM p. 116 lists what its four controls can reach.
-Receive Switch, Mute Switch and Solo Part Select are **not** on that list —
-without the editor or SysEx there is no way to see or change them at all.
-
-`tab` cycles the middle columns through four sets — **MIDI** (ch, rx, lvl,
-PC, LSB, MSB), **FX / routing** (mute, dry, cho, rev, out, mfx), **receive
-switches** (rxPC, rxBS, bend, mod, vol, hold) and **tone** (pan, oct, crs,
-fin, bend, mono, lo, hi). The patch name and the silence verdict stay in all
-four.
-
-Pan, octave and the two tunes are stored **biased by 64** — the wire byte is
-not the number the manual prints — so they are shown as the manual prints
-them and converted in one place. Key ranges show note names (`C4`), not the
-raw note number. Because `-` steps down, a negative value is typed by
-pressing `⏎` first: that pre-selects the current value so the first
-keystroke replaces it. Above the table, the performance's
-MFX type and routing, chorus and reverb.
-
-The receive switches are the ones that matter most to rxved, and they are
-per **MIDI channel**, not per part (OM p. 74 marks them `+` where the
-per-part parameters are `#`). **rxBS off is the nasty one**: the Bank Select
-bytes are dropped and the Program Change still lands, so a select appears to
-work and puts the part on the wrong patch. rxPC off means a select does
-nothing at all. Neither produces any response from the synth, so nothing
-downstream can detect it — the report names the channels.
-
-Output-assign values this model ignores are shown with a star (`6*`) rather
-than hidden — a performance written on an XV-5080 can carry one, and that
-explains a silent part where a blank would not.
-
-**Moving the cursor never sends anything.** That is enforced by a test, not
-just by intent: it is the property that decides whether you can leave this
-open next to a running sequencer.
 
 ### Command line
 

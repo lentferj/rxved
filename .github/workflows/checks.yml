@@ -52,10 +52,15 @@ jobs:
       # rather than inside it keeps the path dependency honest: a copy under
       # the tree would let an edit to the library reach this project's CI
       # without ever being committed here.
-      - uses: actions/checkout@v6
-        with:
-          repository: lentferj/vinsynlib
-          path: ../vinsynlib
+      #
+      # `git clone`, not `actions/checkout`: that action refuses a `path`
+      # outside $GITHUB_WORKSPACE ("Repository path ... is not under ..."),
+      # and a sibling is exactly that. vinsynlib is public, so no token is
+      # needed.
+      - name: Clone the shared library beside this checkout
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/lentferj/vinsynlib.git ../vinsynlib
 
       - uses: actions/setup-python@v6
         with:
@@ -125,11 +130,11 @@ jobs:
       # .pre-commit-config.yaml, and the comment there on why it is not a
       # mirrors hook): vinsynlib cannot be named in an isolated hook
       # environment, so the venv has to exist before the hooks run. The same
-      # sibling checkout the matrix job uses.
-      - uses: actions/checkout@v6
-        with:
-          repository: lentferj/vinsynlib
-          path: ../vinsynlib
+      # sibling clone the matrix job uses.
+      - name: Clone the shared library beside this checkout
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/lentferj/vinsynlib.git ../vinsynlib
 
       - uses: actions/setup-python@v6
         with:

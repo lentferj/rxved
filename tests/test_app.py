@@ -1399,6 +1399,52 @@ class TestPerformanceCommon:
             await settle(pilot)
             assert app.bridge.read_performance_common().name == "Demo Multi!"
 
+    async def test_plus_steps_a_ranged_value_up(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._common(app, pilot)
+            table = screen.query_one("#common-table", DataTable)
+            table.cursor_coordinate = Coordinate(1, 0)  # Solo Part Select
+            await pilot.pause()
+            await pilot.press("plus")
+            await settle(pilot)
+            assert app.bridge.read_performance_common().solo == 1
+
+    async def test_minus_will_not_step_below_zero(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._common(app, pilot)
+            table = screen.query_one("#common-table", DataTable)
+            table.cursor_coordinate = Coordinate(1, 0)  # Solo, already OFF
+            await pilot.pause()
+            await pilot.press("minus")
+            await settle(pilot)
+            # Refused before the write, so nothing to read back: still OFF.
+            assert app.bridge.read_performance_common().solo is None
+
+    async def test_a_digit_opens_the_prompt_holding_it(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._common(app, pilot)
+            table = screen.query_one("#common-table", DataTable)
+            table.cursor_coordinate = Coordinate(1, 0)  # Solo Part Select
+            await pilot.pause()
+            await pilot.press("4")
+            await pilot.pause()
+            assert isinstance(app.screen, TextPromptScreen)
+            await pilot.press("enter")
+            await settle(pilot)
+            assert app.bridge.read_performance_common().solo == 4
+
+    async def test_the_name_has_no_range_to_step(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._common(app, pilot)
+            table = screen.query_one("#common-table", DataTable)
+            table.cursor_coordinate = Coordinate(0, 0)  # Name
+            await pilot.pause()
+            await pilot.press("plus")
+            await pilot.pause()
+            # No prompt and no write: the name is still what it was.
+            assert isinstance(app.screen, CommonScreen)
+            assert app.bridge.read_performance_common().name == "Demo Multi"
+
 
 class TestPatchPicker:
     """`s` in the multi screen: pick a part's sound by bank and name."""

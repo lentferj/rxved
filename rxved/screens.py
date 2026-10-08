@@ -722,6 +722,11 @@ class CommonScreen(ModalScreen[None]):
     16-row part table: the name, Solo Part Select, the MFX control channel,
     and the three effect sources. Everything here writes to the temporary
     performance and is read back, exactly like a part edit.
+
+    The five ranged rows take the same three gestures as the part table --
+    Enter, a digit, or `+`/`-` -- because a value with a clear range should
+    not be changed one way here and another way one screen over. The name is
+    the exception: it has no range, so Enter is the way in.
     """
 
     DEFAULT_CSS = """
@@ -737,6 +742,16 @@ class CommonScreen(ModalScreen[None]):
     BINDINGS = [
         Binding("escape", "close", "Close"),
         Binding("q", "close", "Close"),
+        # The same three gestures the part table has, so a value with a clear
+        # range is changed the same way in both places: Enter opens the
+        # prompt, a digit opens it already holding that digit, and +/- step
+        # the value in place. The name has no range, so all three but Enter
+        # leave it alone.
+        Binding("plus", "bump(1)", "+1", show=False),
+        Binding("equals_sign", "bump(1)", "+1", show=False),
+        Binding("minus", "bump(-1)", "-1", show=False),
+    ] + [
+        Binding(str(digit), f"type_digit('{digit}')", show=False) for digit in range(10)
     ]
 
     #: ``(key, label, offset, zero_means)``. ``offset`` is None for the name;
@@ -763,8 +778,8 @@ class CommonScreen(ModalScreen[None]):
             yield Label("[b]Performance Common — the edit buffer[/b]")
             yield DataTable(id="common-table", cursor_type="row", zebra_stripes=True)
             yield Static(
-                "[dim]⏎ edits · esc closes · writes go to the temporary "
-                "performance[/dim]",
+                "[dim]⏎ edits · type a number, or +/- to adjust · esc closes · "
+                "writes go to the temporary performance[/dim]",
                 classes="hint",
             )
 
@@ -825,6 +840,35 @@ class CommonScreen(ModalScreen[None]):
             lambda text: self._set_value(offset, label, text),
         )
 
+    def action_bump(self, delta: int) -> None:
+        """`+`/`-` step a ranged value in place, as on the part table."""
+        field = self._field()
+        if field is None:
+            return
+        _key, _label, _offset, zero = field
+        if zero is None:
+            # The name has no range to step; Enter is the way in.
+            return
+        self._bump(field, delta)
+
+    def action_type_digit(self, digit: str) -> None:
+        """A digit opens the value prompt already holding it."""
+        field = self._field()
+        if field is None:
+            return
+        _key, label, offset, zero = field
+        if zero is None:
+            return  # the name is text; Enter is the way in
+        self.app.push_screen(
+            TextPromptScreen(f"{label} (0 = {zero}, 1-16)", digit),
+            lambda text: self._set_value(offset, label, text),
+        )
+
+    def _bump(self, field, delta: int) -> None:
+        key, label, offset, _zero = field
+        current = self._value(key)
+        self._write_value(offset, label, (0 if current is None else current) + delta)
+
     def _set_name(self, text) -> None:
         if text is None or self._on_write_name is None:
             return
@@ -838,8 +882,13 @@ class CommonScreen(ModalScreen[None]):
         except ValueError:
             self.app.notify_status(f"{text!r} is not a number", refused=True)
             return
+        self._write_value(offset, label, value)
+
+    def _write_value(self, offset, label, value: int) -> None:
         if not 0 <= value <= 16:
-            self.app.notify_status(f"{label} takes 0 (OFF/PERFORM) to 16", refused=True)
+            self.app.notify_status(
+                f"{label} takes 0 (OFF/PERFORM) to 16, not {value}", refused=True
+            )
             return
         if self._on_write is not None:
             self._on_write(offset, value, self.update_common)

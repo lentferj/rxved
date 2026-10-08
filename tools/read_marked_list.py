@@ -199,15 +199,21 @@ def _rule_groups(a: Any, x0: int, x1: int, fraction: float) -> List[int]:
     dark = (a[:, :, 0] < 170) & (a[:, :, 1] < 170) & (a[:, :, 2] < 170)
     width = x1 - x0
     hits = np.nonzero(dark[:, x0:x1].sum(axis=1) > width * fraction)[0]
-    groups, start, prev = [], None, None
-    for y in hits:
-        if start is None:
+    # -1 rather than None: these are row indices, so a non-negative sentinel
+    # keeps the arithmetic plain ints, which the numpy stubs can check. numpy
+    # 2 types `hits` as signed integers, and `None` in the sum is a hard
+    # error under `mypy --strict`.
+    groups: List[int] = []
+    start = prev = -1
+    for hit in hits:
+        y = int(hit)
+        if start < 0:
             start = prev = y
         elif y - prev > 2:
             groups.append((start + prev) // 2)
             start = y
         prev = y
-    if start is not None:
+    if start >= 0:
         groups.append((start + prev) // 2)
     return groups
 

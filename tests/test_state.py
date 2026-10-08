@@ -190,11 +190,15 @@ class TestWritableOffsetsAgree:
         bridge allows velocity sensitivity, which has no column because the
         row was already wide enough.
         """
-        from rxved.app import EDITABLE_PART_COLUMNS
+        from rxved.app import EDITABLE_COMMON_COLUMNS, EDITABLE_PART_COLUMNS
         from xv.bridge import XvBridge
 
         offered = {offset for offset, _, _, _ in EDITABLE_PART_COLUMNS.values()}
         assert offered <= set(XvBridge.WRITABLE_PART_OFFSETS)
+        # Voice Reserve is offered from the same screen but stored in the
+        # common block, so it is checked against that allowlist instead.
+        common = {offset for offset, _, _, _ in EDITABLE_COMMON_COLUMNS.values()}
+        assert common <= set(XvBridge.WRITABLE_COMMON_OFFSETS)
 
     def test_the_demo_accepts_exactly_what_the_bridge_does(self):
         from rxved.demo import DemoBridge

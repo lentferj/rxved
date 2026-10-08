@@ -93,6 +93,7 @@ __all__ = [
     "VIEW_LABEL",
     "EDITABLE_PART_COLUMNS",
     "EDITABLE_CHANNEL_COLUMNS",
+    "EDITABLE_COMMON_COLUMNS",
     "_BIAS",
 ]
 
@@ -130,6 +131,7 @@ from rxved.screens import (  # noqa: E402
     CommonScreen,
     ConfirmScreen,
     EDITABLE_CHANNEL_COLUMNS,
+    EDITABLE_COMMON_COLUMNS,
     EDITABLE_PART_COLUMNS,
     KEY_HINTS,
     KeyHints,

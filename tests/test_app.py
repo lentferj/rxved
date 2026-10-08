@@ -1779,6 +1779,9 @@ class TestMultiEditing:
             assert "leg" in keys() and "kfu" in keys()
             await pilot.press("tab")
             await pilot.pause()
+            assert "vres" in keys()
+            await pilot.press("tab")
+            await pilot.pause()
             assert "rx" in keys() and "lvl" in keys()  # back to the start
 
     async def _offsets_view(self, app, pilot):
@@ -1800,6 +1803,36 @@ class TestMultiEditing:
             await pilot.press("enter")
             await settle(pilot)
             assert app.bridge.read_part(1).cutoff_offset == 32  # 64 - 32
+
+    async def _reserve_view(self, app, pilot):
+        screen = await self._open(app, pilot)
+        for _ in range(6):
+            await pilot.press("tab")
+        await pilot.pause()
+        return screen
+
+    async def test_voice_reserve_writes_to_the_common_block(self, app):
+        """Per-part in meaning, but stored at common offset 00 10 + part - 1."""
+        async with app.run_test() as pilot:
+            screen = await self._reserve_view(app, pilot)
+            await self._cell(screen, pilot, 3, "vres")
+            await pilot.press("enter")
+            await pilot.pause()
+            # The prompt is seeded with the current value, "0", selected.
+            await pilot.press("5")
+            await pilot.press("enter")
+            await settle(pilot)
+            reserves = app.bridge.read_performance_common().voice_reserves
+            assert reserves[2] == 5  # part 3
+            assert reserves[0] == 0  # part 1 untouched
+
+    async def test_voice_reserve_steps_with_plus(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._reserve_view(app, pilot)
+            await self._cell(screen, pilot, 1, "vres")
+            await pilot.press("plus")
+            await settle(pilot)
+            assert app.bridge.read_performance_common().voice_reserves[0] == 1
 
     async def _rx_view(self, app, pilot):
         screen = await self._open(app, pilot)

@@ -64,6 +64,7 @@ __all__ = [
     "TONE_COLUMNS",
     "COLUMN_VIEWS",
     "EDITABLE_CHANNEL_COLUMNS",
+    "EDITABLE_COMMON_COLUMNS",
     "StoreScreen",
     "PerformanceScreen",
     "CommonScreen",
@@ -451,6 +452,10 @@ PORTA_COLUMNS = (
     ("kfu", "kfu"),
 )
 
+#: Voice Reserve, one column: per-part in meaning, but stored in the
+#: Performance Common block, so its own view keeps that visible.
+RESERVE_COLUMNS = (("vres", "vres"),)
+
 #: The column sets `tab` cycles through.
 COLUMN_VIEWS = (
     ("MIDI", MIDI_COLUMNS),
@@ -459,7 +464,17 @@ COLUMN_VIEWS = (
     ("tone", TONE_COLUMNS),
     ("offsets / vibrato", OFFSET_COLUMNS),
     ("porta / key", PORTA_COLUMNS),
+    ("voice reserve", RESERVE_COLUMNS),
 )
+
+#: Part parameters that live in the Performance Common block rather than the
+#: part block. Voice Reserve is the only one: offset ``00 10`` is part 1, so
+#: the real address is ``00 10 + part - 1`` and the write goes through the
+#: common path. The offset here is the base, used for the label and range
+#: only -- :meth:`MultiScreen._apply` adds the part.
+EDITABLE_COMMON_COLUMNS = {
+    "vres": (0x10, "voice reserve", 0, 64),
+}
 
 #: display = wire - bias, wire = display + bias. Every entry is a place the
 #: synth's byte and the manual's number differ, collected in one dict so
@@ -1273,6 +1288,8 @@ class MultiScreen(ModalScreen[None]):
         if column == "mfx":
             name = part.output_mfx_name
             return f"[b]{name}[/b]" if name.endswith("*") else name
+        if column == "vres":
+            return str(self._current_value(part, "vres"))
         if column in (
             "pan",
             "oct",
@@ -1348,6 +1365,7 @@ class MultiScreen(ModalScreen[None]):
         if (
             column not in EDITABLE_PART_COLUMNS
             and column not in EDITABLE_CHANNEL_COLUMNS
+            and column not in EDITABLE_COMMON_COLUMNS
             and column != "patch"
         ):
             return None, column
@@ -1358,6 +1376,11 @@ class MultiScreen(ModalScreen[None]):
 
     def _current_value(self, part, column: str) -> int:
         """The value as this column displays it -- 1-based for ch."""
+        if column == "vres":
+            common = self._state.common
+            if common is None or part.part - 1 >= len(common.voice_reserves):
+                return 0
+            return common.voice_reserves[part.part - 1]
         if column in _BIAS and column != "ch":
             wire = {
                 "pan": part.pan,
@@ -1493,9 +1516,11 @@ class MultiScreen(ModalScreen[None]):
 
     @staticmethod
     def _spec(column: str):
-        """``(offset, label, low, high)`` for either allowlist."""
+        """``(offset, label, low, high)`` for any of the allowlists."""
         if column in EDITABLE_CHANNEL_COLUMNS:
             return EDITABLE_CHANNEL_COLUMNS[column]
+        if column in EDITABLE_COMMON_COLUMNS:
+            return EDITABLE_COMMON_COLUMNS[column]
         return EDITABLE_PART_COLUMNS[column]
 
     def action_toggle_cell(self) -> None:
@@ -1527,6 +1552,9 @@ class MultiScreen(ModalScreen[None]):
                 f"{label} takes {low}-{high}, not {value}", refused=True
             )
             return
+        if column in EDITABLE_COMMON_COLUMNS:
+            self._apply_common(part, value, offset)
+            return
         if self._on_write is None:
             self.app.notify_status("not connected to a synth", refused=True)
             return
@@ -1541,6 +1569,18 @@ class MultiScreen(ModalScreen[None]):
         # column that differs is in _BIAS; everything else passes through.
         wire = value + _BIAS.get(column, 0)
         self._on_write(part.part, offset, wire, self._adopt_part)
+
+    def _apply_common(self, part, value: int, base: int) -> None:
+        """Write a per-part value that lives in the Performance Common block.
+
+        Voice Reserve is the one: the allowlist gives the base offset ``00
+        10``, and the part number picks the byte from there, so part 1 is
+        ``00 10`` and part 16 is ``00 1F``.
+        """
+        if self._on_write_common is None:
+            self.app.notify_status("not connected to a synth", refused=True)
+            return
+        self._on_write_common(base + part.part - 1, value, self._adopt_common)
 
     def _on_write_channel(self, channel: int, offset: int, value: int) -> None:
         if self._on_write_channel_cb is None:
@@ -1575,6 +1615,22 @@ class MultiScreen(ModalScreen[None]):
         table = self.query_one("#part-table", DataTable)
         for column, cell in zip(table.columns.values(), self._row_cells(fresh)):
             table.update_cell(str(fresh.part), column.key, cell)
+        self.query_one("#report", Static).update(self._report_text())
+
+    def _adopt_common(self, common) -> None:
+        """Replace the Performance Common after a Voice Reserve write.
+
+        Only Voice Reserve is editable from this table, so only that column
+        is repainted -- a full rebuild would move the cursor. The column is
+        absent in every other view, and the person may have switched views
+        while the write was in flight, so the test is against the current
+        one rather than the one that was on screen when they pressed.
+        """
+        self._state = replace(self._state, common=common)
+        if any(key == "vres" for _label, key in self._columns()):
+            table = self.query_one("#part-table", DataTable)
+            for part in self._state.parts:
+                table.update_cell(str(part.part), "vres", self._cell_text(part, "vres"))
         self.query_one("#report", Static).update(self._report_text())
 
     def action_pick_performance(self) -> None:

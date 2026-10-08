@@ -233,11 +233,13 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   Receive Switch, Mute Switch and Solo Part Select are **not** on that list —
   without the editor or SysEx there is no way to see or change them at all.
 
-  `tab` cycles the middle columns through four sets — **MIDI** (ch, rx, lvl,
+  `tab` cycles the middle columns through seven sets — **MIDI** (ch, rx, lvl,
   PC, LSB, MSB), **FX / routing** (mute, dry, cho, rev, out, mfx), **receive
-  switches** (rxPC, rxBS, bend, mod, vol, hold) and **tone** (pan, oct, crs,
-  fin, bend, mono, lo, hi). The patch name and the silence verdict stay in all
-  four.
+  switches** (rxPC, rxBS, bend, mod, vol, hold), **tone** (pan, oct, crs,
+  fin, bend, mono, lo, hi), **offsets / vibrato** (cutoff, resonance, attack,
+  decay and release offsets, vibrato rate/depth/delay), **porta / key**
+  (legato, portamento switch, keyboard fade widths) and **voice reserve**.
+  The patch name and the silence verdict stay in every set.
 
   Pan, octave and the two tunes are stored **biased by 64** — the wire byte is
   not the number the manual prints — so they are shown as the manual prints

@@ -135,6 +135,9 @@ class DemoBridge:
         self._channel_edits: Dict[int, dict] = {}
         #: Performance Common edits: name, solo, effect sources.
         self._common_edits: Dict[str, object] = {}
+        #: Voice Reserve, one per part, parts 1-16. Stored in the common
+        #: block, so it lives here rather than with the part edits.
+        self._voice_reserves: list[int] = [0] * 16
         #: Whole performances the fake has been asked to store, keyed by
         #: address prefix. In memory only -- a demo session writes nothing.
         self._performances: Dict[tuple, dict] = {}
@@ -478,6 +481,11 @@ class DemoBridge:
 
     def write_performance_common(self, offset, value, *, verify=True, timeout=None):
         """Remember one Performance Common edit, in memory only."""
+        if 0x10 <= offset <= 0x1F:
+            # Voice Reserve: one byte per part, no OFF spelling.
+            self._tick()
+            self._voice_reserves[offset - 0x10] = value
+            return value
         if offset not in self._COMMON_FIELDS:
             raise ValueError(f"offset {offset:#04x} is not writable")
         self._tick()
@@ -499,6 +507,7 @@ class DemoBridge:
         # which keeps the two mechanisms distinguishable in a screenshot.
         fields: Dict[str, object] = {
             "name": "Demo Multi",
+            "voice_reserves": tuple(self._voice_reserves),
             "solo": None,
             "mfx_control_channel": None,
             "mfx_source": None,

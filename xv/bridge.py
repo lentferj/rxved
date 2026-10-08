@@ -798,6 +798,10 @@ class PerformanceCommon:
     """
 
     name: str
+    #: Voice Reserve, offsets ``00 10``-``00 1F``: one byte per part, parts 1
+    #: through 16. Per-part in meaning but stored here, not in the part
+    #: block, which is why it is a tuple on the common record. 0-64 voices.
+    voice_reserves: Tuple[int, ...] = ()
     #: Solo Part Select. ``None`` is OFF; otherwise the 1-16 part number that
     #: is soloed. The map gives 0-32 as "OFF, 1 - 16, 17 - 32", and the
     #: 17-32 half belongs to machines with 32 parts; an XV-2020 has 16.
@@ -1556,6 +1560,10 @@ class XvBridge:
     WRITABLE_COMMON_OFFSETS = {
         0x0C: ("solo part select", 0, 16),
         0x0D: ("MFX control channel", 0, 16),
+        # Voice Reserve: one byte per part, parts 1-16. Per-part in meaning
+        # but stored in the common block, so it is written here rather than
+        # through the part allowlist.
+        **{0x10 + i: (f"voice reserve {i + 1}", 0, 64) for i in range(16)},
         0x30: ("MFX source", 0, 16),
         0x33: ("chorus source", 0, 16),
         0x34: ("reverb source", 0, 16),
@@ -1969,6 +1977,7 @@ class XvBridge:
         ).rstrip()
         return PerformanceCommon(
             name=name,
+            voice_reserves=tuple(data[0x10:0x20]),
             solo=_zero_is_none(data[0x0C]),
             mfx_control_channel=_zero_is_none(data[0x0D]),
             mfx_source=_zero_is_none(data[0x30]),

@@ -67,6 +67,7 @@ __all__ = [
     "StoreScreen",
     "PerformanceScreen",
     "CommonScreen",
+    "PatchPickerScreen",
     "MultiScreen",
     "CategoryScreen",
     "SearchScreen",
@@ -854,6 +855,131 @@ class CommonScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
+class PatchPickerScreen(ModalScreen[Optional[banks.Slot]]):
+    """Pick a sound for a part by name, not by Program Change number.
+
+    The part table's LSB/MSB/PC columns are the wire truth, and nobody
+    knows which program change "Stereo Piano" is. This lists every bank the
+    table defines -- the internal patches and rhythm sets, the GM
+    variations, and the SRX pages -- with the names from the catalog, and
+    returns the slot the person chose.
+
+    Two panes: the banks, and the selected bank's slots. `tab` moves between
+    them; the arrow keys move within; `⏎` picks.
+    """
+
+    DEFAULT_CSS = """
+    PatchPickerScreen { align: center middle; }
+    PatchPickerScreen > Vertical {
+        width: 90; height: 90%; border: thick $accent;
+        background: $surface; padding: 1 2;
+    }
+    PatchPickerScreen DataTable { height: 1fr; width: 1fr; }
+    PatchPickerScreen .hint { color: $text-muted; }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("q", "cancel", "Cancel"),
+        Binding("tab", "switch_pane", "Switch pane", show=False),
+    ]
+
+    def __init__(self, catalog, current=None) -> None:
+        super().__init__()
+        self._catalog = catalog
+        #: The slot the part is on now, marked in the list.
+        self._current = current
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("[b]Pick a sound for this part[/b]")
+            with Horizontal():
+                yield DataTable(
+                    id="picker-banks", cursor_type="row", zebra_stripes=True
+                )
+                yield DataTable(
+                    id="picker-slots", cursor_type="row", zebra_stripes=True
+                )
+            yield Static("[dim]tab pane · ⏎ pick · esc cancel[/dim]", classes="hint")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#picker-banks", DataTable)
+        table.add_column("bank", key="bank")
+        for bank in banks.BANKS:
+            if bank.kind in (banks.Kind.PATCH, banks.Kind.RHYTHM):
+                table.add_row(f"{bank.label} ({bank.id})", key=bank.id)
+        table.focus()
+        self._fill_slots()
+
+    def _bank_id(self) -> Optional[str]:
+        table = self.query_one("#picker-banks", DataTable)
+        if not table.row_count:
+            return None
+        return table.coordinate_to_cell_key(table.cursor_coordinate)[0].value
+
+    def _fill_slots(self) -> None:
+        bank_id = self._bank_id()
+        table = self.query_one("#picker-slots", DataTable)
+        table.clear(columns=True)
+        table.add_column("#", key="number")
+        table.add_column("name", key="name")
+        table.add_column("MSB", key="msb")
+        table.add_column("LSB", key="lsb")
+        table.add_column("PC", key="pc")
+        if bank_id is None:
+            return
+        for number in banks.bank(bank_id).numbers():
+            slot = banks.slot(bank_id, number)
+            name = self._catalog.display_name(bank_id, number)
+            mark = "  [b]← current[/b]" if self._matches(slot) else ""
+            table.add_row(
+                f"{number:03d}",
+                name + mark,
+                str(slot.msb),
+                str(slot.lsb),
+                str(slot.program_change),
+                key=slot.key,
+            )
+
+    def _matches(self, slot: banks.Slot) -> bool:
+        if self._current is None:
+            return False
+        return (self._current.msb, self._current.lsb, self._current.program_change) == (
+            slot.msb,
+            slot.lsb,
+            slot.program_change,
+        )
+
+    def on_data_table_row_highlighted(self, event) -> None:
+        if event.data_table.id == "picker-banks":
+            self._fill_slots()
+
+    def on_data_table_row_selected(self, event) -> None:
+        if event.data_table.id == "picker-slots":
+            self.dismiss(self._slot())
+
+    def _slot(self) -> Optional[banks.Slot]:
+        table = self.query_one("#picker-slots", DataTable)
+        if not table.row_count:
+            return None
+        key = table.coordinate_to_cell_key(table.cursor_coordinate)[0].value
+        bank_id, _, number = key.rpartition(":")
+        try:
+            return banks.slot(bank_id, int(number))
+        except (LookupError, ValueError):
+            return None
+
+    def action_switch_pane(self) -> None:
+        focused = self.focused
+        if isinstance(focused, DataTable) and focused.id == "picker-banks":
+            self.query_one("#picker-slots", DataTable).focus()
+        else:
+            self.query_one("#picker-banks", DataTable).focus()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class MultiScreen(ModalScreen[None]):
     """Multi-mode setup: all 16 Performance Parts, editable.
 
@@ -900,6 +1026,7 @@ class MultiScreen(ModalScreen[None]):
         Binding("W", "store", "Write to a slot", show=False),
         Binding("p", "pick_performance", "Load a performance", show=False),
         Binding("c", "common", "Performance common", show=False),
+        Binding("s", "pick_patch", "Pick a sound", show=False),
         Binding("r", "refresh", "Refresh", show=False),
         Binding("plus", "bump(1)", "+1", show=False),
         Binding("equals_sign", "bump(1)", "+1", show=False),
@@ -921,6 +1048,7 @@ class MultiScreen(ModalScreen[None]):
         on_write_channel=None,
         on_refresh=None,
         on_load=None,
+        on_pick_patch=None,
         on_write_common=None,
         on_write_common_name=None,
         on_close=None,
@@ -941,6 +1069,8 @@ class MultiScreen(ModalScreen[None]):
         #: ``on_load(slot)`` -- called when the user picks a stored
         #: performance to load into the edit buffer.
         self._on_load = on_load
+        #: ``on_pick_patch(part, slot, adopt)`` -- set a part's sound by name.
+        self._on_pick_patch = on_pick_patch
         #: ``on_write_common(offset, value, adopt)`` -- Performance Common.
         self._on_write_common = on_write_common
         #: ``on_write_common_name(name, adopt)``.
@@ -978,7 +1108,7 @@ class MultiScreen(ModalScreen[None]):
         return (
             f"[b]{which}[/b] columns · tab for {nxt} · type a number, or "
             f"⏎ to edit · space toggles · +/- adjust · r refresh · "
-            f"p loads a performance · c common · W writes to a slot · "
+            f"p loads a performance · c common · s pick sound · W writes to a slot · "
             f"edits go to the temporary performance, so a power cycle undoes "
             f"them"
         )
@@ -1358,6 +1488,28 @@ class MultiScreen(ModalScreen[None]):
                 self._on_load(slot)
 
         self.app.push_screen(PerformanceScreen(self._catalog, current), chosen)
+
+    def _cursor_part(self):
+        """The part under the cursor, whatever the column is."""
+        table = self.query_one("#part-table", DataTable)
+        if not table.row_count:
+            return None
+        row_key = table.coordinate_to_cell_key(table.cursor_coordinate)[0]
+        return next(
+            (p for p in self._state.parts if str(p.part) == row_key.value), None
+        )
+
+    def action_pick_patch(self) -> None:
+        """Pick this part's sound by bank and name."""
+        part = self._cursor_part()
+        if part is None:
+            return
+
+        def chosen(slot) -> None:
+            if slot is not None and self._on_pick_patch is not None:
+                self._on_pick_patch(part.part, slot, self._adopt_part)
+
+        self.app.push_screen(PatchPickerScreen(self._catalog, part.slot), chosen)
 
     def action_common(self) -> None:
         """Edit the Performance Common block (name, solo, effect sources)."""

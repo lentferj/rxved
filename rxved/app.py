@@ -80,6 +80,7 @@ __all__ = [
     "StoreScreen",
     "PerformanceScreen",
     "CommonScreen",
+    "PatchPickerScreen",
     "MultiScreen",
     "CategoryScreen",
     "KeyHints",
@@ -133,6 +134,7 @@ from rxved.screens import (  # noqa: E402
     KEY_HINTS,
     KeyHints,
     MultiScreen,
+    PatchPickerScreen,
     PerformanceScreen,
     ReportScreen,
     SearchScreen,
@@ -1651,6 +1653,7 @@ class RxvedApp(App):
                 on_write_channel=self._write_channel_param,
                 on_refresh=self._refresh_multi_setup,
                 on_load=self._load_performance,
+                on_pick_patch=self._pick_patch,
                 on_write_common=self._write_common_param,
                 on_write_common_name=self._write_common_name,
                 on_close=lambda: setattr(self, "_multi_screen", None),
@@ -1738,6 +1741,36 @@ class RxvedApp(App):
             self._busy = False
         self.call_from_thread(self.notify_status, f"loaded {slot} into the edit buffer")
         self.call_from_thread(self._on_multi_refresh_complete, state)
+
+    def _pick_patch(self, part: int, slot: banks.Slot, adopt) -> None:
+        """Set a part's sound from a picked slot. Main thread."""
+        if self._busy:
+            self.notify_status("busy", refused=True)
+            return
+        self._busy = True
+        self._pick_patch_worker(part, slot, adopt)
+
+    @work(thread=True)
+    def _pick_patch_worker(self, part: int, slot: banks.Slot, adopt) -> None:
+        """**MIDI only.** Write the part's MSB, LSB and PC, then re-read it.
+
+        Three bytes rather than one: the bank select only latches on the
+        program change, so all three have to land, in that order, for the
+        part to end up on the chosen sound.
+        """
+        try:
+            with self._bridge_lock:
+                self.bridge.write_part_param(part, 0x04, slot.msb)
+                self.bridge.write_part_param(part, 0x05, slot.lsb)
+                self.bridge.write_part_param(part, 0x06, slot.program_change)
+                fresh = self.bridge.read_part(part)
+        except _BRIDGE_ERRORS as exc:
+            self.call_from_thread(self.notify_status, f"pick: {exc}", refused=True)
+            return
+        finally:
+            self._busy = False
+        self.call_from_thread(adopt, fresh)
+        self.call_from_thread(self.notify_status, f"part {part} set to {slot}")
 
     def _write_common_param(self, offset: int, value: int, adopt) -> None:
         """Hand one Performance Common byte to a worker. Main thread."""

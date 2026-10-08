@@ -30,6 +30,7 @@ from rxved.app import (
     CategoryScreen,
     CommonScreen,
     MultiScreen,
+    PatchPickerScreen,
     PerformanceScreen,
     ReportScreen,
     RxvedApp,
@@ -1397,6 +1398,48 @@ class TestPerformanceCommon:
             await pilot.press("enter")
             await settle(pilot)
             assert app.bridge.read_performance_common().name == "Demo Multi!"
+
+
+class TestPatchPicker:
+    """`s` in the multi screen: pick a part's sound by bank and name."""
+
+    async def _picker(self, app, pilot):
+        await pilot.pause()
+        await pilot.press("m")
+        await pilot.pause()
+        await pilot.pause()
+        await pilot.press("s")
+        await pilot.pause()
+        return app.screen
+
+    async def test_s_opens_the_patch_picker(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._picker(app, pilot)
+            assert isinstance(screen, PatchPickerScreen)
+            table = screen.query_one("#picker-banks", DataTable)
+            assert table.row_count > 0
+
+    async def test_the_first_bank_shows_its_slots(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._picker(app, pilot)
+            slots = screen.query_one("#picker-slots", DataTable)
+            # The first bank is USER, which holds 128 patches.
+            assert slots.row_count == 128
+
+    async def test_picking_a_slot_sets_the_part(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._picker(app, pilot)
+            # The picker opens on the bank pane; tab moves to the slots.
+            await pilot.press("tab")
+            await pilot.pause()
+            slots = screen.query_one("#picker-slots", DataTable)
+            # Row 1 (0-based) is USER 002: MSB 87, LSB 0, PC 1.
+            slots.cursor_coordinate = Coordinate(1, 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+            part = app.bridge.read_part(1)
+            assert (part.msb, part.lsb, part.program_change) == (87, 0, 1)
 
 
 class TestMultiEditing:

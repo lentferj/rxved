@@ -406,6 +406,7 @@ taking it, because two XV-2020s on one chain is worth refusing over.
 | `m` | multi-mode setup: all 16 parts, **editable**, and why a channel is silent |
 | `p` | (in `m`) load a stored performance into the edit buffer |
 | `c` | (in `m`) edit the performance common: name, solo, effect sources |
+| `s` | (in `m`) pick this part's sound by bank and name |
 | `W` | (in `m`) write the edit buffer to a user performance slot — **destructive** |
 | `i` / `?` / `q` | device identity / help / quit |
 

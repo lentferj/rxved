@@ -1834,6 +1834,35 @@ class TestMultiEditing:
             await settle(pilot)
             assert app.bridge.read_performance_common().voice_reserves[0] == 1
 
+    async def _porta_view(self, app, pilot):
+        screen = await self._open(app, pilot)
+        for _ in range(5):
+            await pilot.press("tab")
+        await pilot.pause()
+        return screen
+
+    async def test_portamento_time_is_editable(self, app):
+        """The one part parameter that is two nibbles, not one byte."""
+        async with app.run_test() as pilot:
+            screen = await self._porta_view(app, pilot)
+            await self._cell(screen, pilot, 1, "ptt")
+            await pilot.press("enter")
+            await pilot.pause()
+            # Seeded with the current value, 128 (PATCH), selected.
+            await pilot.press("1", "0", "0")
+            await pilot.press("enter")
+            await settle(pilot)
+            assert app.bridge.read_part(1).portamento_time == 100
+
+    async def test_portamento_time_shows_patch(self, app):
+        """128 is not a time; the manual prints it PATCH (OM p. 149)."""
+        async with app.run_test() as pilot:
+            screen = await self._porta_view(app, pilot)
+            table = screen.query_one("#part-table", DataTable)
+            keys = [c.key.value for c in table.columns.values()]
+            row = table.get_row("1")
+            assert str(row[keys.index("ptt")]) == "PATCH"
+
     async def _rx_view(self, app, pilot):
         screen = await self._open(app, pilot)
         await pilot.press("tab", "tab")

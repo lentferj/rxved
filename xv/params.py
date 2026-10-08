@@ -24,7 +24,7 @@ how every value ends up off by one.
 Nothing here talks to MIDI or holds state.
 """
 
-from typing import Tuple
+from typing import List, Sequence, Tuple
 
 __all__ = [
     "PERFORMANCE_BLOCKS",
@@ -38,6 +38,10 @@ __all__ = [
     "OUTPUT_ASSIGN_ON_XV2020",
     "OUTPUT_MFX",
     "note_name",
+    "encode_int2x4",
+    "decode_int2x4",
+    "encode_int4x4",
+    "decode_int4x4",
 ]
 
 
@@ -82,6 +86,53 @@ def note_name(number: int) -> str:
     if not 0 <= number <= 127:
         return str(number)
     return f"{_NOTE_NAMES[number % 12]}{number // 12 - 1}"
+
+
+def encode_int2x4(value: int) -> List[int]:
+    """Roland's ``int2x4``: one value as two bytes of four bits each.
+
+    The address map prints these ``0000 aaaa / 0000 bbbb``, high nibble
+    first, so a byte that is one parameter's neighbour is another
+    parameter's high half. That is why Part Portamento Time occupies two
+    offsets and cannot be written a byte at a time (OM p. 149); Part
+    Portamento Time and the System, Patch and Rhythm tempos are the
+    parameters of this type rxved touches.
+    """
+    if not 0 <= value <= 0xFF:
+        raise ValueError(f"{value} does not fit in two nibbles")
+    return [(value >> 4) & 0x0F, value & 0x0F]
+
+
+def decode_int2x4(data: Sequence[int]) -> int:
+    """The inverse of :func:`encode_int2x4`."""
+    if len(data) < 2:
+        raise ValueError(f"int2x4 needs two bytes, got {len(data)}")
+    return ((data[0] & 0x0F) << 4) | (data[1] & 0x0F)
+
+
+def encode_int4x4(value: int) -> List[int]:
+    """Roland's ``int4x4``: a 16-bit value as four bytes of four bits each.
+
+    Every effect parameter -- MFX, Chorus and Reverb -- is this type, and
+    the map prints the range as ``12768 -- 52768`` beside the display value
+    ``-20000 -- +20000``: the wire value is the display value plus 32768,
+    and the four nibbles run high to low. Nothing writes one yet; it lives
+    here so the encoding is beside its sibling rather than reinvented when
+    the effects editor is written.
+    """
+    if not 0 <= value <= 0xFFFF:
+        raise ValueError(f"{value} does not fit in four nibbles")
+    return [(value >> shift) & 0x0F for shift in (12, 8, 4, 0)]
+
+
+def decode_int4x4(data: Sequence[int]) -> int:
+    """The inverse of :func:`encode_int4x4`."""
+    if len(data) < 4:
+        raise ValueError(f"int4x4 needs four bytes, got {len(data)}")
+    value = 0
+    for byte in data[:4]:
+        value = (value << 4) | (byte & 0x0F)
+    return value
 
 
 #: Part Output Assign (offset ``00 1F``), 0-13. The manual prints the whole

@@ -371,6 +371,7 @@ EDITABLE_PART_COLUMNS = {
     "mfx": (0x20, "output MFX select", 0, 2),
     "leg": (0x0C, "legato (0 OFF, 1 ON, 2 PATCH)", 0, 2),
     "pts": (0x0E, "portamento switch (0 OFF, 1 ON, 2 PATCH)", 0, 2),
+    "ptt": (0x0F, "portamento time (128 = PATCH)", 0, 128),
     "cof": (0x11, "cutoff offset", -64, 63),
     "res": (0x12, "resonance offset", -64, 63),
     "atk": (0x13, "attack time offset", -64, 63),
@@ -448,6 +449,7 @@ OFFSET_COLUMNS = (
 PORTA_COLUMNS = (
     ("leg", "leg"),
     ("pts", "pts"),
+    ("ptt", "ptt"),
     ("kfl", "kfl"),
     ("kfu", "kfu"),
 )
@@ -1308,6 +1310,9 @@ class MultiScreen(ModalScreen[None]):
             return f"+{value}" if value > 0 else str(value)
         if column in ("leg", "pts"):
             return params.ON_OFF_PATCH.get(self._current_value(part, column), "?")
+        if column == "ptt":
+            value = self._current_value(part, "ptt")
+            return "PATCH" if value >= 128 else str(value)
         if column == "bend":
             return "PAT" if part.bend_range == 25 else str(part.bend_range)
         if column == "mono":
@@ -1417,6 +1422,7 @@ class MultiScreen(ModalScreen[None]):
                 "hi": part.key_upper,
                 "leg": part.legato,
                 "pts": part.portamento_switch,
+                "ptt": part.portamento_time,
                 "kfl": part.key_fade_lower,
                 "kfu": part.key_fade_upper,
             }.get(column)

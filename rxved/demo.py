@@ -311,6 +311,7 @@ class DemoBridge:
         0x0C: "legato",
         0x0D: "bend_range",
         0x0E: "portamento_switch",
+        0x0F: "portamento_time",
         0x11: "cutoff_offset",
         0x12: "resonance_offset",
         0x13: "attack_offset",

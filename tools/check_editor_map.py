@@ -173,6 +173,7 @@ CHECKS: Tuple[Tuple[str, str, Dict[int, str]], ...] = (
             0x0C: "part legato switch",
             0x0D: "part pitch bend range",
             0x0E: "part portamento switch",
+            0x0F: "part portamento time",
             0x11: "part cutoff offset",
             0x12: "part resonance offset",
             0x13: "part attack time offset",

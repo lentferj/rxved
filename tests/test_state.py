@@ -21,6 +21,8 @@ reads as exhaustive: one of the ways to silence a part on an XV-2020 is not
 in the parameter address map at all.
 """
 
+import pytest
+
 from xv.bridge import (
     ChannelMidi,
     DeviceState,
@@ -229,7 +231,8 @@ class TestWritableOffsetsAgree:
             0x0B,
             0x0C,
             0x0D,
-            0x0E,  # pan, tune, poly, legato, bend, portamento
+            0x0E,
+            0x0F,  # pan, tune, poly, legato, bend, portamento
             0x11,
             0x12,
             0x13,
@@ -254,7 +257,11 @@ class TestWritableOffsetsAgree:
         # Every one is inside the Performance Part block, which is 49 bytes.
         assert max(XvBridge.WRITABLE_PART_OFFSETS) < 49
         for offset, (label, low, high) in XvBridge.WRITABLE_PART_OFFSETS.items():
-            assert 0 <= low <= high <= 127, label
+            # A single byte holds 0-127; the int2x4 parameters are two
+            # nibbles, so they reach 255 -- and Part Portamento Time uses
+            # 128 for PATCH.
+            limit = 255 if offset in XvBridge.TWO_BYTE_PART_OFFSETS else 127
+            assert 0 <= low <= high <= limit, label
 
 
 class TestRangeCollapsing:
@@ -501,3 +508,58 @@ class TestDisplayVersusWire:
         assert note_name(0) == "C-1"
         assert note_name(60) == "C4"
         assert note_name(127) == "G9"
+
+
+class TestNibbleEncodings:
+    """Roland's int2x4 and int4x4: one value across bytes of four bits.
+
+    Both encodings were read off the manual's address map, which prints
+    them ``0000 aaaa / 0000 bbbb`` -- high nibble first -- and cross-checked
+    against the type names the editor binary carries: ``int1x7``, ``int2x4``,
+    ``int4x4``, bytes by bits. Part Portamento Time is the one of these
+    rxved writes today; the effect parameters are all int4x4.
+    """
+
+    def test_int2x4_is_high_nibble_first(self):
+        from xv.params import decode_int2x4, encode_int2x4
+
+        # 120 BPM = 0x78: high nibble 7, low nibble 8.
+        assert encode_int2x4(0x78) == [0x07, 0x08]
+        assert decode_int2x4([0x07, 0x08]) == 0x78
+
+    def test_int2x4_round_trips_over_its_whole_range(self):
+        from xv.params import decode_int2x4, encode_int2x4
+
+        for value in (0, 1, 15, 16, 127, 128, 200, 255):
+            assert decode_int2x4(encode_int2x4(value)) == value
+
+    def test_int2x4_reads_only_the_low_four_bits(self):
+        """The map's bytes are seven-bit; the top bits are not the value."""
+        from xv.params import decode_int2x4
+
+        assert decode_int2x4([0x77, 0x78]) == 0x78
+
+    def test_int2x4_refuses_a_value_that_does_not_fit(self):
+        from xv.params import encode_int2x4
+
+        with pytest.raises(ValueError):
+            encode_int2x4(0x100)
+
+    def test_int4x4_is_high_nibble_first(self):
+        from xv.params import decode_int4x4, encode_int4x4
+
+        # The chorus-rate default 32777 = 0x8009: nibbles 8, 0, 0, 9.
+        assert encode_int4x4(32777) == [0x08, 0x00, 0x00, 0x09]
+        assert decode_int4x4([0x08, 0x00, 0x00, 0x09]) == 32777
+
+    def test_int4x4_round_trips_over_its_whole_range(self):
+        from xv.params import decode_int4x4, encode_int4x4
+
+        for value in (0, 12768, 32768, 52768, 65535):
+            assert decode_int4x4(encode_int4x4(value)) == value
+
+    def test_int4x4_refuses_a_value_that_does_not_fit(self):
+        from xv.params import encode_int4x4
+
+        with pytest.raises(ValueError):
+            encode_int4x4(0x10000)

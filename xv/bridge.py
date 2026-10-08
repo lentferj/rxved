@@ -98,6 +98,8 @@ from xv.params import (
     SIGNED_PART_FIELDS,
     TEMPORARY_PERFORMANCE,
     USER_PERFORMANCE_SLOTS,
+    decode_int2x4,
+    encode_int2x4,
     note_name,
     user_performance_base,
 )
@@ -517,6 +519,10 @@ class PartState:
     #: (CC#65). Both are OFF/ON/PATCH, the same shape as Mono/Poly.
     legato: int = 2
     portamento_switch: int = 2
+    #: Offsets ``00 0F``-``00 10``, Portamento Time (CC#5). Two bytes,
+    #: nibble-packed (Roland's ``int2x4``), 0-127 plus 128 for PATCH -- the
+    #: one part parameter that is not a single byte.
+    portamento_time: int = 128
     #: Offsets ``00 11``-``00 14`` and ``00 21``: the TVF cutoff/resonance
     #: and TVF/TVA time offsets. All biased by 64.
     cutoff_offset: int = 64  #: ``00 11`` (CC#74).
@@ -1510,6 +1516,7 @@ class XvBridge:
         0x0C: ("part legato switch", 0, 2),
         0x0D: ("part pitch bend range", 0, 25),
         0x0E: ("part portamento switch", 0, 2),
+        0x0F: ("part portamento time", 0, 128),
         0x11: ("part cutoff offset", 0, 127),
         0x12: ("part resonance offset", 0, 127),
         0x13: ("part attack time offset", 0, 127),
@@ -1534,6 +1541,14 @@ class XvBridge:
         0x23: ("part vibrato depth", 0, 127),
         0x24: ("part vibrato delay", 0, 127),
     }
+
+    #: The part offsets that are **two** bytes on the wire, not one: Roland's
+    #: ``int2x4``, four bits per byte. Only Part Portamento Time so far --
+    #: ``00 0F | 0000 aaaa`` and ``00 10 | 0000 bbbb`` are the two halves of
+    #: one 0-128 value, so writing a single byte there would set the high
+    #: nibble and leave the low half stale (OM p. 149). The allowlist above
+    #: still holds its range, so bounds are checked in one place either way.
+    TWO_BYTE_PART_OFFSETS = frozenset({0x0F})
 
     #: Performance MIDI offsets rxved will write, per channel, with ranges.
     #: Same temporary area as the parts (``10 00 <10+channel> <offset>``) and
@@ -1755,16 +1770,20 @@ class XvBridge:
             raise ValueError(f"{label} takes {low}-{high}, got {value}")
 
         address = (0x10, 0x00, 0x20 + part - 1, offset)
-        self._send(m.dt1(address, [value], device=self.device_id))
+        # One byte for most parameters; two nibble-packed bytes for the
+        # int2x4 ones, where the second offset is the low half of the value.
+        width = 2 if offset in self.TWO_BYTE_PART_OFFSETS else 1
+        payload = encode_int2x4(value) if width == 2 else [value]
+        self._send(m.dt1(address, payload, device=self.device_id))
         time.sleep(SEND_GAP)
         if not verify:
             return value
-        # One byte back from the same address. Cheap, and the only way to
-        # know anything happened at all.
-        data = self.request(address, 1, timeout=timeout)
+        # Read back from the same address. Cheap, and the only way to know
+        # anything happened at all.
+        data = self.request(address, width, timeout=timeout)
         if not data:
             raise DeviceError(f"wrote {label} on part {part} but read back nothing")
-        return data[0]
+        return decode_int2x4(data) if width == 2 else data[0]
 
     def write_performance_common(
         self,
@@ -1935,6 +1954,7 @@ class XvBridge:
             legato=data[0x0C],
             bend_range=data[0x0D],
             portamento_switch=data[0x0E],
+            portamento_time=decode_int2x4(data[0x0F:0x11]),
             cutoff_offset=data[0x11],
             resonance_offset=data[0x12],
             attack_offset=data[0x13],

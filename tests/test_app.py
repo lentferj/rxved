@@ -1381,9 +1381,13 @@ class TestPerformanceCommon:
             await pilot.pause()
             await pilot.press("enter")
             await pilot.pause()
-            # The prompt is seeded with the current value (0, for OFF) and
-            # selected, so a digit replaces it.
-            await pilot.press("3")
+            # A solo is OFF or a part, so it is a list to pick from.
+            assert isinstance(app.screen, ChoiceScreen)
+            choices = app.screen.query_one("#choices", DataTable)
+            assert str(choices.get_row("0")[1]) == "OFF"
+            assert str(choices.get_row("3")[1]) == "PART 3"
+            choices.cursor_coordinate = Coordinate(3, 0)
+            await pilot.pause()
             await pilot.press("enter")
             await settle(pilot)
             assert app.bridge.read_performance_common().solo == 3
@@ -1828,6 +1832,25 @@ class TestMultiEditing:
             await pilot.press("7")
             await pilot.pause()
             assert isinstance(app.screen, MultiScreen)
+
+    async def test_enter_on_a_named_column_opens_the_chooser(self, app):
+        """Mono/Poly and the routing columns are words, not numbers."""
+        async with app.run_test() as pilot:
+            screen = await self._open(app, pilot)
+            for _ in range(3):
+                await pilot.press("tab")  # tone
+            await pilot.pause()
+            await self._cell(screen, pilot, 1, "mono")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ChoiceScreen)
+            choices = app.screen.query_one("#choices", DataTable)
+            assert str(choices.get_row("0")[1]) == "MONO"
+            choices.cursor_coordinate = Coordinate(0, 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+            assert app.bridge.read_part(1).mono_poly == 0
 
     async def test_tab_switches_to_the_fx_columns(self, app):
         async with app.run_test() as pilot:

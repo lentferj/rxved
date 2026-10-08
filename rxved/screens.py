@@ -745,8 +745,10 @@ class CommonScreen(ModalScreen[None]):
 
     The five ranged rows take the same three gestures as the part table --
     Enter, a digit, or `+`/`-` -- because a value with a clear range should
-    not be changed one way here and another way one screen over. The name is
-    the exception: it has no range, so Enter is the way in.
+    not be changed one way here and another way one screen over. Enter opens
+    a list of the parts to pick from, since OFF, PERFORM and PART 1-16 are
+    words rather than numbers to type. The name is the exception: it has no
+    range, so Enter is the way in.
     """
 
     DEFAULT_CSS = """
@@ -854,10 +856,17 @@ class CommonScreen(ModalScreen[None]):
                 self._set_name,
             )
             return
-        seed = "0" if current is None else str(current)
+        # A source is OFF or PERFORM, or a part number, so it is a list to
+        # pick from. The number prompt is still one digit away -- see
+        # action_type_digit -- for anyone who knows the number.
+        options = [(0, zero)] + [(n, f"PART {n}") for n in range(1, 17)]
+
+        def picked(value) -> None:
+            if value is not None:
+                self._write_value(offset, label, value)
+
         self.app.push_screen(
-            TextPromptScreen(f"{label} (0 = {zero}, 1-16)", seed, select_all=True),
-            lambda text: self._set_value(offset, label, text),
+            ChoiceScreen(label, options, 0 if current is None else current), picked
         )
 
     def action_bump(self, delta: int) -> None:
@@ -1833,6 +1842,22 @@ class MultiScreen(ModalScreen[None]):
         if self._is_switch(column):
             self.action_toggle_cell()
             return
+        choices = self._named_choices(column)
+        if choices is not None:
+            # A column whose values are words is a list to pick from, not a
+            # number to type.
+
+            def picked(value, part=part, column=column) -> None:
+                if value is not None:
+                    self._apply(part, column, value)
+
+            self.app.push_screen(
+                ChoiceScreen(
+                    self._spec(column)[1], choices, self._current_value(part, column)
+                ),
+                picked,
+            )
+            return
         # Seeded with the current value, because Enter means "change this
         # one" and the old value is usually the starting point. Typing a
         # digit instead replaces outright -- see action_type_digit.
@@ -1842,6 +1867,23 @@ class MultiScreen(ModalScreen[None]):
         self._prompt_for_value(
             part, column, seed=str(self._current_value(part, column)), select_all=True
         )
+
+    #: Columns whose values are one of a fixed set of words, by column key.
+    #: Enter on one opens a list rather than a number prompt. The patch name
+    #: column is not here: it has its own picker (`s`).
+    _NAMED_COLUMNS = {
+        "mono": params.MONO_POLY,
+        "leg": params.ON_OFF_PATCH,
+        "pts": params.ON_OFF_PATCH,
+        "out": params.OUTPUT_ASSIGN,
+        "mfx": params.OUTPUT_MFX,
+    }
+
+    def _named_choices(self, column: str):
+        names = self._NAMED_COLUMNS.get(column)
+        if names is None:
+            return None
+        return [(value, str(text)) for value, text in sorted(names.items())]
 
     def _prompt_for_value(
         self, part, column: str, *, seed: str, select_all: bool = False

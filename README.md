@@ -222,7 +222,9 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   channel. The report tells these apart.
 
   Type a number straight into a numeric cell, `⏎` edits the cell under the
-  cursor, `space` toggles a switch, `+`/`-` adjust. **Edits go to Temporary
+  cursor, `space` toggles a switch, `+`/`-` adjust. On a column whose values
+  are words — Mono/Poly, Legato, Portamento Switch, Output Assign, Output
+  MFX — `⏎` opens a list to pick from instead. **Edits go to Temporary
   Performance — the edit buffer, not a stored performance — and a power cycle
   undoes them.** Nothing is written to a stored slot unless you ask for it
   with `W`, which backs up whatever is in the slot first. Each edit is read
@@ -286,8 +288,9 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   which channel's controllers drive the multi-effect, **Solo Part Select** is
   the one byte that silences fifteen parts at once, and the name is the
   performance's own. The five ranged rows take `⏎`, a digit or `+`/`-`
-  exactly as the part table does; the name has no range, so `⏎` is the way
-  in. Writes go to the edit buffer with everything else.
+  exactly as the part table does, and `⏎` on one opens the list of parts;
+  the name has no range, so `⏎` is the way in. Writes go to the edit buffer
+  with everything else.
 
   `e` opens the **effects**: the MFX type, its dry/chorus/reverb sends, its
   output and its four control assignments; the chorus and reverb heads; and

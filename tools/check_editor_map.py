@@ -170,17 +170,29 @@ CHECKS: Tuple[Tuple[str, str, Dict[int, str]], ...] = (
             0x09: "part coarse tune",
             0x0A: "part fine tune",
             0x0B: "part mono/poly",
+            0x0C: "part legato switch",
             0x0D: "part pitch bend range",
+            0x0E: "part portamento switch",
+            0x11: "part cutoff offset",
+            0x12: "part resonance offset",
+            0x13: "part attack time offset",
+            0x14: "part release time offset",
             0x15: "part octave shift",
             0x16: "part velocity sensitivity",
             0x17: "keyboard range lower",
             0x18: "keyboard range upper",
+            0x19: "keyboard fade width lower",
+            0x1A: "keyboard fade width upper",
             0x1B: "mute switch",
             0x1C: "dry send level",
             0x1D: "chorus send level",
             0x1E: "reverb send level",
             0x1F: "output assign",
             0x20: "output MFX select",
+            0x21: "part decay time offset",
+            0x22: "part vibrato rate",
+            0x23: "part vibrato depth",
+            0x24: "part vibrato delay",
         },
     ),
     (
@@ -206,6 +218,10 @@ CHECKS: Tuple[Tuple[str, str, Dict[int, str]], ...] = (
         "Performance Common (10 00 00 00)",
         {
             0x0C: "solo part select",
+            0x0D: "MFX control channel",
+            0x30: "MFX source",
+            0x33: "chorus source",
+            0x34: "reverb source",
         },
     ),
     (
@@ -267,6 +283,7 @@ def check(root: ET.Element) -> int:
     types_by_offset = {
         "PerformancePart": (b.XvBridge.WRITABLE_PART_OFFSETS, "part"),
         "PerformanceMIDI": (b.XvBridge.WRITABLE_CHANNEL_OFFSETS, "channel"),
+        "PerformanceCommon": (b.XvBridge.WRITABLE_COMMON_OFFSETS, "common"),
     }
     for type_name, (allowlist, label) in types_by_offset.items():
         spec = types.get(type_name)

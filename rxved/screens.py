@@ -367,6 +367,18 @@ EDITABLE_PART_COLUMNS = {
     "rev": (0x1E, "reverb send level", 0, 127),
     "out": (0x1F, "output assign", 0, 13),
     "mfx": (0x20, "output MFX select", 0, 2),
+    "leg": (0x0C, "legato (0 OFF, 1 ON, 2 PATCH)", 0, 2),
+    "pts": (0x0E, "portamento switch (0 OFF, 1 ON, 2 PATCH)", 0, 2),
+    "cof": (0x11, "cutoff offset", -64, 63),
+    "res": (0x12, "resonance offset", -64, 63),
+    "atk": (0x13, "attack time offset", -64, 63),
+    "dcy": (0x21, "decay time offset", -64, 63),
+    "rel": (0x14, "release time offset", -64, 63),
+    "vrt": (0x22, "vibrato rate", -64, 63),
+    "vdp": (0x23, "vibrato depth", -64, 63),
+    "vdl": (0x24, "vibrato delay", -64, 63),
+    "kfl": (0x19, "keyboard fade width lower", 0, 127),
+    "kfu": (0x1A, "keyboard fade width upper", 0, 127),
 }
 
 #: The two column sets the part table shows, toggled by `tab`. Sixteen parts
@@ -416,19 +428,57 @@ TONE_COLUMNS = (
     ("hi", "hi"),
 )
 
-#: The four column sets `tab` cycles through.
+#: The TVF/TVA offsets and the vibrato. Kept together because they are the
+#: sound-shaping block a person tweaks after picking the patch; most are
+#: stored biased by 64, like the tone columns.
+OFFSET_COLUMNS = (
+    ("cof", "cof"),
+    ("res", "res"),
+    ("atk", "atk"),
+    ("dcy", "dcy"),
+    ("rel", "rel"),
+    ("vrt", "vrt"),
+    ("vdp", "vdp"),
+    ("vdl", "vdl"),
+)
+
+#: Portamento and the keyboard-range fade widths.
+PORTA_COLUMNS = (
+    ("leg", "leg"),
+    ("pts", "pts"),
+    ("kfl", "kfl"),
+    ("kfu", "kfu"),
+)
+
+#: The column sets `tab` cycles through.
 COLUMN_VIEWS = (
     ("MIDI", MIDI_COLUMNS),
     ("FX / routing", FX_COLUMNS),
     ("receive switches", RX_COLUMNS),
     ("tone", TONE_COLUMNS),
+    ("offsets / vibrato", OFFSET_COLUMNS),
+    ("porta / key", PORTA_COLUMNS),
 )
 
 #: display = wire - bias, wire = display + bias. Every entry is a place the
 #: synth's byte and the manual's number differ, collected in one dict so
 #: that the conversion is one line of code in one direction and one in the
 #: other -- see xv/banks.py on why this project never lets those two drift.
-_BIAS = {"ch": -1, "pan": 64, "crs": 64, "fin": 64, "oct": 64}
+_BIAS = {
+    "ch": -1,
+    "pan": 64,
+    "crs": 64,
+    "fin": 64,
+    "oct": 64,
+    "cof": 64,
+    "res": 64,
+    "atk": 64,
+    "dcy": 64,
+    "rel": 64,
+    "vrt": 64,
+    "vdp": 64,
+    "vdl": 64,
+}
 
 #: Column key -> the ChannelMidi attribute it shows.
 _CHANNEL_FIELDS = {
@@ -990,9 +1040,24 @@ class MultiScreen(ModalScreen[None]):
         if column == "mfx":
             name = part.output_mfx_name
             return f"[b]{name}[/b]" if name.endswith("*") else name
-        if column in ("pan", "oct", "crs", "fin"):
+        if column in (
+            "pan",
+            "oct",
+            "crs",
+            "fin",
+            "cof",
+            "res",
+            "atk",
+            "dcy",
+            "rel",
+            "vrt",
+            "vdp",
+            "vdl",
+        ):
             value = self._current_value(part, column)
             return f"+{value}" if value > 0 else str(value)
+        if column in ("leg", "pts"):
+            return params.ON_OFF_PATCH.get(self._current_value(part, column), "?")
         if column == "bend":
             return "PAT" if part.bend_range == 25 else str(part.bend_range)
         if column == "mono":
@@ -1066,6 +1131,14 @@ class MultiScreen(ModalScreen[None]):
                 "crs": part.coarse,
                 "fin": part.fine,
                 "oct": part.octave,
+                "cof": part.cutoff_offset,
+                "res": part.resonance_offset,
+                "atk": part.attack_offset,
+                "dcy": part.decay_offset,
+                "rel": part.release_offset,
+                "vrt": part.vibrato_rate,
+                "vdp": part.vibrato_depth,
+                "vdl": part.vibrato_delay,
             }[column]
             return wire - _BIAS[column]
         return (
@@ -1086,6 +1159,10 @@ class MultiScreen(ModalScreen[None]):
                 "mono": part.mono_poly,
                 "lo": part.key_lower,
                 "hi": part.key_upper,
+                "leg": part.legato,
+                "pts": part.portamento_switch,
+                "kfl": part.key_fade_lower,
+                "kfu": part.key_fade_upper,
             }.get(column)
             if column not in EDITABLE_CHANNEL_COLUMNS
             else (self._channel_value(part, column))

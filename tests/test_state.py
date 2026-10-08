@@ -223,17 +223,29 @@ class TestWritableOffsetsAgree:
             0x09,
             0x0A,
             0x0B,
-            0x0D,  # pan, tune, poly
+            0x0C,
+            0x0D,
+            0x0E,  # pan, tune, poly, legato, bend, portamento
+            0x11,
+            0x12,
+            0x13,
+            0x14,  # the TVF/TVA time and tone offsets
             0x15,
             0x16,
             0x17,
-            0x18,  # octave, vel, range
+            0x18,
+            0x19,
+            0x1A,  # octave, vel, key range, fade widths
             0x1B,
             0x1C,
             0x1D,
             0x1E,
             0x1F,
             0x20,  # mute, sends, routing
+            0x21,
+            0x22,
+            0x23,
+            0x24,  # decay offset, vibrato
         }
         # Every one is inside the Performance Part block, which is 49 bytes.
         assert max(XvBridge.WRITABLE_PART_OFFSETS) < 49

@@ -33,6 +33,7 @@ __all__ = [
     "user_performance_base",
     "SIGNED_PART_FIELDS",
     "MONO_POLY",
+    "ON_OFF_PATCH",
     "OUTPUT_ASSIGN",
     "OUTPUT_ASSIGN_ON_XV2020",
     "OUTPUT_MFX",
@@ -45,10 +46,30 @@ __all__ = [
 #: because this project's rule is that a displayed number and a wire byte
 #: are never silently the same thing -- the same rule as program numbers in
 #: :mod:`xv.banks`.
-SIGNED_PART_FIELDS = frozenset({"pan", "coarse", "fine", "octave", "velocity_sens"})
+SIGNED_PART_FIELDS = frozenset(
+    {
+        "pan",
+        "coarse",
+        "fine",
+        "octave",
+        "velocity_sens",
+        "cutoff_offset",
+        "resonance_offset",
+        "attack_offset",
+        "decay_offset",
+        "release_offset",
+        "vibrato_rate",
+        "vibrato_depth",
+        "vibrato_delay",
+    }
+)
 
 #: Part Mono/Poly (offset ``00 0B``).
 MONO_POLY = {0: "MONO", 1: "POLY", 2: "PATCH"}
+
+#: Part Legato Switch and Part Portamento Switch (offsets ``00 0C`` and
+#: ``00 0E``), which share Mono/Poly's three-value shape.
+ON_OFF_PATCH = {0: "OFF", 1: "ON", 2: "PATCH"}
 
 #: Note names for the keyboard-range columns. The XV-2020 counts C-1 as note
 #: 0, so note 60 is C4 (OM p. 73's range column).

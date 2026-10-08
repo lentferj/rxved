@@ -1624,7 +1624,7 @@ class TestMultiEditing:
             assert "CHORUS ON" in summary
             assert "REVERB ON" in summary
 
-    async def test_tab_cycles_four_views(self, app):
+    async def test_tab_cycles_every_view(self, app):
         async with app.run_test() as pilot:
             screen = await self._open(app, pilot)
             table = screen.query_one("#part-table", DataTable)
@@ -1644,7 +1644,33 @@ class TestMultiEditing:
             assert "pan" in keys() and "lo" in keys()
             await pilot.press("tab")
             await pilot.pause()
+            assert "cof" in keys() and "vrt" in keys()
+            await pilot.press("tab")
+            await pilot.pause()
+            assert "leg" in keys() and "kfu" in keys()
+            await pilot.press("tab")
+            await pilot.pause()
             assert "rx" in keys() and "lvl" in keys()  # back to the start
+
+    async def _offsets_view(self, app, pilot):
+        screen = await self._open(app, pilot)
+        for _ in range(4):
+            await pilot.press("tab")
+        await pilot.pause()
+        return screen
+
+    async def test_a_cutoff_offset_edit_is_written_biased(self, app):
+        """The screen shows -64..+63; the wire byte is 0..127."""
+        async with app.run_test() as pilot:
+            screen = await self._offsets_view(app, pilot)
+            await self._cell(screen, pilot, 1, "cof")
+            await pilot.press("enter")
+            await pilot.pause()
+            # The prompt is seeded with the display value, "0" here.
+            await pilot.press("-", "3", "2")
+            await pilot.press("enter")
+            await settle(pilot)
+            assert app.bridge.read_part(1).cutoff_offset == 32  # 64 - 32
 
     async def _rx_view(self, app, pilot):
         screen = await self._open(app, pilot)

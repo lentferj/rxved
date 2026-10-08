@@ -510,6 +510,24 @@ class PartState:
     velocity_sens: int = 64  #: ``00 16``, 1-127, displayed -63-+63.
     key_lower: int = 0  #: ``00 17``, note number.
     key_upper: int = 127  #: ``00 18``, note number.
+    #: Offsets ``00 19``-``00 1A``: the keyboard-range fade widths.
+    key_fade_lower: int = 0
+    key_fade_upper: int = 0
+    #: Offset ``00 0C``, Legato Switch, and ``00 0E``, Portamento Switch
+    #: (CC#65). Both are OFF/ON/PATCH, the same shape as Mono/Poly.
+    legato: int = 2
+    portamento_switch: int = 2
+    #: Offsets ``00 11``-``00 14`` and ``00 21``: the TVF cutoff/resonance
+    #: and TVF/TVA time offsets. All biased by 64.
+    cutoff_offset: int = 64  #: ``00 11`` (CC#74).
+    resonance_offset: int = 64  #: ``00 12`` (CC#71).
+    attack_offset: int = 64  #: ``00 13`` (CC#73).
+    release_offset: int = 64  #: ``00 14`` (CC#72).
+    decay_offset: int = 64  #: ``00 21`` (CC#75).
+    #: Offsets ``00 22``-``00 24``: vibrato, biased by 64 (CC#76-78).
+    vibrato_rate: int = 64
+    vibrato_depth: int = 64
+    vibrato_delay: int = 64
 
     @property
     def channel_display(self) -> int:
@@ -1485,11 +1503,19 @@ class XvBridge:
         0x09: ("part coarse tune", 16, 112),
         0x0A: ("part fine tune", 14, 114),
         0x0B: ("part mono/poly", 0, 2),
+        0x0C: ("part legato switch", 0, 2),
         0x0D: ("part pitch bend range", 0, 25),
+        0x0E: ("part portamento switch", 0, 2),
+        0x11: ("part cutoff offset", 0, 127),
+        0x12: ("part resonance offset", 0, 127),
+        0x13: ("part attack time offset", 0, 127),
+        0x14: ("part release time offset", 0, 127),
         0x15: ("part octave shift", 61, 67),
         0x16: ("part velocity sensitivity", 1, 127),
         0x17: ("keyboard range lower", 0, 127),
         0x18: ("keyboard range upper", 0, 127),
+        0x19: ("keyboard fade width lower", 0, 127),
+        0x1A: ("keyboard fade width upper", 0, 127),
         0x1B: ("mute switch", 0, 1),
         0x1C: ("dry send level", 0, 127),
         0x1D: ("chorus send level", 0, 127),
@@ -1499,6 +1525,10 @@ class XvBridge:
         # that arrived in a performance written on a bigger XV.
         0x1F: ("output assign", 0, 13),
         0x20: ("output MFX select", 0, 2),
+        0x21: ("part decay time offset", 0, 127),
+        0x22: ("part vibrato rate", 0, 127),
+        0x23: ("part vibrato depth", 0, 127),
+        0x24: ("part vibrato delay", 0, 127),
     }
 
     #: Performance MIDI offsets rxved will write, per channel, with ranges.
@@ -1874,13 +1904,13 @@ class XvBridge:
         """
         if not 1 <= part <= 16:
             raise ValueError(f"part {part} is outside 1-16")
-        # 0x21 bytes: through Part Output MFX Select at offset 00 20. One
-        # round trip for the MIDI settings and the effects routing together,
-        # rather than two reads of the same block.
-        data = self.request((0x10, 0x00, 0x20 + part - 1, 0x00), 0x21, timeout=timeout)
-        if len(data) < 0x21:
+        # 0x31 bytes: the block's own Total Size, through Part Scale Tune for
+        # B at offset 00 30. One round trip for every part parameter the
+        # screen edits, rather than two reads of the same block.
+        data = self.request((0x10, 0x00, 0x20 + part - 1, 0x00), 0x31, timeout=timeout)
+        if len(data) < 0x31:
             raise DeviceError(
-                f"part {part} read returned {len(data)} bytes, expected 33"
+                f"part {part} read returned {len(data)} bytes, expected {0x31}"
             )
         return PartState(
             part=part,
@@ -1894,17 +1924,29 @@ class XvBridge:
             coarse=data[0x09],
             fine=data[0x0A],
             mono_poly=data[0x0B],
+            legato=data[0x0C],
             bend_range=data[0x0D],
+            portamento_switch=data[0x0E],
+            cutoff_offset=data[0x11],
+            resonance_offset=data[0x12],
+            attack_offset=data[0x13],
+            release_offset=data[0x14],
             octave=data[0x15],
             velocity_sens=data[0x16],
             key_lower=data[0x17],
             key_upper=data[0x18],
+            key_fade_lower=data[0x19],
+            key_fade_upper=data[0x1A],
             mute=bool(data[0x1B]),
             dry=data[0x1C],
             chorus=data[0x1D],
             reverb=data[0x1E],
             output_assign=data[0x1F],
             output_mfx=data[0x20],
+            decay_offset=data[0x21],
+            vibrato_rate=data[0x22],
+            vibrato_depth=data[0x23],
+            vibrato_delay=data[0x24],
         )
 
     def read_performance_common(

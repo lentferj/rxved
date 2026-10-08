@@ -1619,6 +1619,31 @@ class TestEffects:
             # PHASER's 0x1d is its Resonance.
             assert str(table.get_row("mfx:1d")[1]) == "Resonance"
 
+    async def test_a_worded_mfx_parameter_opens_the_chooser(self, app):
+        """STEREO CHORUS's Filter is OFF/LPF/HPF, not a number 0-2."""
+        async with app.run_test() as pilot:
+            screen = await self._effects(app, pilot)
+            table = screen.query_one("#fx-table", DataTable)
+            # Switch to STEREO CHORUS (type 14).
+            table.cursor_coordinate = Coordinate(0, 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            choices = app.screen.query_one("#choices", DataTable)
+            choices.cursor_coordinate = Coordinate(14, 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+            assert app.bridge.read_performance_fx().mfx_type == 14
+            table.cursor_coordinate = Coordinate(table.get_row_index("mfx:11"), 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ChoiceScreen)
+            options = app.screen.query_one("#choices", DataTable)
+            assert str(options.get_row("0")[1]) == "OFF"
+            assert str(options.get_row("1")[1]) == "LPF"
+
 
 class TestPatchPicker:
     """`s` in the multi screen: pick a part's sound by bank and name."""

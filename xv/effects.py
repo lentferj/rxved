@@ -1924,6 +1924,15 @@ DISPLAY_TABLES: Dict[str, Tuple[str, ...]] = {
     # Not from a table: the chorus FILTER TYPE has three words, which the
     # manual prints and the editor draws rather than tabling.
     "chorusFilter": ("OFF", "LPF", "HPF"),
+    # The same for the handful of MFX parameters the editor draws rather
+    # than tabling. Values are the manual's (OM pp. 82-91).
+    "mfxFilter": ("OFF", "LPF", "HPF"),
+    "eqLoFreq": ("200 Hz", "400 Hz"),
+    "eqHiFreq": ("2000 Hz", "4000 Hz", "8000 Hz"),
+    "autoWahFilter": ("LPF", "BPF"),
+    "rotSpeed": ("SLOW", "FAST"),
+    "delayMode": ("NORMAL", "CROSS"),
+    "polarity": ("NORMAL", "INVERT"),
 }
 
 #: ``(offset, label, low, high, table)`` for the CHORUS algorithm's
@@ -1953,9 +1962,9 @@ REVERB_PARAMETERS: Tuple[Tuple[int, str, int, int, Optional[str]], ...] = (
 #: effects screen rebuilds its rows when the type changes.
 MFX_PARAMETERS: Dict[int, Tuple[Tuple[int, str, int, int, Optional[str]], ...]] = {
     1: (
-        (0x11, "Lo Freq", 0, 1, None),
+        (0x11, "Lo Freq", 0, 1, "eqLoFreq"),
         (0x15, "Lo Gain", 0, 30, "gain-15-1"),
-        (0x19, "Hi Freq", 0, 2, None),
+        (0x19, "Hi Freq", 0, 2, "eqHiFreq"),
         (0x1D, "Hi Gain", 0, 30, "gain-15-1"),
         (0x21, "Mid1 Freq", 0, 16, "freq200-Bypass"),
         (0x25, "Mid1 Q", 0, 4, "q"),
@@ -2011,7 +2020,7 @@ MFX_PARAMETERS: Dict[int, Tuple[Tuple[int, str, int, int, Optional[str]], ...]] 
         (0x21, "Level", 0, 127, None),
     ),
     7: (
-        (0x11, "Mode", 0, 1, None),
+        (0x11, "Mode", 0, 1, "autoWahFilter"),
         (0x15, "Rate", 0, 125, "rate0p05-10"),
         (0x19, "Depth", 0, 127, None),
         (0x1D, "Sens", 0, 127, None),
@@ -2024,7 +2033,7 @@ MFX_PARAMETERS: Dict[int, Tuple[Tuple[int, str, int, int, Optional[str]], ...]] 
         (0x15, "Rot Lo Slow", 0, 125, "rate0p05-10"),
         (0x19, "Rot Hi Fast", 0, 125, "rate0p05-10"),
         (0x1D, "Rot Lo Fast", 0, 125, "rate0p05-10"),
-        (0x21, "Rot Speed", 0, 1, None),
+        (0x21, "Rot Speed", 0, 1, "rotSpeed"),
         (0x25, "Rot Hi Accel", 0, 15, None),
         (0x29, "Rot Lo Accel", 0, 15, None),
         (0x2D, "Rot Hi Level", 0, 127, None),
@@ -2082,7 +2091,7 @@ MFX_PARAMETERS: Dict[int, Tuple[Tuple[int, str, int, int, Optional[str]], ...]] 
         (0x2D, "Level", 0, 127, None),
     ),
     14: (
-        (0x11, "Filter", 0, 2, None),
+        (0x11, "Filter", 0, 2, "mfxFilter"),
         (0x15, "Split", 0, 16, "freq200-Bypass"),
         (0x19, "Delay", 0, 125, "delayTime0-100"),
         (0x1D, "Rate", 0, 125, "rate0p05-10"),
@@ -2094,7 +2103,7 @@ MFX_PARAMETERS: Dict[int, Tuple[Tuple[int, str, int, int, Optional[str]], ...]] 
         (0x39, "Level", 0, 127, None),
     ),
     15: (
-        (0x11, "Filter", 0, 2, None),
+        (0x11, "Filter", 0, 2, "mfxFilter"),
         (0x15, "Split", 0, 16, "freq200-Bypass"),
         (0x19, "Delay", 0, 125, "delayTime0-100"),
         (0x1D, "Rate", 0, 125, "rate0p05-10"),
@@ -2119,11 +2128,11 @@ MFX_PARAMETERS: Dict[int, Tuple[Tuple[int, str, int, int, Optional[str]], ...]] 
         (0x35, "Level", 0, 127, None),
     ),
     17: (
-        (0x11, "Feedback Route", 0, 1, None),
+        (0x11, "Feedback Route", 0, 1, "delayMode"),
         (0x15, "Delay L", 0, 126, "delatTime0-500"),
         (0x19, "Delay R", 0, 126, "delatTime0-500"),
-        (0x1D, "Phase L", 0, 1, None),
-        (0x21, "Phase R", 0, 1, None),
+        (0x1D, "Phase L", 0, 1, "polarity"),
+        (0x21, "Phase R", 0, 1, "polarity"),
         (0x25, "Feedback", 0, 98, "fbk"),
         (0x29, "HF Damp", 0, 17, "freq200-Bypass"),
         (0x2D, "EQ Lo", 0, 30, "gain-15-1"),
@@ -2132,7 +2141,7 @@ MFX_PARAMETERS: Dict[int, Tuple[Tuple[int, str, int, int, Optional[str]], ...]] 
         (0x39, "Level", 0, 127, None),
     ),
     18: (
-        (0x11, "Feedback Route", 0, 1, None),
+        (0x11, "Feedback Route", 0, 1, "delayMode"),
         (0x15, "Delay L", 0, 126, "delatTime0-500"),
         (0x19, "Delay R", 0, 126, "delatTime0-500"),
         (0x1D, "Feedback", 0, 98, "fbk"),

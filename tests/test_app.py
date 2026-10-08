@@ -29,6 +29,7 @@ from textual.coordinate import Coordinate
 from rxved.app import (
     CategoryScreen,
     CommonScreen,
+    EffectsScreen,
     MultiScreen,
     PatchPickerScreen,
     PerformanceScreen,
@@ -1444,6 +1445,76 @@ class TestPerformanceCommon:
             # No prompt and no write: the name is still what it was.
             assert isinstance(app.screen, CommonScreen)
             assert app.bridge.read_performance_common().name == "Demo Multi"
+
+
+class TestEffects:
+    """`e` in the multi screen: the MFX, chorus and reverb heads."""
+
+    async def _effects(self, app, pilot):
+        await pilot.pause()
+        await pilot.press("m")
+        await pilot.pause()
+        await pilot.pause()
+        await pilot.press("e")
+        await pilot.pause()
+        return app.screen
+
+    async def test_e_opens_the_effects_editor(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._effects(app, pilot)
+            assert isinstance(screen, EffectsScreen)
+            table = screen.query_one("#fx-table", DataTable)
+            keys = [c.key.value for c in table.columns.values()]
+            assert "block" in keys and "value" in keys
+
+    async def test_the_types_are_shown_by_name(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._effects(app, pilot)
+            table = screen.query_one("#fx-table", DataTable)
+            # The demo's MFX type is 12, which the manual calls TREMOLO
+            # CHORUS; both block types are the model's single algorithm.
+            assert str(table.get_row("mfx:0")[2]) == "TREMOLO CHORUS"
+            assert str(table.get_row("chorus:0")[2]) == "CHORUS"
+            assert str(table.get_row("reverb:0")[2]) == "REVERB"
+
+    async def test_editing_the_mfx_type_writes_it(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._effects(app, pilot)
+            table = screen.query_one("#fx-table", DataTable)
+            table.cursor_coordinate = Coordinate(0, 0)  # MFX Type
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            # Seeded with 12, selected, so the digits replace it.
+            await pilot.press("2", "4")
+            await pilot.press("enter")
+            await settle(pilot)
+            assert app.bridge.read_performance_fx().mfx_type == 24
+
+    async def test_a_control_sensitivity_is_written_biased(self, app):
+        """The manual prints -63..+63; the wire carries 1-127."""
+        async with app.run_test() as pilot:
+            screen = await self._effects(app, pilot)
+            table = screen.query_one("#fx-table", DataTable)
+            table.cursor_coordinate = Coordinate(6, 0)  # MFX Control 1 Sens
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("-", "1", "0")
+            await pilot.press("enter")
+            await settle(pilot)
+            # 64 + (-10) on the wire.
+            assert app.bridge.read_performance_fx().mfx_control_sens[0] == 54
+
+    async def test_minus_steps_a_value(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._effects(app, pilot)
+            table = screen.query_one("#fx-table", DataTable)
+            table.cursor_coordinate = Coordinate(1, 0)  # MFX Dry Send, 127
+            await pilot.pause()
+            await pilot.press("minus")
+            await settle(pilot)
+            assert app.bridge.read_performance_fx().mfx_dry == 126
 
 
 class TestPatchPicker:

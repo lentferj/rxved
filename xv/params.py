@@ -37,6 +37,15 @@ __all__ = [
     "OUTPUT_ASSIGN",
     "OUTPUT_ASSIGN_ON_XV2020",
     "OUTPUT_MFX",
+    "MFX_TYPES",
+    "MFX_CONTROL_SOURCES",
+    "MFX_HEADER",
+    "CHORUS_TYPES",
+    "CHORUS_OUTPUT_SELECT",
+    "CHORUS_HEADER",
+    "REVERB_TYPES",
+    "REVERB_HEADER",
+    "mfx_control_source",
     "note_name",
     "encode_int2x4",
     "decode_int2x4",
@@ -165,6 +174,123 @@ OUTPUT_ASSIGN_ON_XV2020 = frozenset({0, 1, 5, 6, 13})
 #: Part Output MFX Select (offset ``00 20``). The XV-2020 has one MFX, so
 #: only MFXA is real; the other two are ``<*>`` entries.
 OUTPUT_MFX = {0: "MFXA", 1: "MFXB*", 2: "MFXC*"}
+
+#: MFX Type (offset ``00 00`` of the MFX block), 0-40. 0 is OFF; the rest
+#: are the manual's algorithms in its own order (OM pp. 82-91).
+MFX_TYPES = {
+    0: "OFF",
+    1: "STEREO EQ",
+    2: "OVERDRIVE",
+    3: "DISTORTION",
+    4: "PHASER",
+    5: "SPECTRUM",
+    6: "ENHANCER",
+    7: "AUTO WAH",
+    8: "ROTARY",
+    9: "COMPRESSOR",
+    10: "LIMITER",
+    11: "HEXA-CHORUS",
+    12: "TREMOLO CHORUS",
+    13: "SPACE-D",
+    14: "STEREO CHORUS",
+    15: "STEREO FLANGER",
+    16: "STEP FLANGER",
+    17: "STEREO DELAY",
+    18: "MODULATION DELAY",
+    19: "TRIPLE TAP DELAY",
+    20: "QUADRUPLE TAP DELAY",
+    21: "TIME CONTROL DELAY",
+    22: "2 VOICE PITCH SHIFTER",
+    23: "FB PITCH SHIFTER",
+    24: "REVERB",
+    25: "GATED REVERB",
+    26: "OVERDRIVE -> CHORUS",
+    27: "OVERDRIVE -> FLANGER",
+    28: "OVERDRIVE -> DELAY",
+    29: "DISTORTION -> CHORUS",
+    30: "DISTORTION -> FLANGER",
+    31: "DISTORTION -> DELAY",
+    32: "ENHANCER -> CHORUS",
+    33: "ENHANCER -> FLANGER",
+    34: "ENHANCER -> DELAY",
+    35: "CHORUS -> DELAY",
+    36: "FLANGER -> DELAY",
+    37: "CHORUS -> FLANGER",
+    38: "CHORUS/DELAY",
+    39: "FLANGER/DELAY",
+    40: "CHORUS/FLANGER",
+}
+
+
+def mfx_control_source(value: int) -> str:
+    """MFX Control Source: OFF, CC01-31, CC33-95, BEND, AFTER, SYS1-4.
+
+    The map prints the range as 0-101 and the list exactly that way (OM
+    p. 146): 0 is OFF, 1-31 are CC01-CC31, 32-94 are CC33-CC95 -- CC32,
+    Bank Select, is skipped -- and 95-100 are the six non-CC sources. The
+    top of the range is unnamed, and shown as the bare number.
+    """
+    if value == 0:
+        return "OFF"
+    if 1 <= value <= 31:
+        return f"CC{value:02d}"
+    if 32 <= value <= 94:
+        return f"CC{value + 1:02d}"
+    return {
+        95: "BEND",
+        96: "AFTER",
+        97: "SYS1",
+        98: "SYS2",
+        99: "SYS3",
+        100: "SYS4",
+    }.get(value, str(value))
+
+
+#: The MFX Control Source list, 0-101, as the screen's lookup.
+MFX_CONTROL_SOURCES = {value: mfx_control_source(value) for value in range(102)}
+
+#: Chorus Type and Reverb Type (offset ``00 00`` of each block). The
+#: *performance* chorus and reverb on this model are OFF/on only; the patch
+#: blocks carry the fuller algorithm lists (OM p. 146 against p. 79).
+CHORUS_TYPES = {0: "OFF", 1: "CHORUS"}
+REVERB_TYPES = {0: "OFF", 1: "REVERB"}
+
+#: Chorus Output Select (offset ``00 03``).
+CHORUS_OUTPUT_SELECT = {0: "MAIN", 1: "REV", 2: "MAIN+REV"}
+
+#: One effect block's head, as ``(offset, label, low, high, names, bias)``.
+#: ``bias`` is added to the displayed value to get the wire byte, so the
+#: MFX control sensitivities read -63..+63 the way the manual prints them.
+#: Only the head: the dozens of per-algorithm parameters that follow mean
+#: nothing without knowing the algorithm, and are the next piece of work.
+MFX_HEADER = (
+    (0x00, "Type", 0, 40, MFX_TYPES, 0),
+    (0x01, "Dry Send", 0, 127, None, 0),
+    (0x02, "Chorus Send", 0, 127, None, 0),
+    (0x03, "Reverb Send", 0, 127, None, 0),
+    (0x04, "Output Assign", 0, 3, OUTPUT_ASSIGN, 0),
+    (0x05, "Control 1 Source", 0, 101, MFX_CONTROL_SOURCES, 0),
+    (0x06, "Control 1 Sens", -63, 63, None, 64),
+    (0x07, "Control 2 Source", 0, 101, MFX_CONTROL_SOURCES, 0),
+    (0x08, "Control 2 Sens", -63, 63, None, 64),
+    (0x09, "Control 3 Source", 0, 101, MFX_CONTROL_SOURCES, 0),
+    (0x0A, "Control 3 Sens", -63, 63, None, 64),
+    (0x0B, "Control 4 Source", 0, 101, MFX_CONTROL_SOURCES, 0),
+    (0x0C, "Control 4 Sens", -63, 63, None, 64),
+)
+
+CHORUS_HEADER = (
+    (0x00, "Type", 0, 1, CHORUS_TYPES, 0),
+    (0x01, "Level", 0, 127, None, 0),
+    (0x02, "Output Assign", 0, 3, OUTPUT_ASSIGN, 0),
+    (0x03, "Output Select", 0, 2, CHORUS_OUTPUT_SELECT, 0),
+)
+
+REVERB_HEADER = (
+    (0x00, "Type", 0, 1, REVERB_TYPES, 0),
+    (0x01, "Level", 0, 127, None, 0),
+    (0x02, "Output Assign", 0, 3, OUTPUT_ASSIGN, 0),
+)
 
 
 #: A performance, block by block: ``(name, (sub_hi, sub_lo), size)``.

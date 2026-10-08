@@ -138,6 +138,9 @@ class DemoBridge:
         #: Voice Reserve, one per part, parts 1-16. Stored in the common
         #: block, so it lives here rather than with the part edits.
         self._voice_reserves: list[int] = [0] * 16
+        #: Effect-head edits, keyed by ``(block, offset)``. The per-algorithm
+        #: parameters are not writable, so the head is all there is.
+        self._fx_edits: Dict[tuple, int] = {}
         #: Whole performances the fake has been asked to store, keyed by
         #: address prefix. In memory only -- a demo session writes nothing.
         self._performances: Dict[tuple, dict] = {}
@@ -452,24 +455,63 @@ class DemoBridge:
                 on_progress(channel + 1, 16)
         return tuple(out)
 
+    #: ``(block, offset)`` -> PerformanceFx field, for the fake's remembered
+    #: effect-head edits. The MFX control source/sens pairs are handled
+    #: separately, because they are tuple slots rather than whole fields.
+    _FX_FIELDS = {
+        ("mfx", 0x00): "mfx_type",
+        ("mfx", 0x01): "mfx_dry",
+        ("mfx", 0x02): "mfx_chorus",
+        ("mfx", 0x03): "mfx_reverb",
+        ("mfx", 0x04): "mfx_output",
+        ("chorus", 0x00): "chorus_type",
+        ("chorus", 0x01): "chorus_level",
+        ("chorus", 0x02): "chorus_output",
+        ("chorus", 0x03): "chorus_output_select",
+        ("reverb", 0x00): "reverb_type",
+        ("reverb", 0x01): "reverb_level",
+        ("reverb", 0x02): "reverb_output",
+    }
+
     def read_performance_fx(self, *, timeout=None):
         from xv.bridge import PerformanceFx
 
         self._tick()
-        return PerformanceFx(
-            mfx_type=12,
-            mfx_dry=127,
-            mfx_chorus=0,
-            mfx_reverb=40,
-            mfx_output=1,
-            chorus_type=1,
-            chorus_level=64,
-            chorus_output=1,
-            chorus_output_select=0,
-            reverb_type=1,
-            reverb_level=80,
-            reverb_output=1,
-        )
+        # An MFX that is on and routed, with both sends live, so the summary
+        # line has something to say.
+        fields: dict = {
+            "mfx_type": 12,
+            "mfx_dry": 127,
+            "mfx_chorus": 0,
+            "mfx_reverb": 40,
+            "mfx_output": 1,
+            "chorus_type": 1,
+            "chorus_level": 64,
+            "chorus_output": 1,
+            "chorus_output_select": 0,
+            "reverb_type": 1,
+            "reverb_level": 80,
+            "reverb_output": 1,
+        }
+        sources = [0, 0, 0, 0]
+        sens = [64, 64, 64, 64]
+        for (block, offset), value in self._fx_edits.items():
+            if block == "mfx" and 0x05 <= offset <= 0x0C:
+                index = (offset - 0x05) // 2
+                (sources if offset % 2 else sens)[index] = value
+                continue
+            fields[self._FX_FIELDS[(block, offset)]] = value
+        fields["mfx_control_sources"] = tuple(sources)
+        fields["mfx_control_sens"] = tuple(sens)
+        return PerformanceFx(**fields)
+
+    def write_performance_effect(
+        self, block, offset, value, *, verify=True, timeout=None
+    ):
+        """Remember one effect-head edit, in memory only."""
+        self._tick()
+        self._fx_edits[(block, offset)] = value
+        return value
 
     #: Performance Common offset -> attribute, for the fake's remembered edits.
     _COMMON_FIELDS = {

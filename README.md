@@ -289,6 +289,15 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   exactly as the part table does; the name has no range, so `⏎` is the way
   in. Writes go to the edit buffer with everything else.
 
+  `e` opens the **effects**: the head of each of the performance's three
+  effect blocks — the MFX type, its dry/chorus/reverb sends, its output and
+  its four control assignments, then the chorus and reverb types, levels and
+  routing. Types are shown by name (`STEREO EQ`, `CHORUS`, `REVERB`) rather
+  than by number, and the MFX control sensitivities read -63..+63 as the
+  manual prints them. The same `⏎` / digit / `+`/`-` gestures apply. Only the
+  head of each block is exposed: the dozens of per-algorithm parameters that
+  follow mean nothing without knowing the algorithm, and are not written yet.
+
 ## Install
 
 Clone both repositories side by side:
@@ -432,6 +441,7 @@ taking it, because two XV-2020s on one chain is worth refusing over.
 | `m` | multi-mode setup: all 16 parts, **editable**, and why a channel is silent |
 | `p` | (in `m`) load a stored performance into the edit buffer |
 | `c` | (in `m`) edit the performance common: name, solo, effect sources — `⏎`, a digit, or `+`/`-` for the ranged rows |
+| `e` | (in `m`) edit the effects: MFX type/sends/control, chorus and reverb |
 | `s` | (in `m`) pick this part's sound by bank and name — `v` cycles the favourites views there too |
 | `W` | (in `m`) write the edit buffer to a user performance slot — **destructive** |
 | `i` / `?` / `q` | device identity / help / quit |

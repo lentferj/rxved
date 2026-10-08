@@ -80,6 +80,7 @@ __all__ = [
     "StoreScreen",
     "PerformanceScreen",
     "CommonScreen",
+    "EffectsScreen",
     "PatchPickerScreen",
     "MultiScreen",
     "CategoryScreen",
@@ -129,6 +130,7 @@ from rxved.screens import (  # noqa: E402
     VIEW_LABEL,
     CategoryScreen,
     CommonScreen,
+    EffectsScreen,
     ConfirmScreen,
     EDITABLE_CHANNEL_COLUMNS,
     EDITABLE_COMMON_COLUMNS,
@@ -1658,6 +1660,7 @@ class RxvedApp(App):
                 on_pick_patch=self._pick_patch,
                 on_write_common=self._write_common_param,
                 on_write_common_name=self._write_common_name,
+                on_write_effect=self._write_effect_param,
                 on_close=lambda: setattr(self, "_multi_screen", None),
             )
         )
@@ -1773,6 +1776,41 @@ class RxvedApp(App):
             self._busy = False
         self.call_from_thread(adopt, fresh)
         self.call_from_thread(self.notify_status, f"part {part} set to {slot}")
+
+    def _write_effect_param(self, block: str, offset: int, value: int, adopt) -> None:
+        """Hand one effect-head byte to a worker. Main thread."""
+        if self._busy:
+            self.notify_status("busy", refused=True)
+            return
+        self._busy = True
+        self._write_effect_worker(block, offset, value, adopt)
+
+    @work(thread=True)
+    def _write_effect_worker(self, block, offset, value, adopt) -> None:
+        """**MIDI only.** Write one effect byte, then re-read the heads.
+
+        Re-reads all three heads rather than the byte written: the synth is
+        free to adjust a neighbour, and the summary line at the top of the
+        multi-mode screen has to agree with what is on screen.
+        """
+        try:
+            with self._bridge_lock:
+                self.bridge.write_performance_effect(block, offset, value)
+                fresh = self.bridge.read_performance_fx()
+        except _BRIDGE_ERRORS as exc:
+            self.call_from_thread(self.notify_status, f"write: {exc}", refused=True)
+            return
+        finally:
+            self._busy = False
+        self.call_from_thread(self._adopt_effects, fresh, adopt)
+        self.call_from_thread(self.notify_status, "effects written (temporary)")
+
+    def _adopt_effects(self, fresh, adopt) -> None:
+        """Show what the device reported: the Effects screen and the summary."""
+        adopt(fresh)
+        screen = self._multi_screen
+        if screen is not None:
+            screen.update_fx(fresh)
 
     def _write_common_param(self, offset: int, value: int, adopt) -> None:
         """Hand one Performance Common byte to a worker. Main thread."""

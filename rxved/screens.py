@@ -68,6 +68,7 @@ __all__ = [
     "StoreScreen",
     "PerformanceScreen",
     "CommonScreen",
+    "EffectsScreen",
     "PatchPickerScreen",
     "MultiScreen",
     "CategoryScreen",
@@ -1100,6 +1101,204 @@ class PatchPickerScreen(ModalScreen[Optional[banks.Slot]]):
         self.dismiss(None)
 
 
+class EffectsScreen(ModalScreen[None]):
+    """The performance's three effects blocks, editable.
+
+    Only the **head** of each: type, level and routing, plus the MFX
+    control assignments. The dozens of per-algorithm parameters that follow
+    mean nothing without knowing the algorithm, and are the next piece of
+    work; the bridge refuses them until then, so this screen offers none.
+
+    Type fields are shown by name (`STEREO EQ`, `CHORUS`, `REVERB`) rather
+    than by number, because that is what the manual prints and what a
+    person recognises. The MFX control sensitivities read -63..+63 as the
+    manual prints them, not the 1-127 the wire carries.
+    """
+
+    DEFAULT_CSS = """
+    EffectsScreen { align: center middle; }
+    EffectsScreen > Vertical {
+        width: 78; height: auto; max-height: 85%; border: thick $accent;
+        background: $surface; padding: 1 2;
+    }
+    EffectsScreen DataTable { height: auto; max-height: 20; }
+    EffectsScreen .hint { color: $text-muted; }
+    """
+
+    BINDINGS = [
+        Binding("escape", "close", "Close"),
+        Binding("q", "close", "Close"),
+        # The same gestures as the part table and the common screen: Enter,
+        # a digit, or +/-. An effect value should not be changed one way
+        # here and another way one screen over.
+        Binding("plus", "bump(1)", "+1", show=False),
+        Binding("equals_sign", "bump(1)", "+1", show=False),
+        Binding("minus", "bump(-1)", "-1", show=False),
+    ] + [
+        Binding(str(digit), f"type_digit('{digit}')", show=False) for digit in range(10)
+    ]
+
+    #: The blocks in the order the screen shows them: key, heading, rows.
+    BLOCKS = (
+        ("mfx", "MFX", params.MFX_HEADER),
+        ("chorus", "CHORUS", params.CHORUS_HEADER),
+        ("reverb", "REVERB", params.REVERB_HEADER),
+    )
+
+    def __init__(self, fx, *, on_write=None) -> None:
+        super().__init__()
+        self._fx = fx
+        #: ``on_write(block, offset, value, adopt)``.
+        self._on_write = on_write
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("[b]Effects — the edit buffer[/b]")
+            yield DataTable(id="fx-table", cursor_type="row", zebra_stripes=True)
+            yield Static(
+                "[dim]⏎ edits · a digit opens the prompt · +/- adjust · esc "
+                "closes · writes go to the temporary performance[/dim]",
+                classes="hint",
+            )
+
+    def on_mount(self) -> None:
+        table = self.query_one("#fx-table", DataTable)
+        table.add_column("block", key="block")
+        table.add_column("setting", key="setting")
+        table.add_column("value", key="value")
+        for block, name, header in self.BLOCKS:
+            for offset, label, _low, _high, _names, _bias in header:
+                table.add_row(
+                    name, label, self._display(block, offset), key=f"{block}:{offset}"
+                )
+        table.focus()
+
+    # --- reading -------------------------------------------------------------
+
+    def _spec(self, block: str, offset: int):
+        header = next(rows for key, _name, rows in self.BLOCKS if key == block)
+        return next(row for row in header if row[0] == offset)
+
+    def _wire(self, block: str, offset: int) -> int:
+        """The raw byte for one row, out of what the synth reported."""
+        fx = self._fx
+        if block == "mfx":
+            if offset <= 0x04:
+                return (
+                    fx.mfx_type,
+                    fx.mfx_dry,
+                    fx.mfx_chorus,
+                    fx.mfx_reverb,
+                    fx.mfx_output,
+                )[offset]
+            index = (offset - 0x05) // 2
+            if offset % 2:
+                return fx.mfx_control_sources[index]
+            return fx.mfx_control_sens[index]
+        if block == "chorus":
+            return (
+                fx.chorus_type,
+                fx.chorus_level,
+                fx.chorus_output,
+                fx.chorus_output_select,
+            )[offset]
+        return (fx.reverb_type, fx.reverb_level, fx.reverb_output)[offset]
+
+    def _display(self, block: str, offset: int) -> str:
+        _offset, _label, _low, _high, names, bias = self._spec(block, offset)
+        value = self._wire(block, offset) - bias
+        if names is not None:
+            return names.get(value, str(value))
+        return str(value)
+
+    def _field(self):
+        table = self.query_one("#fx-table", DataTable)
+        if not table.row_count:
+            return None
+        key = table.coordinate_to_cell_key(table.cursor_coordinate)[0].value
+        block, _, offset = key.partition(":")
+        return block, int(offset)
+
+    # --- editing -------------------------------------------------------------
+
+    def on_data_table_row_selected(self, event) -> None:
+        if event.data_table.id == "fx-table":
+            self.action_edit()
+
+    def action_edit(self) -> None:
+        field = self._field()
+        if field is None:
+            return
+        block, offset = field
+        _offset, label, low, high, _names, bias = self._spec(block, offset)
+        self._prompt(
+            block,
+            offset,
+            label,
+            low,
+            high,
+            str(self._wire(block, offset) - bias),
+            select_all=True,
+        )
+
+    def action_type_digit(self, digit: str) -> None:
+        field = self._field()
+        if field is None:
+            return
+        block, offset = field
+        _offset, label, low, high, _names, _bias = self._spec(block, offset)
+        self._prompt(block, offset, label, low, high, digit)
+
+    def action_bump(self, delta: int) -> None:
+        field = self._field()
+        if field is None:
+            return
+        block, offset = field
+        _offset, _label, low, high, _names, bias = self._spec(block, offset)
+        self._apply(block, offset, self._wire(block, offset) - bias + delta, low, high)
+
+    def _prompt(
+        self, block, offset, label, low, high, seed, *, select_all=False
+    ) -> None:
+        def done(text) -> None:
+            if text is None or not text.strip():
+                return
+            try:
+                value = int(text.strip())
+            except ValueError:
+                self.app.notify_status(f"{text!r} is not a number", refused=True)
+                return
+            self._apply(block, offset, value, low, high)
+
+        self.app.push_screen(
+            TextPromptScreen(f"{label} ({low} to {high})", seed, select_all=select_all),
+            done,
+        )
+
+    def _apply(self, block, offset, value, low, high) -> None:
+        if not low <= value <= high:
+            self.app.notify_status(f"takes {low}-{high}, not {value}", refused=True)
+            return
+        if self._on_write is None:
+            self.app.notify_status("not connected to a synth", refused=True)
+            return
+        _offset, _label, _low, _high, _names, bias = self._spec(block, offset)
+        self._on_write(block, offset, value + bias, self.update_fx)
+
+    def update_fx(self, fx) -> None:
+        """Replace the screen's effects with what the device reported."""
+        self._fx = fx
+        table = self.query_one("#fx-table", DataTable)
+        for block, _name, header in self.BLOCKS:
+            for offset, _label, _low, _high, _names, _bias in header:
+                table.update_cell(
+                    f"{block}:{offset}", "value", self._display(block, offset)
+                )
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
 class MultiScreen(ModalScreen[None]):
     """Multi-mode setup: all 16 Performance Parts, editable.
 
@@ -1146,6 +1345,7 @@ class MultiScreen(ModalScreen[None]):
         Binding("W", "store", "Write to a slot", show=False),
         Binding("p", "pick_performance", "Load a performance", show=False),
         Binding("c", "common", "Performance common", show=False),
+        Binding("e", "effects", "Effects", show=False),
         Binding("s", "pick_patch", "Pick a sound", show=False),
         Binding("r", "refresh", "Refresh", show=False),
         Binding("plus", "bump(1)", "+1", show=False),
@@ -1171,6 +1371,7 @@ class MultiScreen(ModalScreen[None]):
         on_pick_patch=None,
         on_write_common=None,
         on_write_common_name=None,
+        on_write_effect=None,
         on_close=None,
     ) -> None:
         super().__init__()
@@ -1195,6 +1396,8 @@ class MultiScreen(ModalScreen[None]):
         self._on_write_common = on_write_common
         #: ``on_write_common_name(name, adopt)``.
         self._on_write_common_name = on_write_common_name
+        #: ``on_write_effect(block, offset, value, adopt)`` -- the effects.
+        self._on_write_effect = on_write_effect
         #: ``on_close()`` -- called when the screen is dismissed.
         self._on_close = on_close
 
@@ -1228,7 +1431,8 @@ class MultiScreen(ModalScreen[None]):
         return (
             f"[b]{which}[/b] columns · tab for {nxt} · type a number, or "
             f"⏎ to edit · space toggles · +/- adjust · r refresh · "
-            f"p loads a performance · c common · s pick sound · W writes to a slot · "
+            f"p loads a performance · c common · e effects · s pick sound · "
+            f"W writes to a slot · "
             f"edits go to the temporary performance, so a power cycle undoes "
             f"them"
         )
@@ -1691,6 +1895,15 @@ class MultiScreen(ModalScreen[None]):
             )
         )
 
+    def action_effects(self) -> None:
+        """Edit the performance's MFX, chorus and reverb heads."""
+        if self._state.fx is None:
+            self.app.notify_status("effects not read", refused=True)
+            return
+        self.app.push_screen(
+            EffectsScreen(self._state.fx, on_write=self._on_write_effect)
+        )
+
     def action_store(self) -> None:
         name = ""
         if self._state.common is not None:
@@ -1708,6 +1921,11 @@ class MultiScreen(ModalScreen[None]):
         """Replace the performance common, and the title that names it."""
         self._state = replace(self._state, common=common)
         self.query_one("#multi-title", Label).update(f"[b]{self._title()}[/b]")
+
+    def update_fx(self, fx) -> None:
+        """Replace the effects after a write, and the summary line."""
+        self._state = replace(self._state, fx=fx)
+        self.query_one("#fx", Static).update(self._fx_summary())
 
     def update_state(self, state) -> None:
         """Replace the screen's state with fresh data from the synth."""

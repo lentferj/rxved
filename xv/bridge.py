@@ -757,6 +757,10 @@ class PerformanceFx:
     reverb_type: int
     reverb_level: int
     reverb_output: int
+    #: The four MFX control assignments: source (0-101) and sensitivity
+    #: (1-127 on the wire, -63..+63 as the manual prints it).
+    mfx_control_sources: Tuple[int, ...] = ()
+    mfx_control_sens: Tuple[int, ...] = ()
 
     #: Chorus Output Select (``10 00 04 00`` offset ``00 03``).
     CHORUS_OUTPUT_SELECT = {0: "MAIN", 1: "REV", 2: "MAIN+REV"}
@@ -1584,6 +1588,23 @@ class XvBridge:
         0x34: ("reverb source", 0, 16),
     }
 
+    #: The three effect blocks, and where each starts. All in Temporary
+    #: Performance, the same edit buffer the parts are written to.
+    EFFECT_BLOCKS = {
+        "mfx": (0x10, 0x00, 0x02, 0x00),
+        "chorus": (0x10, 0x00, 0x04, 0x00),
+        "reverb": (0x10, 0x00, 0x06, 0x00),
+    }
+
+    #: The writable head of each effect block, as ``(low, high)``. Only the
+    #: head: the per-algorithm parameters that follow are not exposed yet, so
+    #: they are not writable, and the allowlist stays an allowlist.
+    WRITABLE_EFFECT_OFFSETS = {
+        "mfx": (0x00, 0x0C),
+        "chorus": (0x00, 0x03),
+        "reverb": (0x00, 0x02),
+    }
+
     # --- whole performances -------------------------------------------------
 
     def read_performance_blocks(
@@ -1840,6 +1861,50 @@ class XvBridge:
         data = self.request(address, 12, timeout=timeout)
         return m.decode_name(data[:12])
 
+    def write_performance_effect(
+        self,
+        block: str,
+        offset: int,
+        value: int,
+        *,
+        verify: bool = True,
+        timeout: Optional[float] = None,
+    ) -> int:
+        """Set one byte of one effect block in the **temporary** area.
+
+        ``block`` is ``"mfx"``, ``"chorus"`` or ``"reverb"``; the head of
+        each is writable, the per-algorithm parameters are not yet. Same
+        argument as the part writes: Temporary Performance is the edit
+        buffer, and a power cycle or a load discards every byte. Returns the
+        value read back, not the value sent.
+        """
+        if block not in self.EFFECT_BLOCKS:
+            raise ValueError(
+                f"{block!r} is not one of the effect blocks rxved writes "
+                f"({', '.join(sorted(self.EFFECT_BLOCKS))})"
+            )
+        low, high = self.WRITABLE_EFFECT_OFFSETS[block]
+        if not low <= offset <= high:
+            raise ValueError(
+                f"{block} offset {offset:#04x} is outside the writable head "
+                f"{low:#04x}-{high:#04x}"
+            )
+        if not 0 <= value <= 127:
+            raise ValueError(f"an effect byte is 0-127, got {value}")
+
+        base = self.EFFECT_BLOCKS[block]
+        address = (base[0], base[1], base[2], base[3] + offset)
+        self._send(m.dt1(address, [value], device=self.device_id))
+        time.sleep(SEND_GAP)
+        if not verify:
+            return value
+        data = self.request(address, 1, timeout=timeout)
+        if not data:
+            raise DeviceError(
+                f"wrote {block} offset {offset:#04x} but read back nothing"
+            )
+        return data[0]
+
     # --- operations ---------------------------------------------------------
 
     def identify(self, *, timeout: Optional[float] = None) -> Optional[DeviceIdentity]:
@@ -2053,15 +2118,16 @@ class XvBridge:
         """The performance's three effects blocks. Three round trips, silent.
 
         ``10 00 02 00`` MFX, ``10 00 04 00`` Chorus, ``10 00 06 00`` Reverb
-        (OM p. 146). Only the head of each -- type, level and routing. The
-        dozens of per-algorithm parameters that follow mean nothing without
-        knowing the algorithm, and rxved does not edit effects.
+        (OM p. 146). The head of each -- type, level, routing, and the MFX
+        control assignments. The dozens of per-algorithm parameters that
+        follow mean nothing without knowing the algorithm, and rxved does
+        not edit those yet.
         """
-        mfx = self.request((0x10, 0x00, 0x02, 0x00), 5, timeout=timeout)
+        mfx = self.request((0x10, 0x00, 0x02, 0x00), 0x0D, timeout=timeout)
         chorus = self.request((0x10, 0x00, 0x04, 0x00), 4, timeout=timeout)
         reverb = self.request((0x10, 0x00, 0x06, 0x00), 3, timeout=timeout)
         for name, data, want in (
-            ("MFX", mfx, 5),
+            ("MFX", mfx, 0x0D),
             ("chorus", chorus, 4),
             ("reverb", reverb, 3),
         ):
@@ -2075,6 +2141,8 @@ class XvBridge:
             mfx_chorus=mfx[2],
             mfx_reverb=mfx[3],
             mfx_output=mfx[4],
+            mfx_control_sources=(mfx[5], mfx[7], mfx[9], mfx[0x0B]),
+            mfx_control_sens=(mfx[6], mfx[8], mfx[0x0A], mfx[0x0C]),
             chorus_type=chorus[0],
             chorus_level=chorus[1],
             chorus_output=chorus[2],

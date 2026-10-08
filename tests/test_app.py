@@ -29,6 +29,7 @@ from textual.coordinate import Coordinate
 from rxved.app import (
     CategoryScreen,
     MultiScreen,
+    PerformanceScreen,
     ReportScreen,
     RxvedApp,
     StoreScreen,
@@ -1284,6 +1285,67 @@ class TestMultiSetup:
             await pilot.pause()
             state = app.bridge.read_state(with_parts=True)
             assert "Mute Switch" in " ".join(state.silence_report())
+
+
+class TestPerformancePicker:
+    """`p` in the multi screen: browse the 96 stored performances, load one.
+
+    Loading replaces every byte of the edit buffer, which is why it is a
+    screen of its own rather than a keystroke on the part table.
+    """
+
+    async def _multi(self, app, pilot):
+        await pilot.pause()
+        await pilot.press("m")
+        await pilot.pause()
+        await pilot.pause()
+        return app.screen
+
+    async def test_p_opens_the_picker_over_the_multi_screen(self, app):
+        async with app.run_test() as pilot:
+            await self._multi(app, pilot)
+            await pilot.press("p")
+            await pilot.pause()
+            assert isinstance(app.screen, PerformanceScreen)
+            table = app.screen.query_one("#perf-table", DataTable)
+            # 64 user + 32 preset A + 32 preset B.
+            assert table.row_count == 128
+
+    async def test_the_picker_opens_on_the_current_performance(self, app):
+        async with app.run_test() as pilot:
+            await self._multi(app, pilot)
+            await pilot.press("p")
+            await pilot.pause()
+            table = app.screen.query_one("#perf-table", DataTable)
+            # The demo synth says it is on P-USER 005 (MSB 85, LSB 0, PC 4),
+            # which is row 4 of the picker.
+            assert table.cursor_row == 4
+
+    async def test_choosing_a_performance_loads_it(self, app):
+        async with app.run_test() as pilot:
+            await self._multi(app, pilot)
+            await pilot.press("p")
+            await pilot.pause()
+            table = app.screen.query_one("#perf-table", DataTable)
+            # Row 64 (0-based) is P-PST-A 001.
+            table.cursor_coordinate = Coordinate(64, 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+            assert app.bridge.selected.bank_id == "P-PST-A"
+            assert app.bridge.selected.number == 1
+            # Back on the part table, showing what was loaded.
+            assert isinstance(app.screen, MultiScreen)
+
+    async def test_escape_closes_the_picker_without_loading(self, app):
+        async with app.run_test() as pilot:
+            await self._multi(app, pilot)
+            await pilot.press("p")
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, MultiScreen)
+            assert app.bridge.selected is None
 
 
 class TestMultiEditing:

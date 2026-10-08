@@ -65,6 +65,7 @@ __all__ = [
     "COLUMN_VIEWS",
     "EDITABLE_CHANNEL_COLUMNS",
     "StoreScreen",
+    "PerformanceScreen",
     "MultiScreen",
     "CategoryScreen",
     "SearchScreen",
@@ -577,6 +578,91 @@ class StoreScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
+class PerformanceScreen(ModalScreen[Optional[banks.Slot]]):
+    """Pick a stored performance to load into the edit buffer.
+
+    The counterpart to :class:`StoreScreen`: that one writes the edit buffer
+    into a user slot, this one reads a slot into the buffer. Loading replaces
+    every byte of the buffer, which is why it is its own screen and not a
+    keystroke on the part table.
+
+    The list is the whole performance map -- User 1-64, Preset A and B 1-32 --
+    with the names from the catalog, and the performance the synth is on now
+    marked, so "where am I" is answerable without leaving the picker.
+    """
+
+    DEFAULT_CSS = """
+    PerformanceScreen { align: center middle; }
+    PerformanceScreen > Vertical {
+        width: 76; height: 80%; border: thick $accent;
+        background: $surface; padding: 1 2;
+    }
+    PerformanceScreen DataTable { height: 1fr; }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("q", "cancel", "Cancel"),
+    ]
+
+    #: The banks that hold performances, in the order the picker shows them.
+    BANKS = ("P-USER", "P-PST-A", "P-PST-B")
+
+    def __init__(self, catalog, current: Optional[Tuple[int, int, int]] = None) -> None:
+        super().__init__()
+        self._catalog = catalog
+        #: ``(msb, lsb, program_change)`` the synth is on, to mark its row.
+        self._current = current
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("[b]Load a performance into the edit buffer[/b]")
+            yield DataTable(id="perf-table", cursor_type="row", zebra_stripes=True)
+            yield Static(
+                "[dim]⏎ load · esc cancel · loading replaces the edit buffer "
+                "(save it with W first)[/dim]",
+                id="perf-status",
+            )
+
+    def on_mount(self) -> None:
+        table = self.query_one("#perf-table", DataTable)
+        table.add_column("bank", key="bank")
+        table.add_column("#", key="number")
+        table.add_column("name", key="name")
+        current_row = 0
+        for bank_id in self.BANKS:
+            for number in banks.bank(bank_id).numbers():
+                slot = banks.slot(bank_id, number)
+                name = self._catalog.display_name(bank_id, number)
+                mark = ""
+                if self._current == (slot.msb, slot.lsb, slot.program_change):
+                    mark = "  [b]← current[/b]"
+                    # row_count is the index this row is about to take.
+                    current_row = table.row_count
+                table.add_row(bank_id, f"{number:03d}", name + mark, key=slot.key)
+        table.focus()
+        if table.row_count:
+            table.move_cursor(row=current_row)
+
+    def _slot(self) -> Optional[banks.Slot]:
+        table = self.query_one("#perf-table", DataTable)
+        if not table.row_count:
+            return None
+        key = table.coordinate_to_cell_key(table.cursor_coordinate)[0].value
+        bank_id, _, number = key.rpartition(":")
+        try:
+            return banks.slot(bank_id, int(number))
+        except (LookupError, ValueError):
+            return None
+
+    def on_data_table_row_selected(self, event) -> None:
+        if event.data_table.id == "perf-table":
+            self.dismiss(self._slot())
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class MultiScreen(ModalScreen[None]):
     """Multi-mode setup: all 16 Performance Parts, editable.
 
@@ -621,6 +707,7 @@ class MultiScreen(ModalScreen[None]):
         # Opens the arm-then-fire screen. Opening it writes nothing; the
         # destructive step is two further keys inside it, on purpose.
         Binding("W", "store", "Write to a slot", show=False),
+        Binding("p", "pick_performance", "Load a performance", show=False),
         Binding("r", "refresh", "Refresh", show=False),
         Binding("plus", "bump(1)", "+1", show=False),
         Binding("equals_sign", "bump(1)", "+1", show=False),
@@ -641,6 +728,7 @@ class MultiScreen(ModalScreen[None]):
         on_write=None,
         on_write_channel=None,
         on_refresh=None,
+        on_load=None,
         on_close=None,
     ) -> None:
         super().__init__()
@@ -656,6 +744,9 @@ class MultiScreen(ModalScreen[None]):
         #: ``on_refresh()`` -- called when the user presses 'r' to re-read
         #: the full state from the synth.
         self._on_refresh = on_refresh
+        #: ``on_load(slot)`` -- called when the user picks a stored
+        #: performance to load into the edit buffer.
+        self._on_load = on_load
         #: ``on_close()`` -- called when the screen is dismissed.
         self._on_close = on_close
 
@@ -685,8 +776,8 @@ class MultiScreen(ModalScreen[None]):
         nxt = COLUMN_VIEWS[(self._view + 1) % len(COLUMN_VIEWS)][0]
         return (
             f"[b]{which}[/b] columns · tab for {nxt} · type a number, or "
-            f"⏎ to edit · space toggles · +/- adjust · r refresh · W writes "
-            f"to a slot · "
+            f"⏎ to edit · space toggles · +/- adjust · r refresh · "
+            f"p loads a performance · W writes to a slot · "
             f"edits go to the temporary performance, so a power cycle undoes "
             f"them"
         )
@@ -1024,6 +1115,21 @@ class MultiScreen(ModalScreen[None]):
         for column, cell in zip(table.columns.values(), self._row_cells(fresh)):
             table.update_cell(str(fresh.part), column.key, cell)
         self.query_one("#report", Static).update(self._report_text())
+
+    def action_pick_performance(self) -> None:
+        """Pick a stored performance and load it into the edit buffer."""
+        setup = self._state.setup
+        current = (
+            setup.performance_msb,
+            setup.performance_lsb,
+            setup.performance_program,
+        )
+
+        def chosen(slot) -> None:
+            if slot is not None and self._on_load is not None:
+                self._on_load(slot)
+
+        self.app.push_screen(PerformanceScreen(self._catalog, current), chosen)
 
     def action_store(self) -> None:
         name = ""

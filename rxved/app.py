@@ -49,6 +49,7 @@ import argparse
 import sqlite3
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -77,6 +78,7 @@ __all__ = [
     "TextPromptScreen",
     "ReportScreen",
     "StoreScreen",
+    "PerformanceScreen",
     "MultiScreen",
     "CategoryScreen",
     "KeyHints",
@@ -93,6 +95,11 @@ __all__ = [
 ]
 
 sys.setrecursionlimit(10000)
+
+#: How long to let the synth load a performance before reading it back.
+#: Reading too early returns the previous performance, silently -- the same
+#: failure mode `scan_bank`'s retry loop exists for.
+PERFORMANCE_LOAD_SETTLE = 0.2
 
 #: What a bridge call can raise when the synth, the port or the arguments
 #: are at fault. Workers catch exactly this -- not bare ``Exception`` -- so
@@ -124,6 +131,7 @@ from rxved.screens import (  # noqa: E402
     KEY_HINTS,
     KeyHints,
     MultiScreen,
+    PerformanceScreen,
     ReportScreen,
     SearchScreen,
     StoreScreen,
@@ -1640,6 +1648,7 @@ class RxvedApp(App):
                 on_write=self._write_part_param,
                 on_write_channel=self._write_channel_param,
                 on_refresh=self._refresh_multi_setup,
+                on_load=self._load_performance,
                 on_close=lambda: setattr(self, "_multi_screen", None),
             )
         )
@@ -1688,6 +1697,43 @@ class RxvedApp(App):
             screen = self.screen
         if screen is not None:
             screen.update_state(state)
+
+    def _load_performance(self, slot: banks.Slot) -> None:
+        """Load a stored performance into the edit buffer. Main thread."""
+        if self._busy:
+            self.notify_status("busy", refused=True)
+            return
+        # Set on the main thread, not in the worker (see _multi_setup_worker).
+        self._busy = True
+        self._load_performance_worker(slot)
+
+    @work(thread=True)
+    def _load_performance_worker(self, slot: banks.Slot) -> None:
+        """**MIDI only** -- select the performance, then re-read the state.
+
+        A performance is selected on the Performance Control Channel and
+        nowhere else, so that one is not the user's to choose. The settle
+        between the select and the read is the load time: reading too early
+        returns the performance that was there before, silently.
+        """
+        try:
+            with self._bridge_lock:
+                used = self._channel_for(slot)
+                if used is None:
+                    raise RuntimeError(
+                        "this synth has its Performance Control Channel set "
+                        "to OFF, so performances cannot be selected over MIDI"
+                    )
+                self.bridge.select(slot, channel=used)
+                time.sleep(PERFORMANCE_LOAD_SETTLE)
+                state = self.bridge.read_state(with_parts=True)
+        except _BRIDGE_ERRORS as exc:
+            self.call_from_thread(self.notify_status, f"load: {exc}", refused=True)
+            return
+        finally:
+            self._busy = False
+        self.call_from_thread(self.notify_status, f"loaded {slot} into the edit buffer")
+        self.call_from_thread(self._on_multi_refresh_complete, state)
 
     def _write_part_param(self, part: int, offset: int, value: int, adopt) -> None:
         """Hand one part-parameter write to a worker. Main thread."""

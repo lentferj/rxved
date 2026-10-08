@@ -289,14 +289,19 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   exactly as the part table does; the name has no range, so `⏎` is the way
   in. Writes go to the edit buffer with everything else.
 
-  `e` opens the **effects**: the head of each of the performance's three
-  effect blocks — the MFX type, its dry/chorus/reverb sends, its output and
-  its four control assignments, then the chorus and reverb types, levels and
-  routing. Types are shown by name (`STEREO EQ`, `CHORUS`, `REVERB`) rather
-  than by number, and the MFX control sensitivities read -63..+63 as the
-  manual prints them. The same `⏎` / digit / `+`/`-` gestures apply. Only the
-  head of each block is exposed: the dozens of per-algorithm parameters that
-  follow mean nothing without knowing the algorithm, and are not written yet.
+  `e` opens the **effects**: the MFX type, its dry/chorus/reverb sends, its
+  output and its four control assignments; the chorus and reverb heads; and
+  then the chorus and reverb per-algorithm parameters — rate, depth,
+  pre-delay, feedback, filter and phase, and the reverb's character, time,
+  HF damp and feedback. Types are shown by name (`STEREO EQ`, `CHORUS`,
+  `REVERB`) and the parameters through the editor's own display tables
+  (`0.05 Hz`, `200 Hz`, `BYPASS`, `ROOM1`), because the steps are not a
+  formula: the chorus rate runs 0.05–5.00 Hz in 0.05 steps, then 5.10–7.00
+  in 0.10, then 7.50–10.00 in 0.50. The MFX's own per-algorithm parameters
+  are not exposed yet. The same `⏎` / digit / `+`/`-` gestures apply, except
+  that a field whose values are words — the MFX type, the outputs, the
+  filter, the reverb character, the control sources — opens a list to pick
+  from with `⏎` rather than a number prompt.
 
 ## Install
 

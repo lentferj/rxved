@@ -202,6 +202,19 @@ class TestWritableOffsetsAgree:
         common = {offset for offset, _, _, _ in EDITABLE_COMMON_COLUMNS.values()}
         assert common <= set(XvBridge.WRITABLE_COMMON_OFFSETS)
 
+    def test_the_effects_screen_offers_nothing_the_bridge_refuses(self):
+        """Every row the effects screen draws, the bridge must accept."""
+        from rxved.app import EffectsScreen
+        from xv.bridge import XvBridge
+
+        screen = EffectsScreen(None)
+        for _key, block, offset, _label, kind, *_rest in screen._rows():
+            assert offset in XvBridge.WRITABLE_EFFECT_OFFSETS[block]
+            # And the width has to agree, or a four-nibble value goes out as
+            # one byte and corrupts the three offsets after it.
+            four = offset in XvBridge.FOUR_BYTE_EFFECT_OFFSETS.get(block, ())
+            assert four == (kind == "int4x4")
+
     def test_the_demo_accepts_exactly_what_the_bridge_does(self):
         from rxved.demo import DemoBridge
         from xv.bridge import XvBridge

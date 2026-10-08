@@ -464,17 +464,15 @@ class DemoBridge:
         ("mfx", 0x02): "mfx_chorus",
         ("mfx", 0x03): "mfx_reverb",
         ("mfx", 0x04): "mfx_output",
-        ("chorus", 0x00): "chorus_type",
-        ("chorus", 0x01): "chorus_level",
-        ("chorus", 0x02): "chorus_output",
-        ("chorus", 0x03): "chorus_output_select",
-        ("reverb", 0x00): "reverb_type",
-        ("reverb", 0x01): "reverb_level",
-        ("reverb", 0x02): "reverb_output",
     }
+
+    #: The per-algorithm parameter offsets, which are ``int4x4`` in the block.
+    _CHORUS_PARAMS = (0x04, 0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C)
+    _REVERB_PARAMS = (0x03, 0x07, 0x0B, 0x0F)
 
     def read_performance_fx(self, *, timeout=None):
         from xv.bridge import PerformanceFx
+        from xv.params import encode_int4x4
 
         self._tick()
         # An MFX that is on and routed, with both sends live, so the summary
@@ -485,13 +483,6 @@ class DemoBridge:
             "mfx_chorus": 0,
             "mfx_reverb": 40,
             "mfx_output": 1,
-            "chorus_type": 1,
-            "chorus_level": 64,
-            "chorus_output": 1,
-            "chorus_output_select": 0,
-            "reverb_type": 1,
-            "reverb_level": 80,
-            "reverb_output": 1,
         }
         sources = [0, 0, 0, 0]
         sens = [64, 64, 64, 64]
@@ -500,10 +491,44 @@ class DemoBridge:
                 index = (offset - 0x05) // 2
                 (sources if offset % 2 else sens)[index] = value
                 continue
-            fields[self._FX_FIELDS[(block, offset)]] = value
-        fields["mfx_control_sources"] = tuple(sources)
-        fields["mfx_control_sens"] = tuple(sens)
-        return PerformanceFx(**fields)
+            if block == "mfx":
+                fields[self._FX_FIELDS[(block, offset)]] = value
+        # The chorus and reverb blocks, at their demo defaults with every
+        # remembered edit applied. The parameters start at 32768, which is
+        # display zero.
+        chorus = bytearray(0x34)
+        chorus[0], chorus[1], chorus[2], chorus[3] = 1, 64, 1, 0
+        reverb = bytearray(0x53)
+        reverb[0], reverb[1], reverb[2] = 1, 80, 1
+        for offset in self._CHORUS_PARAMS:
+            chorus[offset : offset + 4] = bytes(encode_int4x4(32768))
+        for offset in self._REVERB_PARAMS:
+            reverb[offset : offset + 4] = bytes(encode_int4x4(32768))
+        for (block, offset), value in self._fx_edits.items():
+            if block == "chorus":
+                if offset in self._CHORUS_PARAMS:
+                    chorus[offset : offset + 4] = bytes(encode_int4x4(value))
+                else:
+                    chorus[offset] = value
+            elif block == "reverb":
+                if offset in self._REVERB_PARAMS:
+                    reverb[offset : offset + 4] = bytes(encode_int4x4(value))
+                else:
+                    reverb[offset] = value
+        return PerformanceFx(
+            mfx_control_sources=tuple(sources),
+            mfx_control_sens=tuple(sens),
+            chorus_type=chorus[0],
+            chorus_level=chorus[1],
+            chorus_output=chorus[2],
+            chorus_output_select=chorus[3],
+            reverb_type=reverb[0],
+            reverb_level=reverb[1],
+            reverb_output=reverb[2],
+            chorus_block=bytes(chorus),
+            reverb_block=bytes(reverb),
+            **fields,
+        )
 
     def write_performance_effect(
         self, block, offset, value, *, verify=True, timeout=None

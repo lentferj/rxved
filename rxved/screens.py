@@ -42,6 +42,7 @@ from vinsynlib.keys import wrap_blocks
 from vinsynlib.ui.hints import KeyHints
 
 from xv import banks
+from xv import effects
 from xv import params
 from xv import catalog as cat
 
@@ -68,6 +69,7 @@ __all__ = [
     "StoreScreen",
     "PerformanceScreen",
     "CommonScreen",
+    "ChoiceScreen",
     "EffectsScreen",
     "PatchPickerScreen",
     "MultiScreen",
@@ -1101,27 +1103,98 @@ class PatchPickerScreen(ModalScreen[Optional[banks.Slot]]):
         self.dismiss(None)
 
 
+class ChoiceScreen(ModalScreen[Optional[int]]):
+    """Pick one of a field's named values.
+
+    The effects screen's type, output, filter and control-source fields are
+    not numbers to type -- ``STEREO EQ``, ``BYPASS``, ``CC07`` -- so `⏎` on
+    one opens the list of values the manual prints, with the current one
+    marked. `⏎` picks, `esc` cancels.
+
+    Modelled on the category picker, which is the same idea with more than
+    one answer: a DataTable, a mark on what is chosen, and a `priority`
+    Enter because a focused DataTable eats the key for its own row selection.
+    """
+
+    DEFAULT_CSS = """
+    ChoiceScreen { align: center middle; }
+    ChoiceScreen > Vertical {
+        width: 54; height: auto; max-height: 80%; border: thick $accent;
+        background: $surface; padding: 1 2;
+    }
+    ChoiceScreen DataTable { height: auto; max-height: 16; }
+    ChoiceScreen .hint { color: $text-muted; }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("q", "cancel", "Cancel"),
+        Binding("enter", "accept", "Pick", priority=True),
+    ]
+
+    def __init__(self, label: str, options, current=None) -> None:
+        super().__init__()
+        self._label = label
+        #: ``(value, text)`` pairs, in the order the screen shows them.
+        self._options = list(options)
+        self._current = current
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label(f"[b]{self._label}[/b]")
+            yield DataTable(id="choices", cursor_type="row", zebra_stripes=True)
+            yield Static("[dim]⏎ picks · esc cancels[/dim]", classes="hint")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#choices", DataTable)
+        table.add_column("", key="mark")
+        table.add_column("value", key="value")
+        for index, (value, text) in enumerate(self._options):
+            table.add_row(
+                "[b]x[/b]" if value == self._current else " ", text, key=str(index)
+            )
+        table.focus()
+        for index, (value, _text) in enumerate(self._options):
+            if value == self._current:
+                table.move_cursor(row=index)
+                break
+
+    def action_accept(self) -> None:
+        table = self.query_one("#choices", DataTable)
+        if not table.row_count:
+            self.dismiss(None)
+            return
+        key = table.coordinate_to_cell_key(table.cursor_coordinate)[0].value
+        self.dismiss(self._options[int(key)][0])
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class EffectsScreen(ModalScreen[None]):
     """The performance's three effects blocks, editable.
 
-    Only the **head** of each: type, level and routing, plus the MFX
-    control assignments. The dozens of per-algorithm parameters that follow
-    mean nothing without knowing the algorithm, and are the next piece of
+    The **head** of each -- type, level and routing, plus the MFX control
+    assignments -- and then the chorus and reverb per-algorithm parameters.
+    The MFX's own parameters are not exposed yet: it has forty algorithms
+    with up to thirty-two parameters each, and that is the next piece of
     work; the bridge refuses them until then, so this screen offers none.
 
     Type fields are shown by name (`STEREO EQ`, `CHORUS`, `REVERB`) rather
-    than by number, because that is what the manual prints and what a
-    person recognises. The MFX control sensitivities read -63..+63 as the
-    manual prints them, not the 1-127 the wire carries.
+    than by number, and the per-algorithm values through the editor's own
+    display tables (`200 Hz`, `BYPASS`, `0.05 Hz`), because that is what the
+    manual prints and what a person recognises. The MFX control
+    sensitivities read -63..+63 as the manual prints them, not the 1-127 the
+    wire carries.
     """
 
     DEFAULT_CSS = """
     EffectsScreen { align: center middle; }
     EffectsScreen > Vertical {
-        width: 78; height: auto; max-height: 85%; border: thick $accent;
+        width: 78; height: 85%; border: thick $accent;
         background: $surface; padding: 1 2;
     }
-    EffectsScreen DataTable { height: auto; max-height: 20; }
+    EffectsScreen DataTable { height: 1fr; }
     EffectsScreen .hint { color: $text-muted; }
     """
 
@@ -1138,12 +1211,18 @@ class EffectsScreen(ModalScreen[None]):
         Binding(str(digit), f"type_digit('{digit}')", show=False) for digit in range(10)
     ]
 
-    #: The blocks in the order the screen shows them: key, heading, rows.
+    #: The blocks in the order the screen shows them: key, heading, the head
+    #: rows, and the per-algorithm rows. The MFX's own parameters are not
+    #: exposed yet, so its last entry is empty.
     BLOCKS = (
-        ("mfx", "MFX", params.MFX_HEADER),
-        ("chorus", "CHORUS", params.CHORUS_HEADER),
-        ("reverb", "REVERB", params.REVERB_HEADER),
+        ("mfx", "MFX", params.MFX_HEADER, ()),
+        ("chorus", "CHORUS", params.CHORUS_HEADER, effects.CHORUS_PARAMETERS),
+        ("reverb", "REVERB", params.REVERB_HEADER, effects.REVERB_PARAMETERS),
     )
+
+    #: What a block's ``int4x4`` parameters are offset by: the wire value is
+    #: the display value plus this, the same 32768 the manual prints.
+    INT4X4_BIAS = 32768
 
     def __init__(self, fx, *, on_write=None) -> None:
         super().__init__()
@@ -1166,22 +1245,68 @@ class EffectsScreen(ModalScreen[None]):
         table.add_column("block", key="block")
         table.add_column("setting", key="setting")
         table.add_column("value", key="value")
-        for block, name, header in self.BLOCKS:
-            for offset, label, _low, _high, _names, _bias in header:
-                table.add_row(
-                    name, label, self._display(block, offset), key=f"{block}:{offset}"
-                )
+        for key, block, offset, label, kind, *_rest in self._rows():
+            table.add_row(
+                self._heading(block),
+                label,
+                self._display(block, offset, kind),
+                key=key,
+            )
         table.focus()
 
     # --- reading -------------------------------------------------------------
 
-    def _spec(self, block: str, offset: int):
-        header = next(rows for key, _name, rows in self.BLOCKS if key == block)
-        return next(row for row in header if row[0] == offset)
+    def _heading(self, block: str) -> str:
+        return next(name for key, name, _h, _p in self.BLOCKS if key == block)
 
-    def _wire(self, block: str, offset: int) -> int:
-        """The raw byte for one row, out of what the synth reported."""
+    def _rows(self):
+        """Every row as ``(key, block, offset, label, kind, low, high, names,
+        bias, table)``. The head rows are single bytes; the per-algorithm
+        rows are ``int4x4``, biased by 32768 and read through a display
+        table where the editor has one."""
+        rows = []
+        for block, _name, header, parameters in self.BLOCKS:
+            for offset, label, low, high, names, bias in header:
+                rows.append(
+                    (
+                        f"{block}:{offset:02x}",
+                        block,
+                        offset,
+                        label,
+                        "byte",
+                        low,
+                        high,
+                        names,
+                        bias,
+                        None,
+                    )
+                )
+            for offset, label, low, high, table in parameters:
+                rows.append(
+                    (
+                        f"{block}:{offset:02x}",
+                        block,
+                        offset,
+                        label,
+                        "int4x4",
+                        low,
+                        high,
+                        None,
+                        self.INT4X4_BIAS,
+                        table,
+                    )
+                )
+        return rows
+
+    def _spec(self, key: str):
+        return next(row for row in self._rows() if row[0] == key)
+
+    def _wire(self, block: str, offset: int, kind: str) -> int:
+        """The raw value for one row, out of what the synth reported."""
         fx = self._fx
+        if kind == "int4x4":
+            data = fx.chorus_block if block == "chorus" else fx.reverb_block
+            return params.decode_int4x4(data[offset : offset + 4])
         if block == "mfx":
             if offset <= 0x04:
                 return (
@@ -1204,9 +1329,13 @@ class EffectsScreen(ModalScreen[None]):
             )[offset]
         return (fx.reverb_type, fx.reverb_level, fx.reverb_output)[offset]
 
-    def _display(self, block: str, offset: int) -> str:
-        _offset, _label, _low, _high, names, bias = self._spec(block, offset)
-        value = self._wire(block, offset) - bias
+    def _display(self, block: str, offset: int, kind: str) -> str:
+        row = self._spec(f"{block}:{offset:02x}")
+        _key, _block, _offset, _label, _kind, _low, _high, names, bias, table = row
+        value = self._wire(block, offset, kind) - bias
+        if table is not None:
+            lookup = effects.DISPLAY_TABLES[table]
+            return lookup[value] if 0 <= value < len(lookup) else str(value)
         if names is not None:
             return names.get(value, str(value))
         return str(value)
@@ -1216,8 +1345,7 @@ class EffectsScreen(ModalScreen[None]):
         if not table.row_count:
             return None
         key = table.coordinate_to_cell_key(table.cursor_coordinate)[0].value
-        block, _, offset = key.partition(":")
-        return block, int(offset)
+        return self._spec(key)
 
     # --- editing -------------------------------------------------------------
 
@@ -1229,37 +1357,62 @@ class EffectsScreen(ModalScreen[None]):
         field = self._field()
         if field is None:
             return
-        block, offset = field
-        _offset, label, low, high, _names, bias = self._spec(block, offset)
+        key, block, offset, label, kind, _low, _high, _names, bias, _table = field
+        options = self._choices(field)
+        if options is not None:
+            # A named value is a list to pick from, not a number to type.
+
+            def picked(value) -> None:
+                if value is not None:
+                    self._apply(key, value)
+
+            self.app.push_screen(
+                ChoiceScreen(label, options, self._wire(block, offset, kind) - bias),
+                picked,
+            )
+            return
         self._prompt(
-            block,
-            offset,
-            label,
-            low,
-            high,
-            str(self._wire(block, offset) - bias),
-            select_all=True,
+            key, label, str(self._wire(block, offset, kind) - bias), select_all=True
         )
+
+    def _choices(self, row):
+        """``(value, text)`` for an enumerated row, or None for a number.
+
+        A display table of plain numbers -- the chorus PHASE's degrees -- is
+        a number to type rather than a list to pick, so it gets no list.
+        """
+        _key, _block, _offset, _label, _kind, _low, _high, names, _bias, table = row
+        if names is not None:
+            options = [(value, str(text)) for value, text in sorted(names.items())]
+        elif table is not None:
+            options = [
+                (index, str(text))
+                for index, text in enumerate(effects.DISPLAY_TABLES[table])
+            ]
+        else:
+            return None
+        if all(text.lstrip("-").isdigit() for _value, text in options):
+            return None
+        return options
 
     def action_type_digit(self, digit: str) -> None:
         field = self._field()
         if field is None:
             return
-        block, offset = field
-        _offset, label, low, high, _names, _bias = self._spec(block, offset)
-        self._prompt(block, offset, label, low, high, digit)
+        key, _block, _offset, label, _kind, *_rest = field
+        self._prompt(key, label, digit)
 
     def action_bump(self, delta: int) -> None:
         field = self._field()
         if field is None:
             return
-        block, offset = field
-        _offset, _label, low, high, _names, bias = self._spec(block, offset)
-        self._apply(block, offset, self._wire(block, offset) - bias + delta, low, high)
+        key, block, offset, _label, kind, _low, _high, _names, bias, _table = field
+        self._apply(key, self._wire(block, offset, kind) - bias + delta)
 
-    def _prompt(
-        self, block, offset, label, low, high, seed, *, select_all=False
-    ) -> None:
+    def _prompt(self, key, label, seed, *, select_all=False) -> None:
+        row = self._spec(key)
+        _key, _block, _offset, _label, _kind, low, high, _names, _bias, _table = row
+
         def done(text) -> None:
             if text is None or not text.strip():
                 return
@@ -1268,32 +1421,30 @@ class EffectsScreen(ModalScreen[None]):
             except ValueError:
                 self.app.notify_status(f"{text!r} is not a number", refused=True)
                 return
-            self._apply(block, offset, value, low, high)
+            self._apply(key, value)
 
         self.app.push_screen(
             TextPromptScreen(f"{label} ({low} to {high})", seed, select_all=select_all),
             done,
         )
 
-    def _apply(self, block, offset, value, low, high) -> None:
+    def _apply(self, key, value) -> None:
+        row = self._spec(key)
+        _key, block, offset, _label, _kind, low, high, _names, bias, _table = row
         if not low <= value <= high:
             self.app.notify_status(f"takes {low}-{high}, not {value}", refused=True)
             return
         if self._on_write is None:
             self.app.notify_status("not connected to a synth", refused=True)
             return
-        _offset, _label, _low, _high, _names, bias = self._spec(block, offset)
         self._on_write(block, offset, value + bias, self.update_fx)
 
     def update_fx(self, fx) -> None:
         """Replace the screen's effects with what the device reported."""
         self._fx = fx
         table = self.query_one("#fx-table", DataTable)
-        for block, _name, header in self.BLOCKS:
-            for offset, _label, _low, _high, _names, _bias in header:
-                table.update_cell(
-                    f"{block}:{offset}", "value", self._display(block, offset)
-                )
+        for key, block, offset, _label, kind, *_rest in self._rows():
+            table.update_cell(key, "value", self._display(block, offset, kind))
 
     def action_close(self) -> None:
         self.dismiss(None)

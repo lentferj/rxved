@@ -28,6 +28,7 @@ from textual.coordinate import Coordinate
 
 from rxved.app import (
     CategoryScreen,
+    ChoiceScreen,
     CommonScreen,
     EffectsScreen,
     MultiScreen,
@@ -43,6 +44,7 @@ from rxved.demo import DemoBridge
 from rxved.favorites import Favorites
 from xv import banks
 from xv import catalog as cat
+from xv import params
 
 pytestmark = pytest.mark.asyncio
 
@@ -1473,9 +1475,9 @@ class TestEffects:
             table = screen.query_one("#fx-table", DataTable)
             # The demo's MFX type is 12, which the manual calls TREMOLO
             # CHORUS; both block types are the model's single algorithm.
-            assert str(table.get_row("mfx:0")[2]) == "TREMOLO CHORUS"
-            assert str(table.get_row("chorus:0")[2]) == "CHORUS"
-            assert str(table.get_row("reverb:0")[2]) == "REVERB"
+            assert str(table.get_row("mfx:00")[2]) == "TREMOLO CHORUS"
+            assert str(table.get_row("chorus:00")[2]) == "CHORUS"
+            assert str(table.get_row("reverb:00")[2]) == "REVERB"
 
     async def test_editing_the_mfx_type_writes_it(self, app):
         async with app.run_test() as pilot:
@@ -1485,11 +1487,46 @@ class TestEffects:
             await pilot.pause()
             await pilot.press("enter")
             await pilot.pause()
-            # Seeded with 12, selected, so the digits replace it.
-            await pilot.press("2", "4")
+            # A type is a list of algorithms, not a number to type.
+            assert isinstance(app.screen, ChoiceScreen)
+            choices = app.screen.query_one("#choices", DataTable)
+            # The current type is marked, and under the cursor.
+            assert "x" in str(choices.get_row("12")[0])
+            assert choices.cursor_row == 12
+            choices.cursor_coordinate = Coordinate(24, 0)  # REVERB
+            await pilot.pause()
             await pilot.press("enter")
             await settle(pilot)
             assert app.bridge.read_performance_fx().mfx_type == 24
+
+    async def test_a_numeric_row_still_opens_the_number_prompt(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._effects(app, pilot)
+            table = screen.query_one("#fx-table", DataTable)
+            table.cursor_coordinate = Coordinate(table.get_row_index("chorus:08"), 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            # Depth is a plain 0-127 count: a number, not a list.
+            assert isinstance(app.screen, TextPromptScreen)
+
+    async def test_the_reverb_character_opens_the_chooser(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._effects(app, pilot)
+            table = screen.query_one("#fx-table", DataTable)
+            table.cursor_coordinate = Coordinate(table.get_row_index("reverb:03"), 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ChoiceScreen)
+            choices = app.screen.query_one("#choices", DataTable)
+            assert str(choices.get_row("0")[1]) == "ROOM1"
+            choices.cursor_coordinate = Coordinate(6, 0)  # DELAY
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+            fx = app.bridge.read_performance_fx()
+            assert params.decode_int4x4(fx.reverb_block[0x03:0x07]) == 32768 + 6
 
     async def test_a_control_sensitivity_is_written_biased(self, app):
         """The manual prints -63..+63; the wire carries 1-127."""
@@ -1515,6 +1552,48 @@ class TestEffects:
             await pilot.press("minus")
             await settle(pilot)
             assert app.bridge.read_performance_fx().mfx_dry == 126
+
+    async def test_the_chorus_parameters_use_the_display_tables(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._effects(app, pilot)
+            table = screen.query_one("#fx-table", DataTable)
+            # Every parameter is at display zero, which is the first entry
+            # of its table -- not the number 0.
+            assert str(table.get_row("chorus:04")[2]) == "0.05 Hz"
+            assert str(table.get_row("chorus:0c")[2]) == "0.0 ms"
+            assert str(table.get_row("chorus:18")[2]) == "200 Hz"
+            assert str(table.get_row("reverb:03")[2]) == "ROOM1"
+
+    async def test_a_chorus_parameter_writes_four_nibbles(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._effects(app, pilot)
+            table = screen.query_one("#fx-table", DataTable)
+            table.cursor_coordinate = Coordinate(table.get_row_index("chorus:04"), 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            # RATE is a list of the manual's frequencies, so pick the sixth.
+            assert isinstance(app.screen, ChoiceScreen)
+            choices = app.screen.query_one("#choices", DataTable)
+            choices.cursor_coordinate = Coordinate(5, 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+            fx = app.bridge.read_performance_fx()
+            # Display 5 is wire 32773, and the table's sixth rate.
+            assert params.decode_int4x4(fx.chorus_block[0x04:0x08]) == 32773
+            assert str(table.get_row("chorus:04")[2]) == "0.30 Hz"
+
+    async def test_a_reverb_parameter_steps_with_plus(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._effects(app, pilot)
+            table = screen.query_one("#fx-table", DataTable)
+            table.cursor_coordinate = Coordinate(table.get_row_index("reverb:07"), 0)
+            await pilot.pause()
+            await pilot.press("plus")
+            await settle(pilot)
+            fx = app.bridge.read_performance_fx()
+            assert params.decode_int4x4(fx.reverb_block[0x07:0x0B]) == 32769
 
 
 class TestPatchPicker:

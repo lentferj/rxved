@@ -265,6 +265,30 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   just by intent: it is the property that decides whether you can leave this
   open next to a running sequencer.
 
+  `p` loads a stored performance into the edit buffer — the same buffer `W`
+  writes, so it is how you start from a factory performance instead of from
+  whatever happened to be loaded.
+
+  The LSB/MSB/PC columns are the wire truth, but nobody knows which program
+  change "Stereo Piano" is. `s` opens a picker for the part under the cursor:
+  the banks on the left, the selected bank's slots on the right with their
+  catalog names, and the part's current sound marked. `tab` moves between the
+  panes, `⏎` sets the part, and `v` cycles the slot pane through the same
+  three favourites views the browser has. Picking writes the part's MSB, LSB
+  and Program Change — in that order, because the bank select only latches on
+  the Program Change — then reads the part back.
+
+  `c` opens the **Performance Common**: the settings that belong to the
+  performance rather than to any one part. Three of them decide which effect
+  a part borrows — **MFX Source**, **Chorus Source** and **Reverb Source**
+  are `PERFORM` (use the performance's own effect) or the number of a part
+  whose patch effect settings are borrowed. **MFX Control Channel** picks
+  which channel's controllers drive the multi-effect, **Solo Part Select** is
+  the one byte that silences fifteen parts at once, and the name is the
+  performance's own. The five ranged rows take `⏎`, a digit or `+`/`-`
+  exactly as the part table does; the name has no range, so `⏎` is the way
+  in. Writes go to the edit buffer with everything else.
+
 ## Install
 
 Clone both repositories side by side:

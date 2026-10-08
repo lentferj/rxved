@@ -1441,6 +1441,46 @@ class TestPatchPicker:
             part = app.bridge.read_part(1)
             assert (part.msb, part.lsb, part.program_change) == (87, 0, 1)
 
+    async def test_v_cycles_the_same_favourites_views_as_the_browser(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 2)
+            app.favorites.add("USER", 5)
+            app.favorites.add("PST-B", 29)
+            screen = await self._picker(app, pilot)
+            slots = screen.query_one("#picker-slots", DataTable)
+            assert slots.row_count == 128  # all of USER
+            await pilot.press("v")
+            await pilot.pause()
+            assert slots.row_count == 2  # this bank's favourites
+            await pilot.press("v")
+            await pilot.pause()
+            assert slots.row_count == 3  # every favourite
+
+    async def test_a_favourite_can_be_picked_across_banks(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("PST-B", 29)
+            screen = await self._picker(app, pilot)
+            await pilot.press("v")
+            await pilot.pause()
+            await pilot.press("v")
+            await pilot.pause()
+            await pilot.press("tab")  # focus the slots
+            await pilot.pause()
+            slots = screen.query_one("#picker-slots", DataTable)
+            slots.cursor_coordinate = Coordinate(0, 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+            chosen = banks.slot("PST-B", 29)
+            part = app.bridge.read_part(1)
+            assert (part.msb, part.lsb, part.program_change) == (
+                chosen.msb,
+                chosen.lsb,
+                chosen.program_change,
+            )
+
 
 class TestMultiEditing:
     """The one writable screen in the program.

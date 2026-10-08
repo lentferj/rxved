@@ -865,7 +865,10 @@ class PatchPickerScreen(ModalScreen[Optional[banks.Slot]]):
     returns the slot the person chose.
 
     Two panes: the banks, and the selected bank's slots. `tab` moves between
-    them; the arrow keys move within; `⏎` picks.
+    them; the arrow keys move within; `⏎` picks. `v` steps the slot pane
+    through the same three views the browser has -- all slots, this bank's
+    favourites, every favourite -- so a person who marked favourites there
+    can pick from them here.
     """
 
     DEFAULT_CSS = """
@@ -882,17 +885,24 @@ class PatchPickerScreen(ModalScreen[Optional[banks.Slot]]):
         Binding("escape", "cancel", "Cancel"),
         Binding("q", "cancel", "Cancel"),
         Binding("tab", "switch_pane", "Switch pane", show=False),
+        Binding("v", "cycle_view", "Favourites view", show=False),
     ]
 
-    def __init__(self, catalog, current=None) -> None:
+    def __init__(self, catalog, current=None, favorites=None) -> None:
         super().__init__()
         self._catalog = catalog
         #: The slot the part is on now, marked in the list.
         self._current = current
+        #: The favourites store, for the `v` view cycle. None in a test that
+        #: does not care about favourites; the cycle then only has "all".
+        self._favorites = favorites
+        #: Index into VIEW_CYCLE, cycled by `v` -- the same three views the
+        #: browser's own table has.
+        self._view = 0
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Label("[b]Pick a sound for this part[/b]")
+            yield Label(self._title(), id="picker-title")
             with Horizontal():
                 yield DataTable(
                     id="picker-banks", cursor_type="row", zebra_stripes=True
@@ -900,7 +910,10 @@ class PatchPickerScreen(ModalScreen[Optional[banks.Slot]]):
                 yield DataTable(
                     id="picker-slots", cursor_type="row", zebra_stripes=True
                 )
-            yield Static("[dim]tab pane · ⏎ pick · esc cancel[/dim]", classes="hint")
+            yield Static(
+                "[dim]tab pane · v favourites view · ⏎ pick · esc cancel[/dim]",
+                classes="hint",
+            )
 
     def on_mount(self) -> None:
         table = self.query_one("#picker-banks", DataTable)
@@ -918,28 +931,58 @@ class PatchPickerScreen(ModalScreen[Optional[banks.Slot]]):
         return table.coordinate_to_cell_key(table.cursor_coordinate)[0].value
 
     def _fill_slots(self) -> None:
-        bank_id = self._bank_id()
         table = self.query_one("#picker-slots", DataTable)
         table.clear(columns=True)
-        table.add_column("#", key="number")
+        table.add_column("bank / #", key="number")
         table.add_column("name", key="name")
         table.add_column("MSB", key="msb")
         table.add_column("LSB", key="lsb")
         table.add_column("PC", key="pc")
-        if bank_id is None:
-            return
-        for number in banks.bank(bank_id).numbers():
-            slot = banks.slot(bank_id, number)
-            name = self._catalog.display_name(bank_id, number)
+        for slot in self._visible_slots():
+            name = self._catalog.display_name(slot.bank_id, slot.number)
             mark = "  [b]← current[/b]" if self._matches(slot) else ""
             table.add_row(
-                f"{number:03d}",
+                f"{slot.bank_id} {slot.number:03d}",
                 name + mark,
                 str(slot.msb),
                 str(slot.lsb),
                 str(slot.program_change),
                 key=slot.key,
             )
+
+    def _visible_slots(self) -> list[banks.Slot]:
+        """The rows the slot pane should show, for the current view.
+
+        The same three views the browser's own table cycles through, so the
+        favourites marked there can be picked from here as well. Row keys are
+        ``slot.key`` (``PST-B:029``) rather than the number: the all-favourites
+        view spans banks, and two banks can both hold a slot 29.
+        """
+        view = VIEW_CYCLE[self._view]
+        if view == VIEW_ALL:
+            bank_id = self._bank_id()
+            return banks.slots(bank_id) if bank_id is not None else []
+        if self._favorites is None:
+            return []
+        if view == VIEW_BANK_FAVOURITES:
+            bank_id = self._bank_id()
+            if bank_id is None:
+                return []
+            marked = self._favorites.keys_for_bank(bank_id)
+            return [s for s in banks.slots(bank_id) if s.number in marked]
+        rows = []
+        for favourite in self._favorites.all(order="bank"):
+            try:
+                rows.append(banks.slot(favourite.bank_id, favourite.number))
+            except LookupError:
+                # A favourite for a bank this build no longer defines.
+                # Skipped rather than crashing the view.
+                continue
+        return rows
+
+    def _title(self) -> str:
+        view = VIEW_CYCLE[self._view]
+        return f"[b]Pick a sound for this part[/b]  [dim]· {VIEW_LABEL[view]}[/dim]"
 
     def _matches(self, slot: banks.Slot) -> bool:
         if self._current is None:
@@ -951,8 +994,13 @@ class PatchPickerScreen(ModalScreen[Optional[banks.Slot]]):
         )
 
     def on_data_table_row_highlighted(self, event) -> None:
-        if event.data_table.id == "picker-banks":
-            self._fill_slots()
+        if event.data_table.id != "picker-banks":
+            return
+        # The bank pane only chooses rows in the two bank-scoped views; in
+        # the all-favourites view every bank is already listed.
+        if VIEW_CYCLE[self._view] == VIEW_ALL_FAVOURITES:
+            return
+        self._fill_slots()
 
     def on_data_table_row_selected(self, event) -> None:
         if event.data_table.id == "picker-slots":
@@ -975,6 +1023,12 @@ class PatchPickerScreen(ModalScreen[Optional[banks.Slot]]):
             self.query_one("#picker-slots", DataTable).focus()
         else:
             self.query_one("#picker-banks", DataTable).focus()
+
+    def action_cycle_view(self) -> None:
+        """`v`: all slots, this bank's favourites, every favourite."""
+        self._view = (self._view + 1) % len(VIEW_CYCLE)
+        self.query_one("#picker-title", Label).update(self._title())
+        self._fill_slots()
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -1509,7 +1563,9 @@ class MultiScreen(ModalScreen[None]):
             if slot is not None and self._on_pick_patch is not None:
                 self._on_pick_patch(part.part, slot, self._adopt_part)
 
-        self.app.push_screen(PatchPickerScreen(self._catalog, part.slot), chosen)
+        self.app.push_screen(
+            PatchPickerScreen(self._catalog, part.slot, self.app.favorites), chosen
+        )
 
     def action_common(self) -> None:
         """Edit the Performance Common block (name, solo, effect sources)."""

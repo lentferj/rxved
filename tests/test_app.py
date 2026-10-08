@@ -28,6 +28,7 @@ from textual.coordinate import Coordinate
 
 from rxved.app import (
     CategoryScreen,
+    CommonScreen,
     MultiScreen,
     PerformanceScreen,
     ReportScreen,
@@ -1346,6 +1347,56 @@ class TestPerformancePicker:
             await pilot.pause()
             assert isinstance(app.screen, MultiScreen)
             assert app.bridge.selected is None
+
+
+class TestPerformanceCommon:
+    """`c` in the multi screen: the six settings that are not per-part."""
+
+    async def _common(self, app, pilot):
+        await pilot.pause()
+        await pilot.press("m")
+        await pilot.pause()
+        await pilot.pause()
+        await pilot.press("c")
+        await pilot.pause()
+        return app.screen
+
+    async def test_c_opens_the_common_editor(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._common(app, pilot)
+            assert isinstance(screen, CommonScreen)
+            table = screen.query_one("#common-table", DataTable)
+            assert table.row_count == 6
+
+    async def test_editing_solo_writes_it(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._common(app, pilot)
+            table = screen.query_one("#common-table", DataTable)
+            # Row 1 (0-based) is Solo Part Select.
+            table.cursor_coordinate = Coordinate(1, 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            # The prompt is seeded with the current value (0, for OFF) and
+            # selected, so a digit replaces it.
+            await pilot.press("3")
+            await pilot.press("enter")
+            await settle(pilot)
+            assert app.bridge.read_performance_common().solo == 3
+
+    async def test_editing_the_name_writes_it(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._common(app, pilot)
+            table = screen.query_one("#common-table", DataTable)
+            # Row 0 is the name; the prompt is seeded with "Demo Multi".
+            table.cursor_coordinate = Coordinate(0, 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("!")
+            await pilot.press("enter")
+            await settle(pilot)
+            assert app.bridge.read_performance_common().name == "Demo Multi!"
 
 
 class TestMultiEditing:

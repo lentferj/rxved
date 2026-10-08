@@ -760,14 +760,23 @@ class PerformanceFx:
         )
 
 
+def _zero_is_none(value: int) -> Optional[int]:
+    """A wire byte whose zero means OFF or PERFORM, as ``None``."""
+    return None if value == 0 else value
+
+
 @dataclass(frozen=True)
 class PerformanceCommon:
     """Temporary Performance Common, ``10 00 00 00`` (OM p. 149).
 
-    Only the fields that can explain a silent channel are kept. The one that
-    matters is Solo Part Select at offset ``00 0C``: with it set, exactly one
-    part sounds and the other fifteen are silent while every parameter on
-    them still reads back perfectly normal.
+    The 53-byte block above the 16 parts (its own Total Size is ``00 00 00
+    35``). Kept to the fields that are not per-part and that a person edits
+    from the front: the name, Solo Part Select, the MFX control channel, and
+    the three effect sources.
+
+    Solo Part Select at offset ``00 0C`` is the one that explains a silent
+    channel: with it set, exactly one part sounds and the other fifteen are
+    silent while every parameter on them still reads back perfectly normal.
     """
 
     name: str
@@ -775,6 +784,14 @@ class PerformanceCommon:
     #: is soloed. The map gives 0-32 as "OFF, 1 - 16, 17 - 32", and the
     #: 17-32 half belongs to machines with 32 parts; an XV-2020 has 16.
     solo: Optional[int] = None
+    #: MFX Control Channel. ``None`` is OFF; otherwise 1-16.
+    mfx_control_channel: Optional[int] = None
+    #: The three effect sources. ``None`` is PERFORM -- use the performance's
+    #: own effect settings; otherwise the 1-16 part whose patch settings are
+    #: borrowed. Only MFX-A is real on an XV-2020 (OM p. 78).
+    mfx_source: Optional[int] = None
+    chorus_source: Optional[int] = None
+    reverb_source: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -1502,6 +1519,18 @@ class XvBridge:
         0x0B: ("velocity curve type", 0, 4),
     }
 
+    #: Performance **Common** offsets rxved will write, with ranges. Same
+    #: temporary area as the parts (``10 00 00 <offset>``) and the same
+    #: argument for why writing them is safe. Zero is OFF for the first two
+    #: and PERFORM for the three sources; the editor renders both meanings.
+    WRITABLE_COMMON_OFFSETS = {
+        0x0C: ("solo part select", 0, 16),
+        0x0D: ("MFX control channel", 0, 16),
+        0x30: ("MFX source", 0, 16),
+        0x33: ("chorus source", 0, 16),
+        0x34: ("reverb source", 0, 16),
+    }
+
     # --- whole performances -------------------------------------------------
 
     def read_performance_blocks(
@@ -1699,6 +1728,61 @@ class XvBridge:
             raise DeviceError(f"wrote {label} on part {part} but read back nothing")
         return data[0]
 
+    def write_performance_common(
+        self,
+        offset: int,
+        value: int,
+        *,
+        verify: bool = True,
+        timeout: Optional[float] = None,
+    ) -> int:
+        """Set one Performance Common parameter in the **temporary** area.
+
+        ``10 00 00 <offset>`` -- the same edit buffer the parts are written
+        to, and the same argument for why that is safe. Returns the value
+        read back, not the value sent; see :meth:`write_part_param`.
+        """
+        if offset not in self.WRITABLE_COMMON_OFFSETS:
+            raise ValueError(
+                f"offset {offset:#04x} is not one of the Performance Common "
+                f"parameters rxved writes "
+                f"({', '.join(f'{o:#04x}' for o in self.WRITABLE_COMMON_OFFSETS)})"
+            )
+        label, low, high = self.WRITABLE_COMMON_OFFSETS[offset]
+        if not low <= value <= high:
+            raise ValueError(f"{label} takes {low}-{high}, got {value}")
+
+        address = (0x10, 0x00, 0x00, offset)
+        self._send(m.dt1(address, [value], device=self.device_id))
+        time.sleep(SEND_GAP)
+        if not verify:
+            return value
+        data = self.request(address, 1, timeout=timeout)
+        if not data:
+            raise DeviceError(f"wrote {label} but read back nothing")
+        return data[0]
+
+    def write_performance_name(
+        self,
+        name: str,
+        *,
+        verify: bool = True,
+        timeout: Optional[float] = None,
+    ) -> str:
+        """Set the 12-byte Performance Name in the temporary area.
+
+        Returns the name read back, not the one sent -- the same rule as the
+        single-byte writes, and the same reason: a DT1 is unacknowledged.
+        """
+        address = (0x10, 0x00, 0x00, 0x00)
+        payload = list(m.encode_name(name, 12))
+        self._send(m.dt1(address, payload, device=self.device_id))
+        time.sleep(SEND_GAP)
+        if not verify:
+            return name
+        data = self.request(address, 12, timeout=timeout)
+        return m.decode_name(data[:12])
+
     # --- operations ---------------------------------------------------------
 
     def identify(self, *, timeout: Optional[float] = None) -> Optional[DeviceIdentity]:
@@ -1826,21 +1910,29 @@ class XvBridge:
     def read_performance_common(
         self, *, timeout: Optional[float] = None
     ) -> PerformanceCommon:
-        """Temporary Performance Common: its name, and Solo Part Select.
+        """Temporary Performance Common: name, solo, and the effect sources.
 
-        ``10 00 00 00``, 13 bytes -- the 12-byte name plus offset ``00 0C``.
-        One round trip, no sound.
+        ``10 00 00 00``, the block's own 53 bytes (its Total Size is ``00 00
+        00 35``) -- the 12-byte name, Solo Part Select at ``00 0C``, MFX
+        Control Channel at ``00 0D``, and the three sources at ``00 30``,
+        ``00 33`` and ``00 34``. One round trip, no sound.
         """
-        data = self.request((0x10, 0x00, 0x00, 0x00), 0x0D, timeout=timeout)
-        if len(data) < 13:
+        data = self.request((0x10, 0x00, 0x00, 0x00), 0x35, timeout=timeout)
+        if len(data) < 0x35:
             raise DeviceError(
-                f"Performance Common read returned {len(data)} bytes, expected 13"
+                f"Performance Common read returned {len(data)} bytes, expected {0x35}"
             )
         name = "".join(
             chr(byte) if 32 <= byte <= 126 else " " for byte in data[:12]
         ).rstrip()
-        solo = data[12]
-        return PerformanceCommon(name=name, solo=None if solo == 0 else solo)
+        return PerformanceCommon(
+            name=name,
+            solo=_zero_is_none(data[0x0C]),
+            mfx_control_channel=_zero_is_none(data[0x0D]),
+            mfx_source=_zero_is_none(data[0x30]),
+            chorus_source=_zero_is_none(data[0x33]),
+            reverb_source=_zero_is_none(data[0x34]),
+        )
 
     def read_performance_midi(
         self, channel: int, *, timeout: Optional[float] = None

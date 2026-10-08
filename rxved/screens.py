@@ -66,6 +66,7 @@ __all__ = [
     "EDITABLE_CHANNEL_COLUMNS",
     "StoreScreen",
     "PerformanceScreen",
+    "CommonScreen",
     "MultiScreen",
     "CategoryScreen",
     "SearchScreen",
@@ -663,6 +664,146 @@ class PerformanceScreen(ModalScreen[Optional[banks.Slot]]):
         self.dismiss(None)
 
 
+class CommonScreen(ModalScreen[None]):
+    """Temporary Performance Common, editable.
+
+    The six settings that are not per-part, so they do not belong on the
+    16-row part table: the name, Solo Part Select, the MFX control channel,
+    and the three effect sources. Everything here writes to the temporary
+    performance and is read back, exactly like a part edit.
+    """
+
+    DEFAULT_CSS = """
+    CommonScreen { align: center middle; }
+    CommonScreen > Vertical {
+        width: 72; height: auto; max-height: 80%; border: thick $accent;
+        background: $surface; padding: 1 2;
+    }
+    CommonScreen DataTable { height: auto; max-height: 8; }
+    CommonScreen .hint { color: $text-muted; }
+    """
+
+    BINDINGS = [
+        Binding("escape", "close", "Close"),
+        Binding("q", "close", "Close"),
+    ]
+
+    #: ``(key, label, offset, zero_means)``. ``offset`` is None for the name;
+    #: ``zero_means`` is what value 0 displays as, and None marks the name.
+    FIELDS = (
+        ("name", "Name", None, None),
+        ("solo", "Solo Part Select", 0x0C, "OFF"),
+        ("mfx_ctrl", "MFX Control Channel", 0x0D, "OFF"),
+        ("mfx_src", "MFX Source", 0x30, "PERFORM"),
+        ("chorus_src", "Chorus Source", 0x33, "PERFORM"),
+        ("reverb_src", "Reverb Source", 0x34, "PERFORM"),
+    )
+
+    def __init__(self, common, *, on_write=None, on_write_name=None) -> None:
+        super().__init__()
+        self._common = common
+        #: ``on_write(offset, value, adopt)``.
+        self._on_write = on_write
+        #: ``on_write_name(name, adopt)``.
+        self._on_write_name = on_write_name
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("[b]Performance Common — the edit buffer[/b]")
+            yield DataTable(id="common-table", cursor_type="row", zebra_stripes=True)
+            yield Static(
+                "[dim]⏎ edits · esc closes · writes go to the temporary "
+                "performance[/dim]",
+                classes="hint",
+            )
+
+    def on_mount(self) -> None:
+        table = self.query_one("#common-table", DataTable)
+        table.add_column("setting", key="setting")
+        table.add_column("value", key="value")
+        for key, label, _offset, _zero in self.FIELDS:
+            table.add_row(label, self._display(key), key=key)
+        table.focus()
+
+    def _value(self, key: str):
+        return {
+            "name": self._common.name,
+            "solo": self._common.solo,
+            "mfx_ctrl": self._common.mfx_control_channel,
+            "mfx_src": self._common.mfx_source,
+            "chorus_src": self._common.chorus_source,
+            "reverb_src": self._common.reverb_source,
+        }[key]
+
+    def _display(self, key: str) -> str:
+        field = next(f for f in self.FIELDS if f[0] == key)
+        _key, _label, _offset, zero = field
+        value = self._value(key)
+        if zero is None:
+            return value or "[dim](unnamed)[/dim]"
+        if value is None:
+            return zero
+        return f"PART {value}" if zero == "PERFORM" else str(value)
+
+    def _field(self):
+        table = self.query_one("#common-table", DataTable)
+        if not table.row_count:
+            return None
+        key = table.coordinate_to_cell_key(table.cursor_coordinate)[0].value
+        return next((f for f in self.FIELDS if f[0] == key), None)
+
+    def on_data_table_row_selected(self, event) -> None:
+        if event.data_table.id == "common-table":
+            self.action_edit()
+
+    def action_edit(self) -> None:
+        field = self._field()
+        if field is None:
+            return
+        key, label, offset, zero = field
+        current = self._value(key)
+        if zero is None:
+            self.app.push_screen(
+                TextPromptScreen(f"{label} (up to 12 characters)", current or ""),
+                self._set_name,
+            )
+            return
+        seed = "0" if current is None else str(current)
+        self.app.push_screen(
+            TextPromptScreen(f"{label} (0 = {zero}, 1-16)", seed, select_all=True),
+            lambda text: self._set_value(offset, label, text),
+        )
+
+    def _set_name(self, text) -> None:
+        if text is None or self._on_write_name is None:
+            return
+        self._on_write_name(text, self.update_common)
+
+    def _set_value(self, offset, label, text) -> None:
+        if text is None or not text.strip():
+            return
+        try:
+            value = int(text.strip())
+        except ValueError:
+            self.app.notify_status(f"{text!r} is not a number", refused=True)
+            return
+        if not 0 <= value <= 16:
+            self.app.notify_status(f"{label} takes 0 (OFF/PERFORM) to 16", refused=True)
+            return
+        if self._on_write is not None:
+            self._on_write(offset, value, self.update_common)
+
+    def update_common(self, common) -> None:
+        """Replace the screen's common with what the device reported."""
+        self._common = common
+        table = self.query_one("#common-table", DataTable)
+        for key, _label, _offset, _zero in self.FIELDS:
+            table.update_cell(key, "value", self._display(key))
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
 class MultiScreen(ModalScreen[None]):
     """Multi-mode setup: all 16 Performance Parts, editable.
 
@@ -708,6 +849,7 @@ class MultiScreen(ModalScreen[None]):
         # destructive step is two further keys inside it, on purpose.
         Binding("W", "store", "Write to a slot", show=False),
         Binding("p", "pick_performance", "Load a performance", show=False),
+        Binding("c", "common", "Performance common", show=False),
         Binding("r", "refresh", "Refresh", show=False),
         Binding("plus", "bump(1)", "+1", show=False),
         Binding("equals_sign", "bump(1)", "+1", show=False),
@@ -729,6 +871,8 @@ class MultiScreen(ModalScreen[None]):
         on_write_channel=None,
         on_refresh=None,
         on_load=None,
+        on_write_common=None,
+        on_write_common_name=None,
         on_close=None,
     ) -> None:
         super().__init__()
@@ -747,19 +891,26 @@ class MultiScreen(ModalScreen[None]):
         #: ``on_load(slot)`` -- called when the user picks a stored
         #: performance to load into the edit buffer.
         self._on_load = on_load
+        #: ``on_write_common(offset, value, adopt)`` -- Performance Common.
+        self._on_write_common = on_write_common
+        #: ``on_write_common_name(name, adopt)``.
+        self._on_write_common_name = on_write_common_name
         #: ``on_close()`` -- called when the screen is dismissed.
         self._on_close = on_close
 
     # --- building ------------------------------------------------------------
 
-    def compose(self) -> ComposeResult:
+    def _title(self) -> str:
         state = self._state
-        common = state.common
         title = f"Multi-mode setup — {state.setup.mode_name} mode"
+        common = state.common
         if common is not None and common.name:
             title += f" — performance “{common.name}”"
+        return title
+
+    def compose(self) -> ComposeResult:
         with Vertical():
-            yield Label(f"[b]{title}[/b]")
+            yield Label(f"[b]{self._title()}[/b]", id="multi-title")
             yield Static(self._fx_summary(), classes="hint", id="fx")
             yield DataTable(id="part-table", cursor_type="cell", zebra_stripes=True)
             yield Static(self._hint_text(), classes="hint", id="hint")
@@ -777,7 +928,7 @@ class MultiScreen(ModalScreen[None]):
         return (
             f"[b]{which}[/b] columns · tab for {nxt} · type a number, or "
             f"⏎ to edit · space toggles · +/- adjust · r refresh · "
-            f"p loads a performance · W writes to a slot · "
+            f"p loads a performance · c common · W writes to a slot · "
             f"edits go to the temporary performance, so a power cycle undoes "
             f"them"
         )
@@ -1131,6 +1282,19 @@ class MultiScreen(ModalScreen[None]):
 
         self.app.push_screen(PerformanceScreen(self._catalog, current), chosen)
 
+    def action_common(self) -> None:
+        """Edit the Performance Common block (name, solo, effect sources)."""
+        if self._state.common is None:
+            self.app.notify_status("performance common not read", refused=True)
+            return
+        self.app.push_screen(
+            CommonScreen(
+                self._state.common,
+                on_write=self._on_write_common,
+                on_write_name=self._on_write_common_name,
+            )
+        )
+
     def action_store(self) -> None:
         name = ""
         if self._state.common is not None:
@@ -1143,6 +1307,11 @@ class MultiScreen(ModalScreen[None]):
             self.app.notify_status("not connected to a synth", refused=True)
             return
         self._on_refresh()
+
+    def update_common(self, common) -> None:
+        """Replace the performance common, and the title that names it."""
+        self._state = replace(self._state, common=common)
+        self.query_one("#multi-title", Label).update(f"[b]{self._title()}[/b]")
 
     def update_state(self, state) -> None:
         """Replace the screen's state with fresh data from the synth."""

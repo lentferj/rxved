@@ -133,6 +133,8 @@ class DemoBridge:
         #: performance would hold them: in memory, gone when this object is.
         self._part_edits: Dict[int, dict] = {}
         self._channel_edits: Dict[int, dict] = {}
+        #: Performance Common edits: name, solo, effect sources.
+        self._common_edits: Dict[str, object] = {}
         #: Whole performances the fake has been asked to store, keyed by
         #: address prefix. In memory only -- a demo session writes nothing.
         self._performances: Dict[tuple, dict] = {}
@@ -453,13 +455,46 @@ class DemoBridge:
             reverb_output=1,
         )
 
+    #: Performance Common offset -> attribute, for the fake's remembered edits.
+    _COMMON_FIELDS = {
+        0x0C: "solo",
+        0x0D: "mfx_control_channel",
+        0x30: "mfx_source",
+        0x33: "chorus_source",
+        0x34: "reverb_source",
+    }
+
+    def write_performance_common(self, offset, value, *, verify=True, timeout=None):
+        """Remember one Performance Common edit, in memory only."""
+        if offset not in self._COMMON_FIELDS:
+            raise ValueError(f"offset {offset:#04x} is not writable")
+        self._tick()
+        # 0 is OFF or PERFORM, which PerformanceCommon spells None.
+        self._common_edits[self._COMMON_FIELDS[offset]] = value or None
+        return value
+
+    def write_performance_name(self, name, *, verify=True, timeout=None):
+        """Remember a Performance Name edit, in memory only."""
+        self._tick()
+        self._common_edits["name"] = name
+        return name
+
     def read_performance_common(self, *, timeout=None):
         from xv.bridge import PerformanceCommon
 
         self._tick()
         # Solo off: the demo's silent parts are silent for per-part reasons,
         # which keeps the two mechanisms distinguishable in a screenshot.
-        return PerformanceCommon(name="Demo Multi", solo=None)
+        fields: Dict[str, object] = {
+            "name": "Demo Multi",
+            "solo": None,
+            "mfx_control_channel": None,
+            "mfx_source": None,
+            "chorus_source": None,
+            "reverb_source": None,
+        }
+        fields.update(self._common_edits)
+        return PerformanceCommon(**fields)
 
     def read_parts(self, *, on_progress=None, timeout=None):
         out = []

@@ -79,6 +79,7 @@ __all__ = [
     "ReportScreen",
     "StoreScreen",
     "PerformanceScreen",
+    "CommonScreen",
     "MultiScreen",
     "CategoryScreen",
     "KeyHints",
@@ -125,6 +126,7 @@ from rxved.screens import (  # noqa: E402
     VIEW_CYCLE,
     VIEW_LABEL,
     CategoryScreen,
+    CommonScreen,
     ConfirmScreen,
     EDITABLE_CHANNEL_COLUMNS,
     EDITABLE_PART_COLUMNS,
@@ -1649,6 +1651,8 @@ class RxvedApp(App):
                 on_write_channel=self._write_channel_param,
                 on_refresh=self._refresh_multi_setup,
                 on_load=self._load_performance,
+                on_write_common=self._write_common_param,
+                on_write_common_name=self._write_common_name,
                 on_close=lambda: setattr(self, "_multi_screen", None),
             )
         )
@@ -1734,6 +1738,54 @@ class RxvedApp(App):
             self._busy = False
         self.call_from_thread(self.notify_status, f"loaded {slot} into the edit buffer")
         self.call_from_thread(self._on_multi_refresh_complete, state)
+
+    def _write_common_param(self, offset: int, value: int, adopt) -> None:
+        """Hand one Performance Common byte to a worker. Main thread."""
+        if self._busy:
+            self.notify_status("busy", refused=True)
+            return
+        self._busy = True
+        self._write_common_worker(offset, value, None, adopt)
+
+    def _write_common_name(self, name: str, adopt) -> None:
+        """Hand the Performance Name to a worker. Main thread."""
+        if self._busy:
+            self.notify_status("busy", refused=True)
+            return
+        self._busy = True
+        self._write_common_worker(None, None, name, adopt)
+
+    @work(thread=True)
+    def _write_common_worker(self, offset, value, name, adopt) -> None:
+        """**MIDI only.** Write one common byte or the name, then re-read.
+
+        Re-reads the whole block rather than the byte written: the XV-2020
+        is free to adjust a neighbour in response, and the name and the
+        sources have to agree with what is on screen afterwards.
+        """
+        try:
+            with self._bridge_lock:
+                if name is not None:
+                    self.bridge.write_performance_name(name)
+                else:
+                    self.bridge.write_performance_common(offset, value)
+                fresh = self.bridge.read_performance_common()
+        except _BRIDGE_ERRORS as exc:
+            self.call_from_thread(self.notify_status, f"write: {exc}", refused=True)
+            return
+        finally:
+            self._busy = False
+        self.call_from_thread(self._adopt_common, fresh, adopt)
+        self.call_from_thread(
+            self.notify_status, "performance common written (temporary)"
+        )
+
+    def _adopt_common(self, fresh, adopt) -> None:
+        """Show what the device reported: the Common screen, and the title."""
+        adopt(fresh)
+        screen = self._multi_screen
+        if screen is not None:
+            screen.update_common(fresh)
 
     def _write_part_param(self, part: int, offset: int, value: int, adopt) -> None:
         """Hand one part-parameter write to a worker. Main thread."""

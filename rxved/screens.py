@@ -1184,10 +1184,9 @@ class EffectsScreen(ModalScreen[None]):
     """The performance's three effects blocks, editable.
 
     The **head** of each -- type, level and routing, plus the MFX control
-    assignments -- and then the chorus and reverb per-algorithm parameters.
-    The MFX's own parameters are not exposed yet: it has forty algorithms
-    with up to thirty-two parameters each, and that is the next piece of
-    work; the bridge refuses them until then, so this screen offers none.
+    assignments -- and then the per-algorithm parameters. The chorus and
+    reverb have a fixed parameter list; the MFX's belongs to its algorithm,
+    so its rows are rebuilt when the type changes.
 
     Type fields are shown by name (`STEREO EQ`, `CHORUS`, `REVERB`) rather
     than by number, and the per-algorithm values through the editor's own
@@ -1224,9 +1223,9 @@ class EffectsScreen(ModalScreen[None]):
     #: rows, and the per-algorithm rows. The MFX's own parameters are not
     #: exposed yet, so its last entry is empty.
     BLOCKS = (
-        ("mfx", "MFX", params.MFX_HEADER, ()),
-        ("chorus", "CHORUS", params.CHORUS_HEADER, effects.CHORUS_PARAMETERS),
-        ("reverb", "REVERB", params.REVERB_HEADER, effects.REVERB_PARAMETERS),
+        ("mfx", "MFX", params.MFX_HEADER),
+        ("chorus", "CHORUS", params.CHORUS_HEADER),
+        ("reverb", "REVERB", params.REVERB_HEADER),
     )
 
     #: What a block's ``int4x4`` parameters are offset by: the wire value is
@@ -1250,7 +1249,15 @@ class EffectsScreen(ModalScreen[None]):
             )
 
     def on_mount(self) -> None:
+        self._build_table()
+        self.query_one("#fx-table", DataTable).focus()
+
+    def _build_table(self) -> None:
+        """Draw every row. Re-run when the MFX type changes: its parameter
+        list belongs to its algorithm, so a new type is a different table."""
         table = self.query_one("#fx-table", DataTable)
+        where = table.cursor_coordinate
+        table.clear(columns=True)
         table.add_column("block", key="block")
         table.add_column("setting", key="setting")
         table.add_column("value", key="value")
@@ -1261,12 +1268,22 @@ class EffectsScreen(ModalScreen[None]):
                 self._display(block, offset, kind),
                 key=key,
             )
-        table.focus()
+        if table.row_count:
+            table.cursor_coordinate = where
 
     # --- reading -------------------------------------------------------------
 
     def _heading(self, block: str) -> str:
-        return next(name for key, name, _h, _p in self.BLOCKS if key == block)
+        return next(name for key, name, _header in self.BLOCKS if key == block)
+
+    def _parameter_rows(self, block: str):
+        """The per-algorithm rows for a block. The MFX's depend on the type."""
+        if block == "mfx":
+            mfx_type = self._fx.mfx_type if self._fx is not None else None
+            return effects.MFX_PARAMETERS.get(mfx_type, ())
+        if block == "chorus":
+            return effects.CHORUS_PARAMETERS
+        return effects.REVERB_PARAMETERS
 
     def _rows(self):
         """Every row as ``(key, block, offset, label, kind, low, high, names,
@@ -1274,7 +1291,7 @@ class EffectsScreen(ModalScreen[None]):
         rows are ``int4x4``, biased by 32768 and read through a display
         table where the editor has one."""
         rows = []
-        for block, _name, header, parameters in self.BLOCKS:
+        for block, _name, header in self.BLOCKS:
             for offset, label, low, high, names, bias in header:
                 rows.append(
                     (
@@ -1290,7 +1307,7 @@ class EffectsScreen(ModalScreen[None]):
                         None,
                     )
                 )
-            for offset, label, low, high, table in parameters:
+            for offset, label, low, high, table in self._parameter_rows(block):
                 rows.append(
                     (
                         f"{block}:{offset:02x}",
@@ -1314,7 +1331,11 @@ class EffectsScreen(ModalScreen[None]):
         """The raw value for one row, out of what the synth reported."""
         fx = self._fx
         if kind == "int4x4":
-            data = fx.chorus_block if block == "chorus" else fx.reverb_block
+            data = {
+                "mfx": fx.mfx_block,
+                "chorus": fx.chorus_block,
+                "reverb": fx.reverb_block,
+            }[block]
             return params.decode_int4x4(data[offset : offset + 4])
         if block == "mfx":
             if offset <= 0x04:
@@ -1450,7 +1471,12 @@ class EffectsScreen(ModalScreen[None]):
 
     def update_fx(self, fx) -> None:
         """Replace the screen's effects with what the device reported."""
+        was = self._fx.mfx_type if self._fx is not None else None
         self._fx = fx
+        if fx.mfx_type != was:
+            # A different MFX algorithm is a different parameter list.
+            self._build_table()
+            return
         table = self.query_one("#fx-table", DataTable)
         for key, block, offset, _label, kind, *_rest in self._rows():
             table.update_cell(key, "value", self._display(block, offset, kind))

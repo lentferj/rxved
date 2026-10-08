@@ -763,10 +763,11 @@ class PerformanceFx:
     #: (1-127 on the wire, -63..+63 as the manual prints it).
     mfx_control_sources: Tuple[int, ...] = ()
     mfx_control_sens: Tuple[int, ...] = ()
-    #: The raw Chorus and Reverb blocks. Their heads are decoded into the
-    #: fields above; the per-algorithm parameters that follow are ``int4x4``
-    #: and are read straight out of these against the layout in
+    #: The raw MFX, Chorus and Reverb blocks. Their heads are decoded into
+    #: the fields above; the per-algorithm parameters that follow are
+    #: ``int4x4`` and are read straight out of these against the layout in
     #: :mod:`xv.effects`.
+    mfx_block: bytes = b""
     chorus_block: bytes = b""
     reverb_block: bytes = b""
 
@@ -1605,10 +1606,11 @@ class XvBridge:
     }
 
     #: The writable offsets of each effect block: its head, plus the
-    #: per-algorithm parameters the effects screen offers. The MFX's own
-    #: parameters are not exposed yet, so its head is all.
+    #: per-algorithm parameters the effects screen offers. The MFX's
+    #: parameters are the thirty-two ``int4x4`` slots from ``00 11``.
     WRITABLE_EFFECT_OFFSETS = {
-        "mfx": frozenset(range(0x00, 0x0D)),
+        "mfx": frozenset(range(0x00, 0x0D))
+        | frozenset(0x11 + 4 * index for index in range(32)),
         "chorus": frozenset(
             {0x00, 0x01, 0x02, 0x03, 0x04, 0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C}
         ),
@@ -1618,6 +1620,7 @@ class XvBridge:
     #: Effect offsets that are four bytes (Roland's ``int4x4``) rather than
     #: one: the per-algorithm parameters, which sit after each block's head.
     FOUR_BYTE_EFFECT_OFFSETS = {
+        "mfx": frozenset(0x11 + 4 * index for index in range(32)),
         "chorus": frozenset({0x04, 0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C}),
         "reverb": frozenset({0x03, 0x07, 0x0B, 0x0F}),
     }
@@ -2139,16 +2142,15 @@ class XvBridge:
         """The performance's three effects blocks. Three round trips, silent.
 
         ``10 00 02 00`` MFX, ``10 00 04 00`` Chorus, ``10 00 06 00`` Reverb
-        (OM p. 146). The MFX head, and the whole Chorus and Reverb blocks --
-        their heads and the per-algorithm parameters after them, which the
-        effects screen reads against the layout in :mod:`xv.effects`. The
-        MFX's own per-algorithm parameters are not exposed yet.
+        (OM p. 146). The three blocks whole -- their heads and the
+        per-algorithm parameters after them, which the effects screen reads
+        against the layout in :mod:`xv.effects`.
         """
-        mfx = self.request((0x10, 0x00, 0x02, 0x00), 0x0D, timeout=timeout)
+        mfx = self.request((0x10, 0x00, 0x02, 0x00), 0x91, timeout=timeout)
         chorus = self.request((0x10, 0x00, 0x04, 0x00), 0x34, timeout=timeout)
         reverb = self.request((0x10, 0x00, 0x06, 0x00), 0x53, timeout=timeout)
         for name, data, want in (
-            ("MFX", mfx, 0x0D),
+            ("MFX", mfx, 0x91),
             ("chorus", chorus, 0x34),
             ("reverb", reverb, 0x53),
         ):
@@ -2171,6 +2173,7 @@ class XvBridge:
             reverb_type=reverb[0],
             reverb_level=reverb[1],
             reverb_output=reverb[2],
+            mfx_block=bytes(mfx),
             chorus_block=bytes(chorus),
             reverb_block=bytes(reverb),
         )

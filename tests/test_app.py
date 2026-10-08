@@ -1599,6 +1599,26 @@ class TestEffects:
             fx = app.bridge.read_performance_fx()
             assert params.decode_int4x4(fx.reverb_block[0x07:0x0B]) == 32769
 
+    async def test_the_mfx_parameters_follow_the_algorithm(self, app):
+        """The MFX's parameter list belongs to its type, so rows change."""
+        async with app.run_test() as pilot:
+            screen = await self._effects(app, pilot)
+            table = screen.query_one("#fx-table", DataTable)
+            # Type 12 is TREMOLO CHORUS, whose 0x1d is its Tremolo Rate.
+            assert str(table.get_row("mfx:1d")[1]) == "Tremolo Rate"
+            table.cursor_coordinate = Coordinate(0, 0)  # MFX Type
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            choices = app.screen.query_one("#choices", DataTable)
+            choices.cursor_coordinate = Coordinate(4, 0)  # PHASER
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+            assert app.bridge.read_performance_fx().mfx_type == 4
+            # PHASER's 0x1d is its Resonance.
+            assert str(table.get_row("mfx:1d")[1]) == "Resonance"
+
 
 class TestPatchPicker:
     """`s` in the multi screen: pick a part's sound by bank and name."""

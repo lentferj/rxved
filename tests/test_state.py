@@ -205,15 +205,36 @@ class TestWritableOffsetsAgree:
     def test_the_effects_screen_offers_nothing_the_bridge_refuses(self):
         """Every row the effects screen draws, the bridge must accept."""
         from rxved.app import EffectsScreen
-        from xv.bridge import XvBridge
+        from xv import effects
+        from xv.bridge import PerformanceFx, XvBridge
 
-        screen = EffectsScreen(None)
-        for _key, block, offset, _label, kind, *_rest in screen._rows():
-            assert offset in XvBridge.WRITABLE_EFFECT_OFFSETS[block]
-            # And the width has to agree, or a four-nibble value goes out as
-            # one byte and corrupts the three offsets after it.
-            four = offset in XvBridge.FOUR_BYTE_EFFECT_OFFSETS.get(block, ())
-            assert four == (kind == "int4x4")
+        def fx_with(mfx_type):
+            return PerformanceFx(
+                mfx_type=mfx_type,
+                mfx_dry=0,
+                mfx_chorus=0,
+                mfx_reverb=0,
+                mfx_output=0,
+                chorus_type=0,
+                chorus_level=0,
+                chorus_output=0,
+                chorus_output_select=0,
+                reverb_type=0,
+                reverb_level=0,
+                reverb_output=0,
+            )
+
+        screen = EffectsScreen(fx_with(1))
+        # Every MFX algorithm's rows, not just one: the MFX's parameter list
+        # belongs to its type, so a single pass would check a fortieth of it.
+        for mfx_type in effects.MFX_PARAMETERS:
+            screen._fx = fx_with(mfx_type)
+            for _key, block, offset, _label, kind, *_rest in screen._rows():
+                assert offset in XvBridge.WRITABLE_EFFECT_OFFSETS[block]
+                # The width has to agree, or a four-nibble value goes out as
+                # one byte and corrupts the three offsets after it.
+                four = offset in XvBridge.FOUR_BYTE_EFFECT_OFFSETS.get(block, ())
+                assert four == (kind == "int4x4")
 
     def test_the_demo_accepts_exactly_what_the_bridge_does(self):
         from rxved.demo import DemoBridge

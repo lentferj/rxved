@@ -87,8 +87,13 @@ dev = [
 # reads a scanned page, and rxved itself never imports numpy or Pillow.
 # Install with `pip install -e '.[tools]'`.
 tools = [
-    "numpy",
-    "pillow",
+    # Pinned exactly, like the dev tools above, and for a sharper reason:
+    # `make check` type-checks tools/read_marked_list.py against numpy's
+    # stubs, and numpy 2.5's stubs use PEP 695 `type` statements, which mypy
+    # rejects while targeting this project's floor of 3.11. 2.4.6 is the last
+    # release whose stubs parse there, so it is the pin until the floor moves.
+    "numpy==2.4.6",    # numpy: upgrade with `pip install -U numpy`
+    "pillow==12.3.0",  # pillow: upgrade with `pip install -U pillow`
 ]
 
 [project.urls]

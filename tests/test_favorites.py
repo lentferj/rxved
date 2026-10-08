@@ -223,6 +223,18 @@ class TestPersistence:
             Favorites(path)
 
 
+def _home(monkeypatch, path):
+    """Point ``~`` at ``path`` on every platform.
+
+    Patching HOME is not enough: ``os.path.expanduser`` reads HOME on POSIX
+    and USERPROFILE on Windows, so on a Windows runner the library resolved
+    the *real* home directory while the test compared against a temporary
+    one. Patching ``expanduser`` itself tests the branch under test rather
+    than the host's convention for saying where home is.
+    """
+    monkeypatch.setattr(os.path, "expanduser", lambda _path="~": path)
+
+
 class TestWhereItLives:
     """One assertion per platform, since only one of them can be exercised.
 
@@ -252,8 +264,10 @@ class TestWhereItLives:
 
         monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.delenv("XDG_DATA_HOME", raising=False)
-        monkeypatch.setenv("HOME", "/home/someone")
-        assert mod.data_dir() == "/home/someone/.local/share/rxved"
+        _home(monkeypatch, "/home/someone")
+        assert mod.data_dir() == os.path.join(
+            "/home/someone", ".local", "share", "rxved"
+        )
 
     def test_a_relative_xdg_data_home_is_ignored(self, monkeypatch):
         """XDG requires absolute paths and says relative ones must be ignored.
@@ -267,8 +281,10 @@ class TestWhereItLives:
 
         monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setenv("XDG_DATA_HOME", "relative/path")
-        monkeypatch.setenv("HOME", "/home/someone")
-        assert mod.data_dir() == "/home/someone/.local/share/rxved"
+        _home(monkeypatch, "/home/someone")
+        assert mod.data_dir() == os.path.join(
+            "/home/someone", ".local", "share", "rxved"
+        )
 
     def test_macos_uses_application_support(self, monkeypatch):
         import sys
@@ -276,8 +292,10 @@ class TestWhereItLives:
         import rxved.favorites as mod
 
         monkeypatch.setattr(sys, "platform", "darwin")
-        monkeypatch.setenv("HOME", "/Users/someone")
-        assert mod.data_dir() == ("/Users/someone/Library/Application Support/rxved")
+        _home(monkeypatch, "/Users/someone")
+        assert mod.data_dir() == os.path.join(
+            "/Users/someone", "Library", "Application Support", "rxved"
+        )
 
     def test_windows_uses_local_appdata_not_roaming(self, monkeypatch):
         """Roaming syncs the file; a synced SQLite database is a corrupt one."""

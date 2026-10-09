@@ -202,6 +202,18 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   mid-copy — or opened from two machines against one synced file — is a
   known way to corrupt one. Override any of it with `--favorites`.
 
+  `f` favourites the slot under the cursor, `t` and `n` set its tags and note,
+  and `*` rates it 0–5 — all three behind the same chooser, and all three
+  undone by `z`. `v` cycles the list to this bank's favourites and then to
+  every favourite. `rxvcli fav --rate USER:29 4` does the same from the
+  command line, and `--order rating` sorts by it.
+
+  `f` favourites the slot under the cursor, `t` and `n` set its tags and note,
+  and `*` rates it 0–5 — all three behind the same chooser, and all three
+  undone by `z`. `v` cycles the list to this bank's favourites and then to
+  every favourite. `rxvcli fav --rate USER:29 4` does the same from the
+  command line, and `--order rating` sorts by it.
+
   A printed patch list you marked up at the keyboard becomes favourites too:
   see [Reading a marked-up printout into
   favourites](#reading-a-marked-up-printout-into-favourites).
@@ -305,6 +317,17 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   whose values are words — the MFX type, the outputs, the filter, the reverb
   character, the control sources — opens a list to pick from with `⏎` rather
   than a number prompt.
+
+  `M` sets the **sound mode** itself — PATCH, PERFORM, GM1, GM2 or GS, from a
+  list marking the current one. This is rxved's one write that is *not* to
+  Temporary Performance: the mode is global machine state, which is what makes
+  it worth having and what makes it worth confirming. Entering GM or GS
+  initialises the sound generator and stores nothing, so those three are armed
+  before they are fired. The manual's ten modes (OM p. 39) are *which sound*
+  times *panel state*, and only the first axis is addressable — Edit, Part
+  Play and DEMO have no address in the parameter map at all, so what `M` sets
+  is the sound mode and nothing else. `rxvcli mode` does the same, and prints
+  the current mode when given no argument.
 
 ## Install
 
@@ -429,7 +452,7 @@ taking it, because two XV-2020s on one chain is worth refusing over.
 | arrows, `tab` | move; `tab` switches pane |
 | `enter` | select this slot **on the synth** — it will sound |
 | `f` | favourite this slot |
-| `t` / `n` | tags / note (on a favourite) |
+| `t` / `n` / `*` | tags / note / rating, 0–5 stars (on a favourite) |
 | `/` | search names |
 | `r` | read this bank's names from the synth (`USER`/`R-USER`/`P-USER`; read-only) |
 | `s` | scan this bank by selecting every slot (**plays the synth**, PATCH mode only) |
@@ -439,6 +462,8 @@ taking it, because two XV-2020s on one chain is worth refusing over.
 | `[` / `]` / `c` | previous / next send channel, or type one |
 | `R` | re-read the synth's mode, channels and all 16 parts |
 | `m` | multi-mode setup: all 16 parts, **editable**, and why a channel is silent |
+| `M` | set the synth's sound mode: PATCH, PERFORM, GM1, GM2, GS — **a write**, and GM/GS initialise the sound generator |
+| `M` | set the synth's sound mode: PATCH, PERFORM, GM1, GM2, GS — **a write**, and GM/GS initialise the sound generator |
 | `p` | (in `m`) load a stored performance into the edit buffer |
 | `c` | (in `m`) edit the performance common: name, solo, effect sources — `⏎`, a digit, or `+`/`-` for the ranged rows |
 | `e` | (in `m`) edit the effects: MFX type/sends/control, chorus and reverb |
@@ -456,6 +481,10 @@ rxvcli find "bass" --kind patch   # search names
 rxvcli resolve 87 65 28           # what does this MSB/LSB/PC select?
 rxvcli status                     # ask the synth who it is
 rxvcli channels                   # what each MIDI channel currently selects
+rxvcli mode                       # read the sound mode; pass a name to set it
+rxvcli fav --rate USER:29 4       # rate a favourite you already have
+rxvcli mode                       # read the sound mode; pass a name to set it
+rxvcli fav --rate USER:29 4       # rate a favourite you already have
 rxvcli multi                      # all 16 parts, and why a channel is silent
 rxvcli read USER                  # read USER names (read-only)
 rxvcli select PST-B:29            # select it on the synth

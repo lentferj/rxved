@@ -96,6 +96,7 @@ from xv.params import (
     OUTPUT_MFX,
     PERFORMANCE_BLOCKS,
     SIGNED_PART_FIELDS,
+    SOUND_MODES,
     TEMPORARY_PERFORMANCE,
     USER_PERFORMANCE_SLOTS,
     decode_int2x4,
@@ -1625,6 +1626,13 @@ class XvBridge:
         "reverb": frozenset({0x03, 0x07, 0x0B, 0x0F}),
     }
 
+    #: The Setup block, ``01 00 00 00`` (OM p. 146). The one block rxved
+    #: writes that is **not** Temporary Performance, because Sound Mode is
+    #: global machine state rather than an edit buffer. Only offset ``00 00``
+    #: is ever written; see :meth:`write_sound_mode`.
+    SETUP_BASE = (0x01, 0x00, 0x00, 0x00)
+    SETUP_MODE_OFFSET = 0x00
+
     # --- whole performances -------------------------------------------------
 
     def read_performance_blocks(
@@ -2010,6 +2018,40 @@ class XvBridge:
             patch_lsb=data[8],
             patch_program=data[9],
         )
+
+    def write_sound_mode(
+        self,
+        mode: int,
+        *,
+        verify: bool = True,
+        timeout: Optional[float] = None,
+    ) -> int:
+        """Set the machine's Sound Mode. **Not** an edit buffer.
+
+        Every other write in rxved goes to Temporary Performance, which a
+        power cycle discards. This one goes to the Setup block and survives,
+        because Sound Mode is what the box *is*: whether it is single-timbral
+        or 16-part, and therefore whether rxved's part parameters mean
+        anything at all. The byte was proven writable on hardware and the
+        whole argument is in docs/RESOLUTION_NOTES.md §9b.
+
+        Returns the value read back, not the value sent -- a DT1 is
+        unacknowledged, same as every other write here.
+        """
+        if mode not in SOUND_MODES:
+            raise ValueError(
+                f"{mode} is not a sound mode; the manual's list is "
+                f"{', '.join(f'{k} = {v}' for k, v in SOUND_MODES.items())}"
+            )
+        address = (0x01, 0x00, 0x00, self.SETUP_MODE_OFFSET)
+        self._send(m.dt1(address, [mode], device=self.device_id))
+        time.sleep(SEND_GAP)
+        if not verify:
+            return mode
+        data = self.request(address, 1, timeout=timeout)
+        if not data:
+            raise DeviceError("wrote the sound mode but read back nothing")
+        return data[0]
 
     def read_part(self, part: int, *, timeout: Optional[float] = None) -> PartState:
         """Read one Performance Part's channel and patch selection.

@@ -123,6 +123,15 @@ class DemoBridge:
         #: real machine fails.
         self.channels: Optional[object] = None
         self.state: Optional[object] = None
+        #: Sound Mode, 1-5 as the manual numbers them. PERFORM by default,
+        #: because the multitimbral paths are the ones with anything to get
+        #: wrong. `patch_mode=True` gives a fake in PATCH mode instead, which
+        #: is what `scan_bank` needs -- a program change only moves the
+        #: current patch in PATCH mode, so a scan against a PERFORM-mode fake
+        #: correctly refuses. `M` and `rxvcli mode` change it in memory.
+        from xv.bridge import SoundMode
+
+        self._mode = SoundMode.PATCH if patch_mode else SoundMode.PERFORM
         #: PERFORM by default, because the multitimbral paths are the ones
         #: with anything to get wrong. `patch_mode=True` gives a fake in
         #: PATCH mode instead, which is what `scan_bank` needs -- a program
@@ -244,10 +253,8 @@ class DemoBridge:
         from xv.bridge import SetupState, SoundMode
 
         self._tick()
-        # A demo synth in PERFORM mode, so the multitimbral paths -- which
-        # are the ones with anything to get wrong -- are the ones exercised.
         return SetupState(
-            mode=SoundMode.PATCH if self.patch_mode else SoundMode.PERFORM,
+            mode=self._mode,
             performance_msb=85,
             performance_lsb=0,
             performance_program=4,
@@ -255,6 +262,19 @@ class DemoBridge:
             patch_lsb=0,
             patch_program=0,
         )
+
+    def write_sound_mode(self, mode, *, verify=True, timeout=None):
+        """Remember a Sound Mode write, in memory only."""
+        from xv.params import SOUND_MODES
+
+        if mode not in SOUND_MODES:
+            raise ValueError(f"{mode} is not a sound mode")
+        self._tick()
+        self._mode = mode
+        # A mode change makes every part parameter mean something different,
+        # so the cached state is wrong the moment the byte lands.
+        self.state = None
+        return mode
 
     def read_part(self, part: int, *, timeout=None):
         from xv.bridge import PartState

@@ -34,6 +34,9 @@ __all__ = [
     "SIGNED_PART_FIELDS",
     "MONO_POLY",
     "ON_OFF_PATCH",
+    "SOUND_MODES",
+    "SOUND_MODES_BY_NAME",
+    "INITIALISING_SOUND_MODES",
     "OUTPUT_ASSIGN",
     "OUTPUT_ASSIGN_ON_XV2020",
     "OUTPUT_MFX",
@@ -83,6 +86,26 @@ MONO_POLY = {0: "MONO", 1: "POLY", 2: "PATCH"}
 #: Part Legato Switch and Part Portamento Switch (offsets ``00 0C`` and
 #: ``00 0E``), which share Mono/Poly's three-value shape.
 ON_OFF_PATCH = {0: "OFF", 1: "ON", 2: "PATCH"}
+
+#: Setup ``01 00 00 00`` offset ``00 00``, Sound Mode (OM p. 149). Set from
+#: the front panel's [VALUE] and, as it turns out, by a DT1 as well -- see
+#: docs/RESOLUTION_NOTES.md §9b, which is also where the ten modes of OM p. 39
+#: are reconciled with these five: they are a different axis, and Edit, Part
+#: Play and DEMO have no address at all.
+SOUND_MODES = {
+    1: "PATCH",
+    2: "PERFORM",
+    3: "GM1",
+    4: "GM2",
+    5: "GS",
+}
+
+#: The same list, by the name the front panel and the manual use.
+SOUND_MODES_BY_NAME = {name: value for value, name in SOUND_MODES.items()}
+
+#: Sound modes whose entry initialises the sound generator (OM p. 96), so
+#: setting one is confirmed before anything is sent.
+INITIALISING_SOUND_MODES = frozenset({3, 4, 5})
 
 #: Note names for the keyboard-range columns. The XV-2020 counts C-1 as note
 #: 0, so note 60 is C4 (OM p. 73's range column).

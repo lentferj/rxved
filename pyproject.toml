@@ -53,17 +53,9 @@ dependencies = [
     "rich>=13",
     # The shared base of this family of terminal instrument browsers: the
     # settings cache, the favourites database, the keymap and legend, the
-    # parser, the port listing. See [tool.uv.sources] below for why it is not
-    # on an index.
-    "vinsynlib",
+    # parser, the port listing.
+    "vinsynlib>=0.2.0",
 ]
-
-# vinsynlib is not on PyPI. It is the shared base of this family of terminal
-# instrument browsers and lives in a sibling checkout, so it is installed from
-# the working tree rather than from an index. Editable, because a change to
-# the library is a change here and should not need a reinstall to see.
-[tool.uv.sources]
-vinsynlib = { path = "../vinsynlib", editable = true }
 
 [project.optional-dependencies]
 # Pinned exactly, not ranged: `make check` is only reproducible if the

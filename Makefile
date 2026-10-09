@@ -110,13 +110,11 @@ audit: audit-deps audit-dead audit-secrets  ## Dependencies, dead code, secrets
 SITE_PACKAGES := $(shell $(PYTHON) -c \
 	'import sysconfig; print(sysconfig.get_paths()["purelib"])')
 
-# --skip-editable for the same reason, one level in. rxved and vinsynlib are
-# both installed editable from local checkouts -- vinsynlib from the sibling
-# directory, see [tool.uv.sources] in pyproject.toml -- so neither is a
-# distribution on an index and there is nothing for pip-audit to resolve or
-# report against. Left in, they appear in the skip table on every run, which
-# trains the reader to ignore that table. vinsynlib is this family's own
-# source and is reviewed where it lives.
+# --skip-editable for rxved, which is installed editable from the local
+# checkout and so is not a distribution on an index; there is nothing for
+# pip-audit to resolve. vinsynlib is an index dependency now (it is on PyPI)
+# and is audited with the rest; it used to be skipped here too, when it was a
+# sibling editable install.
 
 # Three setuptools advisories, ignored ONLY in a --system-site-packages
 # venv, and only for that package's sake. In such a venv setuptools comes

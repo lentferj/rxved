@@ -29,17 +29,13 @@ repos:
 
   # --- mypy ----------------------------------------------------------------
   # A LOCAL hook, not mirrors-mypy. That one runs mypy in an isolated
-  # virtualenv built from `additional_dependencies`, and vinsynlib cannot be
-  # named there: it is a sibling checkout, not a package on an index, so
-  # there is nothing to install and no version to pin. In an environment
-  # without it every `from vinsynlib...` resolved to Any, which turned the
-  # strict checks this project holds itself to into 15 errors about the
-  # imports rather than about the code -- and would have hidden a real
-  # error behind them on every commit after this one.
-  #
-  # Running the project's own .venv is both correct and the same
-  # interpreter the rest of the gate uses, so a hook and `make typecheck`
-  # cannot disagree -- which was the reason this was a mirrors hook.
+  # virtualenv built from `additional_dependencies`; vinsynlib is on PyPI now
+  # and could be pinned there, but the isolated env would still not see
+  # textual or rtmidi, so the strict checks this project holds itself to
+  # would fire on the imports rather than the code. Running the project's own
+  # .venv is both correct and the same interpreter the rest of the gate uses,
+  # so a hook and `make typecheck` cannot disagree -- which was the reason
+  # this was a mirrors hook.
   - repo: local
     hooks:
       - id: mypy

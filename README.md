@@ -308,30 +308,22 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
 
 ## Install
 
-Clone both repositories side by side:
+Clone the repository:
 
 ```sh
-# Choose a parent directory, e.g. ~/git-repos
-mkdir -p ~/git-repos && cd ~/git-repos
 git clone https://github.com/lentferj/rxved.git
-git clone https://github.com/lentferj/vinsynlib.git
 cd rxved
 python3 -m venv --system-site-packages .venv
 .venv/bin/python -m pip install --upgrade pip
-.venv/bin/pip install --no-deps -e ../vinsynlib
 .venv/bin/pip install -e .
 ```
 
-Two checkouts, side by side — this project (**rxved**) and **vinsynlib**, the shared base
-of this family of terminal instrument tools: the settings cache, the
-favourites database, the keymap and legend, the command line and the port
-listing. vinsynlib is **not on PyPI**, so it is installed from the sibling
-checkout above, and installed *first* so that the second command finds the
-requirement already satisfied. `--no-deps` because its dependencies are this
-project's too, and a second copy of `textual` in the same venv is a version
-skew to diagnose somewhere else. `uv sync` reads the path from
-`[tool.uv.sources]` in `pyproject.toml` instead: the checkout has to exist,
-but neither `pip` line is needed.
+**vinsynlib** is the shared base of this family of terminal instrument tools:
+the settings cache, the favourites database, the keymap and legend, the
+command line and the port listing. It comes from PyPI like the rest. To
+develop against a *working copy* of it instead of the published one, install
+that alongside — it shadows the published version in this environment only:
+`.venv/bin/pip install --no-deps -e ../vinsynlib`.
 Needs Python 3.11+, `python-rtmidi` and `textual`. On Linux you also need an
 ALSA sequencer — `rxvcli ports` will tell you plainly if there isn't one.
 
@@ -700,24 +692,14 @@ resolved and where every transcribed number came from.
 
 ### Development checks
 
-The same two checkouts as [Install](#install) above, plus the pinned
-toolchain and the git hook:
+The pinned toolchain and the git hook, on top of the [Install](#install)
+above:
 
 ```sh
 .venv/bin/pip install -e '.[dev]'
 pre-commit install
 
 make check            # lint, types, tests, audit — fails on any error
-```
-
-The checkouts therefore sit beside each other, which is how the family is
-arranged:
-
-```
-git-repos/
-  rxved/         <- this one
-  vinsynlib/     <- the shared base
-  emorphed/  ensqsqed/  s3ked/  ...
 ```
 
 `make check` is the whole pipeline; each piece also runs on its own
@@ -753,10 +735,9 @@ One thing to know before you trust the green: in a venv built with
 advisories**. That copy comes from the OS and cannot be upgraded — a
 newer setuptools needs a newer `jaraco.functools`, and the system copy
 wins over the venv's. It also skips editable distributions, which is how
-`rxved` and `vinsynlib` are both installed — neither is on an index, so
-there is nothing for it to resolve against. CI builds a clean venv,
-upgrades pip and setuptools, and suppresses no advisories at all.
-Reasoning is in `docs/CHECKS.md`.
+`rxved` itself is installed; `vinsynlib` is an index dependency now and is
+audited with the rest. CI builds a clean venv, upgrades pip and setuptools,
+and suppresses no advisories at all. Reasoning is in `docs/CHECKS.md`.
 
 Python 3.13 is not claimed and not tested: `python-rtmidi` has no cp313
 wheel, so installing there means a source build.

@@ -227,14 +227,12 @@ userland and reports CVEs in `brlapi`, `terminator`, `libtorrent` and two
 dozen other packages unrelated to rxved. That is 30+ findings of noise,
 silenced by scoping rather than by ignoring IDs.
 
-The same target passes `--skip-editable`, for `rxved` itself and for
-**vinsynlib** — the shared base of this family, which is installed editable
-from a sibling checkout rather than from an index (see `[tool.uv.sources]`
-in `pyproject.toml` and the README's Development-checks section). Neither
-is a distribution on PyPI, so there is nothing for pip-audit to resolve
-either against; without the flag both appear in the skip table on every
-run, which trains the reader to ignore that table. vinsynlib is this
-family's own source and is reviewed where it lives.
+The same target passes `--skip-editable` for `rxved` itself, which is
+installed editable from a local checkout and so is not a distribution on an
+index; there is nothing for pip-audit to resolve against. **vinsynlib** is
+the shared base of this family and an index dependency now (it is on PyPI),
+so it is audited with the rest; it used to be skipped here too, when it was
+a sibling editable install.
 
 Unlike the three setuptools IDs, this flag is **not** conditional on the
 venv shape: an editable install is an editable install in CI too.

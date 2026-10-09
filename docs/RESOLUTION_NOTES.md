@@ -425,6 +425,92 @@ as the kind of bug that hides behind a lucky configuration.
 
 ---
 
+## §9b — The Sound Mode is writable, and only one axis of it is
+
+§9 reads the mode and stops there. This records what happened when we tried
+writing it, which the address map permits and nothing official does.
+
+**Setup `01 00 00 00` offset `00 00` is Sound Mode, `0000 0aaa`, 1–5: PATCH,
+PERFORM, GM1, GM2, GS** (OM p. 149). A DT1 there — one byte, one offset,
+nothing else in the block touched — reached the mode on *every* value:
+
+| Sent | Synth reported |
+|------|----------------|
+| `F0 41 10 00 10 12 01 00 00 00 01 7E F7` | 1 = PATCH |
+| `F0 41 10 00 10 12 01 00 00 00 02 7D F7` | 2 = PERFORM |
+| `F0 41 10 00 10 12 01 00 00 00 03 7C F7` | 3 = GM1 |
+| `F0 41 10 00 10 12 01 00 00 00 04 7B F7` | 4 = GM2 |
+| `F0 41 10 00 10 12 01 00 00 00 05 7A F7` | 5 = GS |
+
+Written and read back on hardware at device ID 17, each confirmed by a second
+independent read, the mode set at the front panel first so the write had
+something to prove against. **GS took as well**, which is the surprising one:
+OM p. 96 describes GS as entered by *receiving* a GS Reset MIDI message, and
+it made no difference.
+
+Two things make this worth recording rather than just doing:
+
+1. **The editor cannot do it.** `soundMode` appears exactly once in
+   `XV-2020EditorScript.xml` — as a struct field — and no control anywhere
+   references it. The XV Editor reads the mode to know which UI to draw and
+   has no way to change it. That is a capability the official tooling does
+   not expose at all, and it was verified against the script rather than
+   assumed.
+2. **The manual never says it can be done either.** Mode changes are
+   described purely as front-panel operations (OM p. 39). The parameter map
+   is the only source that permits it, and it does not mark the byte `<*>`,
+   the map's own marker for "ignored when the XV-2020 received them". Map
+   says yes, marker absent — that combination is the whole argument.
+
+### Only one axis of "mode" is addressable
+
+OM p. 39 lists **ten** modes, and it is tempting to read the five SysEx
+values as a subset of them. They are a different axis entirely. p. 39's ten
+are *which sound* × *panel state*:
+
+| | Play | Edit | Part Play |
+|---|---|---|---|
+| **Patch** | ● | ● | — |
+| **Rhythm** | ● | ● | — |
+| **Performance** | ● | ● | ● |
+| **GM** | ● | ● | — |
+| **DEMO** | ● | — | — |
+
+The SysEx parameter carries only the left column's Patch, Performance and GM
+rows — as PATCH, PERFORM and GM1/GM2 — plus GS, which p. 39 does not show as
+a mode at all. Of the ten:
+
+- **Edit mode** (VOLUME+VALUE) — no address anywhere in the map.
+- **Performance Part Play** (rotating [PART]) — likewise unmapped.
+- **DEMO** (CATEGORY/BANK) — no Sound Mode value exists for it.
+- **Rhythm Play / Rhythm Edit** — Patch mode plus a rhythm-set bank select
+  (MSB 86, §11). That is ordinary Bank Select and Program Change, which rxved
+  already sends; no mode write is involved.
+
+So a write to this byte sets the **sound mode** and nothing else. It cannot
+reach Edit, Part Play or DEMO by any route, and any later claim that rxved
+"switches the operation mode" should be read as this axis only.
+
+### Why rxved still does not send it
+
+Every write rxved makes goes to **Temporary Performance** (`10 00 …`), the
+edit buffer a power cycle or a load discards. This byte is global machine
+state: it changes what the box *is*, not what is in a buffer, and Sound Mode
+is the byte that decides whether rxved's sixteen part parameters mean
+anything at all. A mode write arriving from the part table would be
+indistinguishable in kind from an offset edit and categorically different in
+effect.
+
+A mode change is also not free. Entering GM or GM2 **initialises the sound
+generator** (OM p. 96), GM settings have no user memory, and the XV Editor
+cannot edit parameters in GM mode at all. PERFORM is cheap; GM is not.
+
+The capability is now proven and one `rxvcli` verb away. It stays unbuilt
+until asked for, and if built it should be an explicit verb that prints the
+current mode before sending — never a key in the part table.
+
+---
+
 ## §10 — Every Bank Select triple confirmed on hardware (2026-09-11)
 
 TODO item 1 is closed for patches. Each triple was sent on the Patch Receive

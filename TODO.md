@@ -261,3 +261,27 @@ decoding it once would serve rxved, kwsed, p2ked, x5ded and nanosyned
 alike. Worth doing as shared work rather than five times over.
 
 **Blocked on:** nothing but the decoding. Nothing here depends on it.
+
+
+## 13 — Sound Mode is writable, and rxved does not send it
+
+**Status:** capability proven 2026-10-09 against the hardware; feature not
+built.
+
+Setup `01 00 00 00` offset `00 00` is Sound Mode, 1–5 (PATCH, PERFORM, GM1,
+GM2, GS), and a DT1 there reached the mode on every value — each confirmed by
+a read-back, with the mode set at the front panel first so the write had
+something to prove against. The official XV Editor has no control for it:
+`soundMode` appears exactly once in `XV-2020EditorScript.xml`, as a struct
+field, and no control references it. docs/RESOLUTION_NOTES.md §9b has the
+whole write-up, including why this is only one axis of mode — Edit, Part Play
+and DEMO have no address in the map at all.
+
+It stays unbuilt for two reasons. It would be rxved's first write that is not
+to Temporary Performance, so it breaks the property that makes every other
+write safe; and entering GM or GM2 initialises the sound generator and has no
+user memory (OM p. 96). If built: an explicit `rxvcli mode` verb that prints
+the current mode before sending, plus a guarded multi-screen action — never a
+key in the part table.
+
+**Blocked on:** the owner's call, as item 11's was.

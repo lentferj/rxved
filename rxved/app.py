@@ -65,6 +65,7 @@ from vinsynlib.spec import flag_help
 
 from xv import banks
 from xv import catalog as cat
+from xv.params import INITIALISING_SOUND_MODES, SOUND_MODES
 from xv.config import load_ui_state, save_ui_state
 
 from rxved import livenames
@@ -240,6 +241,9 @@ class RxvedApp(App):
         Binding("s", "scan_bank", "Scan bank"),
         Binding("x", "probe_srx", "Probe SRX"),
         Binding("m", "multi_setup", "Multi-mode setup"),
+        # `m` was already multi-mode setup, so the shift pair is this one --
+        # the same convention as C for categories and W for the store screen.
+        Binding("M", "set_mode", "Sound mode"),
         # `m` was already multi-mode setup, so the shift pair is this one --
         # the same convention as C for categories and W for the store screen.
         Binding("M", "set_mode", "Sound mode"),
@@ -772,6 +776,83 @@ class RxvedApp(App):
                 bits.append(fav.note)
             lines.append("[b]" + "  |  ".join(bits) + "[/b]")
         self.query_one("#detail", Static).update("\n".join(lines))
+
+    def action_set_mode(self) -> None:
+        """Set the machine's Sound Mode: PATCH, PERFORM, GM1, GM2, GS.
+
+        The only write in rxved that does not go to Temporary Performance, so
+        the modes that initialise the sound generator are confirmed before
+        anything is sent -- CLAUDE.md's arm-then-fire rule, and GM settings
+        have no user memory to come back to.
+        """
+        options = [(value, name) for value, name in SOUND_MODES.items()]
+        self.push_screen(
+            ChoiceScreen("Sound mode", options, self._mode_as_read()),
+            self._mode_picked,
+        )
+
+    def _mode_as_read(self):
+        """The sound mode as last read, or ``None`` if the synth is quiet.
+
+        Not named ``_current_mode``: that name is a string on this class
+        already, the mode the *browser* shows.
+        """
+        state = getattr(self.bridge, "state", None)
+        return state.setup.mode if state is not None else None
+
+    def _mode_picked(self, value) -> None:
+        if value is None:
+            return
+        if value in INITIALISING_SOUND_MODES:
+            self.push_screen(
+                ConfirmScreen(
+                    f"Switch to {SOUND_MODES[value]}?\n\n"
+                    "GM and GS initialise the sound generator, and their "
+                    "settings are not stored in user memory -- a power cycle "
+                    "will not bring back what is there now."
+                ),
+                lambda ok: self._write_sound_mode(value) if ok else None,
+            )
+            return
+        self._write_sound_mode(value)
+
+    def _write_sound_mode(self, mode: int) -> None:
+        if self._busy:
+            self.notify_status("busy", refused=True)
+            return
+        # Set on the main thread, for the reason every other write says: a
+        # @work(thread=True) method returns at once.
+        self._busy = True
+        self._set_mode_worker(mode)
+
+    @work(thread=True)
+    def _set_mode_worker(self, mode: int) -> None:
+        """**MIDI only.** Write the mode, then re-read the whole state.
+
+        A mode change makes every part parameter mean something different,
+        so the cached state is wrong the moment the byte lands.
+        """
+        try:
+            with self._bridge_lock:
+                landed = self.bridge.write_sound_mode(mode)
+                state = self.bridge.read_state(with_parts=True)
+        except _BRIDGE_ERRORS as exc:
+            self.call_from_thread(self.notify_status, f"mode: {exc}", refused=True)
+            return
+        finally:
+            self._busy = False
+        self.call_from_thread(self._adopt_state, state)
+        if landed != mode:
+            self.call_from_thread(
+                self.notify_status,
+                f"asked for {SOUND_MODES[mode]}, synth reports "
+                f"{SOUND_MODES.get(landed, landed)}",
+                refused=True,
+            )
+        else:
+            self.call_from_thread(
+                self.notify_status, f"sound mode set to {SOUND_MODES[landed]}"
+            )
 
     # --- events -------------------------------------------------------------
 

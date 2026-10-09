@@ -263,25 +263,26 @@ alike. Worth doing as shared work rather than five times over.
 **Blocked on:** nothing but the decoding. Nothing here depends on it.
 
 
-## 13 — Sound Mode is writable, and rxved does not send it
+## 13 — Sound Mode is writable, and rxved now sends it
 
-**Status:** capability proven 2026-10-09 against the hardware; feature not
-built.
+**Status:** built 2026-10-09. `M` in the browser and `rxvcli mode` both set
+it, through a list marking the current mode.
 
-Setup `01 00 00 00` offset `00 00` is Sound Mode, 1–5 (PATCH, PERFORM, GM1,
-GM2, GS), and a DT1 there reached the mode on every value — each confirmed by
-a read-back, with the mode set at the front panel first so the write had
-something to prove against. The official XV Editor has no control for it:
+The capability was proven on hardware first -- Setup `01 00 00 00` offset
+`00 00` is Sound Mode, 1-5 (PATCH, PERFORM, GM1, GM2, GS), and a DT1 there
+reached the mode on every value, each confirmed by a read-back with the mode
+set at the front panel first. The official XV Editor has no control for it:
 `soundMode` appears exactly once in `XV-2020EditorScript.xml`, as a struct
 field, and no control references it. docs/RESOLUTION_NOTES.md §9b has the
-whole write-up, including why this is only one axis of mode — Edit, Part Play
-and DEMO have no address in the map at all.
+whole write-up, including why this is only one axis of mode -- Edit, Part
+Play and DEMO have no address in the map at all.
 
-It stays unbuilt for two reasons. It would be rxved's first write that is not
-to Temporary Performance, so it breaks the property that makes every other
-write safe; and entering GM or GM2 initialises the sound generator and has no
-user memory (OM p. 96). If built: an explicit `rxvcli mode` verb that prints
-the current mode before sending, plus a guarded multi-screen action — never a
-key in the part table.
+`m` was already multi-mode setup, so the key is `M`, matching the family's
+shift-pair convention (`C` categories, `W` the store screen). GM1, GM2 and GS
+are armed before they are fired, because they initialise the sound generator
+and have no user memory (OM p. 96) -- the store screen's arm-then-fire rule,
+applied to the only other write in the program.
 
-**Blocked on:** the owner's call, as item 11's was.
+Not built, and still worth having: nothing on screen shows the mode changing
+under you. The state is re-read after a write, but the result is a status line
+rather than anything visible.

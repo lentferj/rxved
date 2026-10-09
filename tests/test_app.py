@@ -548,6 +548,83 @@ class TestUndo:
             assert app.last_status_refused
 
 
+class TestSoundMode:
+    """`M` -- the one write in rxved that is not to Temporary Performance.
+
+    Only the *sound mode* axis: OM p. 39's ten modes are which-sound times
+    panel state, and Edit, Part Play and DEMO have no address in the map at
+    all (docs/RESOLUTION_NOTES.md §9b).
+    """
+
+    async def _mode_screen(self, app, pilot):
+        await pilot.press("M")
+        await pilot.pause()
+        return app.screen
+
+    async def test_M_lists_the_manual_five_by_name(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._mode_screen(app, pilot)
+            assert isinstance(screen, ChoiceScreen)
+            # Rows are keyed by position, 0-4.
+            choices = screen.query_one("#choices")
+            rows = [str(choices.get_row(str(index))[1]) for index in range(5)]
+            assert rows == ["PATCH", "PERFORM", "GM1", "GM2", "GS"]
+
+    async def test_the_current_mode_is_marked_and_under_the_cursor(self, app):
+        async with app.run_test() as pilot:
+            screen = await self._mode_screen(app, pilot)
+            choices = screen.query_one("#choices")
+            # The demo synth is in PERFORM, which is mode 2 -- position 1.
+            assert "x" in str(choices.get_row("1")[0])
+            assert choices.cursor_row == 1
+
+    async def test_patch_and_perform_are_written_without_a_confirm(self, app):
+        async with app.run_test() as pilot:
+            await self._mode_screen(app, pilot)
+            choices = app.screen.query_one("#choices")
+            choices.cursor_coordinate = Coordinate(0, 0)  # PATCH
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+            assert app.bridge.read_setup().mode == 1
+            assert "PATCH" in app.last_status
+
+    async def test_gm_is_armed_before_it_is_fired(self, app):
+        """GM initialises the sound generator and stores nothing (OM p. 96),
+        so it is confirmed first like the store screen's write."""
+        async with app.run_test() as pilot:
+            await self._mode_screen(app, pilot)
+            choices = app.screen.query_one("#choices")
+            choices.cursor_coordinate = Coordinate(2, 0)  # GM1
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmScreen)
+            assert app.bridge.read_setup().mode == 2  # nothing sent yet
+            await pilot.press("n")  # cancel
+            await settle(pilot)
+            assert app.bridge.read_setup().mode == 2
+
+    async def test_gm_is_written_once_confirmed(self, app):
+        async with app.run_test() as pilot:
+            await self._mode_screen(app, pilot)
+            choices = app.screen.query_one("#choices")
+            choices.cursor_coordinate = Coordinate(3, 0)  # GM2
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("y")
+            await settle(pilot)
+            assert app.bridge.read_setup().mode == 4
+
+    async def test_escape_leaves_the_mode_alone(self, app):
+        async with app.run_test() as pilot:
+            await self._mode_screen(app, pilot)
+            await pilot.press("escape")
+            await settle(pilot)
+            assert app.bridge.read_setup().mode == 2
+
+
 class TestReadingNames:
     async def test_r_reads_a_user_bank(self, app):
         async with app.run_test() as pilot:

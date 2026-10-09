@@ -40,6 +40,7 @@ from vinsynlib.cli import add_common_arguments, make_parser, validate_common
 from vinsynlib.spec import flag_help
 
 from xv import banks
+from xv.params import INITIALISING_SOUND_MODES, SOUND_MODES, SOUND_MODES_BY_NAME
 from xv import catalog as cat
 
 from rxved import livenames
@@ -314,6 +315,30 @@ def _cmd_tags(_bridge, args) -> None:
 
 
 # --- commands that need the device -----------------------------------------
+
+
+def _cmd_mode(bridge, args) -> None:
+    setup = bridge.read_setup()
+    current = SOUND_MODES.get(setup.mode, f"?({setup.mode})")
+    print(f"sound mode        {current}")
+    if args.name is None:
+        print("\navailable          " + ", ".join(SOUND_MODES.values()))
+        return
+    wanted = SOUND_MODES_BY_NAME[args.name]
+    if wanted == setup.mode:
+        print(f"already {args.name}; nothing sent")
+        return
+    if wanted in INITIALISING_SOUND_MODES and not args.yes:
+        raise SystemExit(
+            f"error: {args.name} initialises the sound generator and its "
+            "settings are not stored (OM p. 96). Re-run with --yes to do it "
+            "anyway."
+        )
+    landed = bridge.write_sound_mode(wanted)
+    reported = SOUND_MODES.get(landed, f"?({landed})")
+    if landed != wanted:
+        raise SystemExit(f"error: asked for {args.name}, the synth reports {reported}")
+    print(f"now                {reported}")
 
 
 def _cmd_status(bridge, _args) -> None:
@@ -1042,6 +1067,7 @@ _COMMANDS: Dict[str, Callable] = {
     "tags": _cmd_tags,
     "status": _cmd_status,
     "channels": _cmd_channels,
+    "mode": _cmd_mode,
     "multi": _cmd_multi,
     "read": _cmd_read,
     "select": _cmd_select,
@@ -1139,6 +1165,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     sub.add_parser("multi", help="multi-mode setup, and why a channel is silent")
+
+    sp = sub.add_parser("mode", help="read or set the sound mode (NOT the edit buffer)")
+    sp.add_argument(
+        "name",
+        nargs="?",
+        choices=["PATCH", "PERFORM", "GM1", "GM2", "GS"],
+        help="omit to read the current mode",
+    )
+    sp.add_argument(
+        "--yes",
+        action="store_true",
+        help="skip the confirmation for GM1/GM2/GS, which initialise "
+        "the sound generator and store nothing",
+    )
 
     # --- performances -------------------------------------------------------
     sp = sub.add_parser("perf-list", help="performance backups on disk")

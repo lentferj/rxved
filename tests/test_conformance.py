@@ -94,6 +94,32 @@ def test_the_legend_is_the_family_legend() -> None:
     }, "\n".join(problems)
 
 
+def test_every_subcommand_has_a_handler() -> None:
+    """A parser entry with no `_COMMANDS` entry is a `KeyError` at runtime.
+
+    This is not hypothetical: the sound-mode command was registered in the
+    parser during a commit split and its `_COMMANDS` entry was left behind,
+    so `rxvcli mode --help` worked and `rxvcli mode` raised `KeyError`. The
+    parser and the dispatch table are two lists that must agree.
+    """
+    from rxved.cli import _COMMANDS, build_parser as build_cli
+
+    parser = build_cli()
+    subparsers = [
+        action
+        for action in parser._actions
+        if hasattr(action, "choices") and action.choices
+    ]
+    names = set()
+    for action in subparsers:
+        names.update(action.choices)
+    assert names, "no subparsers found -- is this still argparse?"
+    assert names == set(_COMMANDS), (
+        f"registered but not dispatched: {sorted(names - set(_COMMANDS))}; "
+        f"dispatched but not registered: {sorted(set(_COMMANDS) - names)}"
+    )
+
+
 def test_the_two_front_ends_agree_on_the_shared_flags() -> None:
     """`rxved` and `rxvcli` are two front doors to one program.
 

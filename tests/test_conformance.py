@@ -36,6 +36,8 @@ EXTRA_HINTS = (
     "C categories",
     "R re-read",
     "m multi setup",
+    "M sound mode",
+    "* rating",
     "z undo",
     "Z undo all",
 )
@@ -84,8 +86,8 @@ def test_the_browser_binds_the_shared_keys() -> None:
 
 def test_the_legend_is_the_family_legend() -> None:
     problems = conformance.check_legend(KEY_HINTS, extras=EXTRA_HINTS)
-    # The same deliberate divergence as the bindings test above: the legend
-    # promises `v favourites view` where the family promises `F`.
+    # `M sound mode` and `* rating` are passed as `extras`, so the library
+    # expects them; the divergence left is the one the docstring records.
     assert set(problems) == {
         "the legend is missing 'F favourites view'",
         "the legend shows 'v favourites view', which is not in the family's",

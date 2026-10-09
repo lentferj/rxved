@@ -41,6 +41,7 @@ class TestKeyLegend:
                 "slash": "/",
                 "question_mark": "?",
                 "enter": "⏎",
+                "asterisk": "*",
             }.get(binding.key, binding.key)
             assert key in legend, f"{binding.key} is not in the legend"
 
@@ -221,6 +222,7 @@ class TestTheLegendIsComplete:
         "right_square_bracket": "]",
         "slash": "/",
         "question_mark": "?",
+        "asterisk": "*",
     }
     IMPLIED = {"enter", "tab"}
 

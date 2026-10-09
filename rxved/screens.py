@@ -298,6 +298,8 @@ KEY_HINTS = _view_key(
             "C categories",
             "R re-read",
             "m multi setup",
+            "M sound mode",
+            "* rating",
             # The family keeps undo in its editor tier; this browser writes
             # the favourites store, so it carries the same two keys as its own.
             "z undo",

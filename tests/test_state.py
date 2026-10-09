@@ -544,6 +544,41 @@ class TestDisplayVersusWire:
         assert note_name(127) == "G9"
 
 
+class TestSoundModeWrite:
+    """The one write in rxved that is not to Temporary Performance."""
+
+    def test_the_write_is_only_ever_one_byte_of_the_setup_block(self):
+        """The allowlist is the safety argument, so assert its shape."""
+        from xv.bridge import XvBridge
+
+        assert XvBridge.SETUP_BASE == (0x01, 0x00, 0x00, 0x00)
+        assert XvBridge.SETUP_MODE_OFFSET == 0x00
+
+    def test_every_mode_the_manual_lists_is_writable(self):
+        from xv.params import SOUND_MODES, SOUND_MODES_BY_NAME
+
+        assert list(SOUND_MODES) == [1, 2, 3, 4, 5]
+        assert list(SOUND_MODES.values()) == [
+            "PATCH",
+            "PERFORM",
+            "GM1",
+            "GM2",
+            "GS",
+        ]
+        assert SOUND_MODES_BY_NAME["PERFORM"] == 2
+
+    def test_the_generator_initialising_modes_are_the_ones_to_confirm(self):
+        """OM p. 96: entering GM or GS initialises the sound generator and
+        nothing is stored, so those three are confirmed before sending."""
+        from xv.params import INITIALISING_SOUND_MODES, SOUND_MODES
+
+        assert {SOUND_MODES[v] for v in INITIALISING_SOUND_MODES} == {
+            "GM1",
+            "GM2",
+            "GS",
+        }
+
+
 class TestNibbleEncodings:
     """Roland's int2x4 and int4x4: one value across bytes of four bits.
 

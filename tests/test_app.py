@@ -483,6 +483,70 @@ class TestUndo:
             await pilot.pause()
             assert app.favorites.get("USER", 1).tags == "pad"
 
+    async def _on_slot(self, app, pilot, number):
+        """Put the cursor on a slot in the slot table, the bank's first."""
+        await pilot.press("tab")
+        for _ in range(number - 1):
+            await pilot.press("down")
+        await pilot.pause()
+
+    async def test_asterisk_rates_the_favourite(self, app):
+        """The one favourite field that had no key until now."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="Velvet Bell", tags="lead")
+            await self._on_slot(app, pilot, 1)
+            await pilot.press("asterisk")
+            await pilot.pause()
+            assert isinstance(app.screen, ChoiceScreen)
+            choices = app.screen.query_one("#choices", DataTable)
+            choices.cursor_coordinate = Coordinate(4, 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+            found = app.favorites.get("USER", 1)
+            assert (found.rating, found.tags) == (4, "lead")
+
+    async def test_the_rating_shows_as_stars_in_the_detail_line(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="Velvet Bell")
+            await self._on_slot(app, pilot, 1)
+            await pilot.press("asterisk")
+            await pilot.pause()
+            app.screen.query_one("#choices").cursor_coordinate = Coordinate(3, 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+            assert "***" in str(app.query_one("#detail")._Static__content)
+
+    async def test_the_rating_undoes_like_tags_and_notes(self, app):
+        """The undo machinery has handled "rating" all along; nothing in the
+        TUI could produce that kind of change until the key existed."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="Velvet Bell")
+            await self._on_slot(app, pilot, 1)
+            await pilot.press("asterisk")
+            await pilot.pause()
+            app.screen.query_one("#choices").cursor_coordinate = Coordinate(5, 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+            assert app.favorites.get("USER", 1).rating == 5
+            await pilot.press("z")
+            await settle(pilot)
+            assert app.favorites.get("USER", 1).rating == 0
+
+    async def test_the_rating_refuses_a_slot_that_is_not_a_favourite(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await self._on_slot(app, pilot, 1)
+            await pilot.press("asterisk")
+            await pilot.pause()
+            assert "not a favourite" in app.last_status
+            assert app.last_status_refused
+
 
 class TestReadingNames:
     async def test_r_reads_a_user_bank(self, app):

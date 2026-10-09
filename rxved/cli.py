@@ -226,15 +226,35 @@ def _cmd_favorites(_bridge, args) -> None:
         if args.add:
             bank_id, number = _parse_slot(args.add)
             name = catalog.name(bank_id, number) or ""
+            # `add` is an upsert that *replaces* rating, tags and note, so
+            # anything not passed would silently wipe it. Read what is already
+            # there and carry it through, which is what "favourite this and
+            # rate it 4" means to a person.
+            existing = favorites.get(bank_id, number)
+            if existing is None:
+                rating, tags, note = 0, "", ""
+            else:
+                rating, tags, note = existing.rating, existing.tags, existing.note
+            if args.rating is not None:
+                rating = args.rating
+            if args.tags is not None:
+                tags = args.tags
+            if args.note is not None:
+                note = args.note
             favorites.add(
-                bank_id,
-                number,
-                name=name,
-                rating=args.rating or 0,
-                tags=args.tags or "",
-                note=args.note or "",
+                bank_id, number, name=name, rating=rating, tags=tags, note=note
             )
             print(f"added {bank_id} {number:03d}")
+            return
+        if args.rate:
+            # Rating an existing favourite without touching anything else.
+            bank_id, number = _parse_slot(args.rate[0])
+            if favorites.get(bank_id, number) is None:
+                raise SystemExit(
+                    f"error: {bank_id} {number:03d} is not a favourite; add it first"
+                )
+            favorites.set_rating(bank_id, number, args.rate[1])
+            print(f"rated {bank_id} {number:03d} {args.rate[1]}")
             return
         if args.remove:
             bank_id, number = _parse_slot(args.remove)
@@ -1094,6 +1114,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--add", metavar="BANK:N")
     sp.add_argument("--remove", metavar="BANK:N")
     sp.add_argument("--rating", type=int, default=None)
+    sp.add_argument(
+        "--rate",
+        nargs=2,
+        metavar=("BANK:N", "0-5"),
+        help="rate a favourite you already have, leaving tags and note alone",
+    )
     sp.add_argument("--tags", default=None)
     sp.add_argument("--note", default=None)
     sp.add_argument("--tag", default=None, help="list favourites with this tag")

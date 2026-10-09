@@ -232,6 +232,7 @@ class RxvedApp(App):
         Binding("v", "cycle_favorites", "Favourites view"),
         Binding("t", "edit_tags", "Tags"),
         Binding("n", "edit_note", "Note"),
+        Binding("asterisk", "edit_rating", "Rating"),
         Binding("z", "undo", "Undo"),
         Binding("Z", "undo_all", "Undo all"),
         Binding("slash", "search", "Search"),
@@ -239,6 +240,9 @@ class RxvedApp(App):
         Binding("s", "scan_bank", "Scan bank"),
         Binding("x", "probe_srx", "Probe SRX"),
         Binding("m", "multi_setup", "Multi-mode setup"),
+        # `m` was already multi-mode setup, so the shift pair is this one --
+        # the same convention as C for categories and W for the store screen.
+        Binding("M", "set_mode", "Sound mode"),
         Binding("i", "device_info", "Device"),
         Binding("question_mark", "help", "Help"),
         Binding("tab", "switch_pane", "Switch pane"),
@@ -1008,6 +1012,42 @@ class RxvedApp(App):
             self.notify_status(f"{slot} note set")
 
         self.push_screen(TextPromptScreen(f"Note for {slot}", existing.note), apply)
+
+    def action_edit_rating(self) -> None:
+        """Rate the favourite under the cursor, 0 to 5.
+
+        The one favourite field with no key until now. The CLI could set a
+        rating at add time and the undo machinery reverted one, but nothing
+        in the TUI could produce the change, which made the README's claim
+        of "ratings, tags and notes" half true of the interface.
+        """
+        slot = self._current_slot()
+        if slot is None:
+            return
+        existing = self.favorites.get(slot.bank_id, slot.number)
+        if existing is None:
+            self.notify_status(
+                f"{slot} is not a favourite yet -- press f first", refused=True
+            )
+            return
+        options = [(stars, "*" * stars or "no rating") for stars in range(6)]
+        self.push_screen(
+            ChoiceScreen(f"Rating for {slot}", options, existing.rating),
+            lambda value: self._apply_rating(slot, existing, value),
+        )
+
+    def _apply_rating(self, slot, existing, value) -> None:
+        if value is None:
+            return
+        old = existing.rating
+        self.favorites.set_rating(slot.bank_id, slot.number, value)
+        self._record_change(
+            _Change("rating", slot.bank_id, slot.number, old=old, new=value)
+        )
+        self._update_detail(self.query_one("#slot-table", DataTable).cursor_row)
+        self.notify_status(
+            f"{slot} rated {value}" if value else f"{slot} rating cleared"
+        )
 
     # --- undo ---------------------------------------------------------------
 

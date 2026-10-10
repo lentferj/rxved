@@ -209,12 +209,17 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   and `*` rates it 0–5 — all three behind the same chooser, and all three
   undone by `z`. The rating shows as a `★` column beside the name, stars
   then dots so three-of-five cannot be misread as three-of-three. `v` cycles
-  the list to this bank's favourites and then to every favourite, and `V`
-  narrows whichever view is showing by rating — exactly, or that many and
-  up — stacking on the favourites view and on the categories.
-  `rxvcli fav --rate USER:29 4` does the same from the command line,
-  `--rating-at-least 3` and `--rating-exactly 0` filter it ("0" being the
-  ones you have not rated yet), and `--order rating` sorts by it.
+  the list to this bank's favourites and then to every favourite; `C` narrows
+  whichever list is showing by category, and `V` narrows it by rating —
+  exactly, or that many and up. All three stack, so "keyboard pads I have
+  favourited, rated 3 or better" is one filter over another rather than a
+  fourth view. All three are remembered between runs, which is why the
+  subtitle leads with them: coming back after a week the line reads
+  `★ rating ≥3 · PST-B — 12 of 128 patches` rather than leaving you to
+  wonder where the rows went. `rxvcli fav --rate USER:29 4` does the same
+  from the command line, `--rating-at-least 3` and `--rating-exactly 0`
+  filter it ("0" being the ones you have not rated yet), and
+  `--order rating` sorts by it.
 
   A printed patch list you marked up at the keyboard becomes favourites too:
   see [Reading a marked-up printout into
@@ -456,6 +461,7 @@ taking it, because two XV-2020s on one chain is worth refusing over.
 | `f` | favourite this slot |
 | `t` / `n` / `*` | tags / note / rating, 0–5 stars (on a favourite) |
 | `V` | filter by rating — exactly, or that many and up (stacks on the view and the categories) |
+| `z` / `Z` | undo / undo all — the favourites store, back to its first state |
 | `/` | search names |
 | `r` | read this bank's names from the synth (`USER`/`R-USER`/`P-USER`; read-only) |
 | `s` | scan this bank by selecting every slot (**plays the synth**, PATCH mode only) |

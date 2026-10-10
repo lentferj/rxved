@@ -86,6 +86,8 @@ __all__ = [
     "PatchPickerScreen",
     "MultiScreen",
     "CategoryScreen",
+    "RatingFilterScreen",
+    "RatingFilter",
     "KeyHints",
     "wrap_blocks",
     "KEY_HINTS",
@@ -131,6 +133,8 @@ from rxved.screens import (  # noqa: E402
     VIEW_CYCLE,
     VIEW_LABEL,
     CategoryScreen,
+    RatingFilter,
+    RatingFilterScreen,
     CommonScreen,
     ChoiceScreen,
     EffectsScreen,
@@ -248,6 +252,7 @@ class RxvedApp(App):
         Binding("t", "edit_tags", "Tags"),
         Binding("n", "edit_note", "Note"),
         Binding("asterisk", "edit_rating", "Rating"),
+        Binding("V", "rating_filter", "Rating filter"),
         Binding("z", "undo", "Undo"),
         Binding("Z", "undo_all", "Undo all"),
         Binding("slash", "search", "Search"),
@@ -329,6 +334,9 @@ class RxvedApp(App):
         #: top of the favourites view rather than instead of it, so "soft
         #: pads I have favourited" is one filter over another.
         self.categories: set = set()
+        #: The rating filter, or ``None``. Same stacking as the categories:
+        #: over the favourites view and over them, not instead of them.
+        self.rating_filter: Optional[RatingFilter] = None
         #: The MIDI channel the browser sends on, 0-based. Set from the
         #: synth's own Patch Receive Channel once that has been read --
         #: until then it is whatever was configured, and the UI says so.
@@ -364,6 +372,11 @@ class RxvedApp(App):
                     self.view_mode = vm
             if "categories" in ui_state:
                 self.categories = set(ui_state["categories"])
+            if "rating_stars" in ui_state:
+                self.rating_filter = RatingFilter(
+                    stars=ui_state["rating_stars"],
+                    at_least=bool(ui_state.get("rating_at_least", False)),
+                )
         else:
             self._saved_slot_cursor = None
 
@@ -620,7 +633,37 @@ class RxvedApp(App):
                     # A favourite for a bank this build no longer defines.
                     # Skipped rather than crashing the view.
                     continue
-        return self._by_category(rows)
+        return self._by_rating(self._by_category(rows))
+
+    def _by_rating(self, rows: List[banks.Slot]) -> List[banks.Slot]:
+        """Narrow to the rating filter. A no-op when there is none.
+
+        Last of the three, and over all of them: a rating filter applied only
+        to the favourites views would be a different filter depending on
+        which view is showing, which is how a keypress ends up doing
+        something you cannot predict.
+        """
+        if self.rating_filter is None:
+            return rows
+        everything = self.favorites.all()
+        ratings = {fav.key: fav.rating for fav in everything}
+        return [s for s in rows if self.rating_filter.matches(ratings.get(s.key, 0))]
+
+    def _still_shown(self, slot: banks.Slot) -> bool:
+        """Whether a slot would survive all three filters right now.
+
+        A row that has stopped matching has to leave the table, and until now
+        the only condition that made one leave was un-favouriting *inside a
+        favourites view*. A rating filter makes rows leave from the all-slots
+        view too -- un-favourite a rated slot there and its rating goes with
+        it -- so the question is asked of the same ``_visible_slots`` that
+        builds the table, rather than of each caller guessing which of the
+        three filters it had just changed.
+
+        It costs one ``_visible_slots`` run -- a bank of rows and a couple of
+        queries -- which is what a rebuild already costs, minus the redraw.
+        """
+        return any(s.key == slot.key for s in self._visible_slots(slot.bank_id))
 
     def _by_category(self, rows: List[banks.Slot]) -> List[banks.Slot]:
         """Narrow to the selected categories. A no-op when none are chosen."""
@@ -732,6 +775,8 @@ class RxvedApp(App):
             )
         if self.categories:
             what += "   ·   " + "/".join(sorted(self.categories))
+        if self.rating_filter is not None:
+            what += f"   ·   {self.rating_filter.label}"
         line = f"{what}   ·   ch {self.target_channel + 1}"
         if self._changes:
             line += f"   ·   Δ{len(self._changes)}"
@@ -966,7 +1011,7 @@ class RxvedApp(App):
         except (KeyError, ValueError, LookupError, AttributeError):
             pass
 
-        if not now and self.view_mode != VIEW_ALL:
+        if not now and not self._still_shown(slot):
             # The row no longer matches the filter, so it has to go. Rebuild
             # and hold the cursor at the same position, which is now the row
             # that took its place -- the same thing a mail client does when
@@ -1278,6 +1323,35 @@ class RxvedApp(App):
                 f"showing {VIEW_LABEL[self.view_mode]} — {shown} row(s); "
                 f"enter still selects, f un-favourites"
             )
+
+    def action_rating_filter(self) -> None:
+        """Narrow the list by rating, exactly or at least.
+
+        The shift pair of `*`, and it narrows rather than writes, which is
+        the same distinction `C` and `c` draw. Offered with no counts, unlike
+        the category picker: six thresholds is not thirty-eight categories,
+        and every one of them is a question worth asking.
+        """
+
+        def apply(chosen) -> None:
+            # Escape comes back as the filter unchanged, so "nothing changed"
+            # and "cleared" are different answers and only one rebuilds.
+            if chosen == self.rating_filter:
+                return
+            self.rating_filter = chosen
+            self._fill_slots(self._current_bank)
+            self.query_one("#slot-table", DataTable).focus()
+            shown = len(self._current_slots)
+            if chosen is None:
+                self.notify_status(f"rating filter cleared — {shown} rows")
+            else:
+                self.notify_status(f"{chosen.label} — {shown} rows")
+            self._save_ui_state(
+                rating_stars=None if chosen is None else chosen.stars,
+                rating_at_least=None if chosen is None else chosen.at_least,
+            )
+
+        self.push_screen(RatingFilterScreen(self.rating_filter), apply)
 
     def action_pick_categories(self) -> None:
         """Narrow the current list by category. Stacks on the current view."""
@@ -1658,6 +1732,8 @@ class RxvedApp(App):
         slot_cursor: Optional[int] = None,
         view_mode: Optional[str] = None,
         categories: Optional[List[str]] = None,
+        rating_stars: Optional[int] = None,
+        rating_at_least: Optional[bool] = None,
     ) -> None:
         """Persist UI state (bank, slot cursor, view mode, categories)."""
         if self._config_path is None:
@@ -1669,6 +1745,8 @@ class RxvedApp(App):
                 slot_cursor=slot_cursor,
                 view_mode=view_mode,
                 categories=categories,
+                rating_stars=rating_stars,
+                rating_at_least=rating_at_least,
             )
         except OSError:
             pass

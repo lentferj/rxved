@@ -135,6 +135,8 @@ def save_ui_state(
     slot_cursor: Optional[int] = None,
     view_mode: Optional[str] = None,
     categories: Optional[list[str]] = None,
+    rating_stars: Optional[int] = None,
+    rating_at_least: Optional[bool] = None,
 ) -> None:
     """Save UI state (bank position, slot cursor, view mode, categories)."""
     changes = {}
@@ -146,6 +148,13 @@ def save_ui_state(
         changes["view_mode"] = view_mode
     if categories is not None:
         changes["categories"] = sorted(categories)
+    # Two keys rather than one table: `load_ui_state` reads a flat dict, and
+    # absence is what "no filter" means. `rating_at_least` alone writes the
+    # comparison for a filter already in the file.
+    if rating_stars is not None:
+        changes["rating_stars"] = rating_stars
+    if rating_at_least is not None:
+        changes["rating_at_least"] = rating_at_least
     if changes:
         settings.update(path, **changes)
 
@@ -162,6 +171,15 @@ def load_ui_state(path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]:
         result["view_mode"] = data["view_mode"]
     if "categories" in data and isinstance(data["categories"], list):
         result["categories"] = data["categories"]
+    # `isinstance(True, int)` is True, so the bool check comes first or
+    # `rating_stars = true` loads as a one-star filter -- the same trap the
+    # channel setting has, on the one key where it would look like a filter
+    # rather than like a wrong MIDI channel.
+    stars = data.get("rating_stars")
+    if type(stars) is int and 0 <= stars <= 5:
+        result["rating_stars"] = stars
+        at_least = data.get("rating_at_least")
+        result["rating_at_least"] = at_least is True
     return result
 
 

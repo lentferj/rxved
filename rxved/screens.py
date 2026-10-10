@@ -29,7 +29,7 @@ below and re-exported so every existing call site reads exactly as it did.
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Dict, Optional, Tuple
 
 from textual.app import ComposeResult
@@ -300,6 +300,7 @@ KEY_HINTS = _view_key(
             "m multi setup",
             "M sound mode",
             "* rating",
+            "V rating filter",
             # The family keeps undo in its editor tier; this browser writes
             # the favourites store, so it carries the same two keys as its own.
             "z undo",
@@ -327,6 +328,30 @@ VIEW_LABEL = {
     VIEW_BANK_FAVOURITES: "favourites in this bank",
     VIEW_ALL_FAVOURITES: "all favourites",
 }
+
+
+#: A rating filter: how many stars, and whether that is a floor or a match.
+#:
+#: Two widths rather than one because "show me the 3s" and "show me 3 and up"
+#: are both real questions and neither implies the other. Absence -- no
+#: filter -- is ``None`` rather than a value, since at least one of the rows
+#: below is genuinely "no rating".
+@dataclass(frozen=True)
+class RatingFilter:
+    """``stars``, and whether that many is a floor or an exact match."""
+
+    #: 0 means "no rating" as a category, not "no filter".
+    stars: int = 0
+    #: ``True`` for equal-or-greater, ``False`` for exactly.
+    at_least: bool = False
+
+    def matches(self, rating: int) -> bool:
+        return rating >= self.stars if self.at_least else rating == self.stars
+
+    @property
+    def label(self) -> str:
+        """For the subtitle, beside the categories."""
+        return f"rating {'≥' if self.at_least else '='}{self.stars}"
 
 
 #: Short labels for the bank list's "kind" column. Spelled out rather than
@@ -2258,3 +2283,167 @@ class CategoryScreen(ModalScreen[Optional[set]]):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+
+class RatingFilterScreen(ModalScreen[Optional[RatingFilter]]):
+    """Pick a rating to narrow the list to, and how strictly.
+
+    A radio, not a checklist: at most one cell is on, because a row either
+    matches a rating or does not and there is nothing to accumulate. Two
+    columns for the same reason the filter has two widths -- "the 3s" and
+    "3 and up" are different questions, and a key that flips between them
+    hides the one you did not pick.
+
+    The `≥` cell is missing from the "no rating" row on purpose. At least
+    *nothing* matches everything, which is not a filter; exactly-nothing is
+    a real one, and the question it answers -- which of my favourites have I
+    not rated yet -- is the one this filter gets asked most.
+
+    The cursor is a **cell** cursor, not a row cursor: the two radio columns
+    are the choice, so right steps between `=` and `≥` and the highlighted
+    cell itself says which one `space` is about to toggle. The stars label to
+    the right is read-only, and `space` on it goes to whichever column was
+    last actually toggled in rather than being a key that does nothing.
+    """
+
+    DEFAULT_CSS = """
+    RatingFilterScreen { align: center middle; }
+    RatingFilterScreen > Vertical {
+        width: 62; height: auto; border: thick $accent;
+        background: $surface; padding: 1 2;
+    }
+    RatingFilterScreen DataTable { height: auto; }
+    """
+
+    BINDINGS = [
+        Binding("space", "toggle", "Toggle"),
+        # `priority`, for the same reason the browser's Enter needs it: the
+        # focused DataTable consumes Enter for its own row selection, so
+        # without this the key does nothing at all and the only way out of
+        # the filter is escape -- which discards the choice.
+        Binding("enter", "accept", "Apply", priority=True),
+        Binding("x", "clear", "Clear"),
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, current: Optional[RatingFilter] = None) -> None:
+        super().__init__()
+        # What the app is showing, for a cancel to put back unchanged. Kept
+        # apart from `_current`, which the row under the cursor edits: escape
+        # has to mean "leave it alone", and "cleared" is a *choice* made with
+        # `x` and applied with enter.
+        self._opened_with = current
+        self._current = current
+        #: The radio column the cursor last toggled in, 0 for `=` and 1 for
+        #: `≥`. The stars label to the right is read-only, and `space` on it
+        #: would otherwise be a key that does nothing at all -- so it hands
+        #: the key back to whichever column the user was last actually
+        #: choosing in.
+        self._radio_column = 0
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("[b]Rating[/b] — narrows whatever is already shown")
+            # `cell`, not `row`: `DataTable.action_cursor_right` only moves
+            # the cursor for "cell" and "column" cursors and otherwise calls
+            # `super().action_scroll_right()`, so on "row" the ≥ column was
+            # unreachable and the whole width of the filter was dead code.
+            yield DataTable(id="ratings", cursor_type="cell")
+            yield Static(
+                "[b]space[/b] toggle   [b]x[/b] clear   [b]enter[/b] apply"
+                "   [b]esc[/b] cancel"
+            )
+
+    def on_mount(self) -> None:
+        table = self.query_one("#ratings", DataTable)
+        for label, key in (("=", "exact"), ("≥", "at_least"), ("rating", "stars")):
+            table.add_column(label, key=key)
+        self._fill()
+        table.focus()
+
+    def _fill(self) -> None:
+        table = self.query_one("#ratings", DataTable)
+        # `clear()` resets the cursor to (0, 0), which on a cell cursor also
+        # throws the user back to the `=` column -- so a toggle spent in `≥`
+        # would have to be paid for with another press of right. Save the
+        # whole coordinate, not just the row, and put it back afterwards.
+        where = table.cursor_coordinate
+        first = not table.row_count
+        table.clear()
+        for stars in range(6):
+            exact = (
+                self._current is not None
+                and not self._current.at_least
+                and self._current.stars == stars
+            )
+            at_least = (
+                # Nothing has no "at least": see the class docstring.
+                stars > 0
+                and self._current is not None
+                and self._current.at_least
+                and self._current.stars == stars
+            )
+            table.add_row(
+                "[b]x[/b]" if exact else " ",
+                "[b]x[/b]" if at_least else " ",
+                "no rating" if stars == 0 else "★" * stars + "·" * (5 - stars),
+                key=str(stars),
+            )
+        # Not on the first fill: there is nothing to return to yet, and the
+        # table starts where it should anyway.
+        if table.row_count and not first:
+            table.cursor_coordinate = where
+
+    def _cell_under_cursor(self):
+        """``(row, which)``, or ``None`` if the cursor is nowhere useful."""
+        table = self.query_one("#ratings", DataTable)
+        row = table.cursor_row
+        if not 0 <= row < 6:
+            return None
+        column = table.cursor_column
+        if column not in (0, 1):
+            # The stars label: read-only, and a cell a user reaches on the
+            # way to reading the row they are about to choose in. Space on
+            # it does nothing at all, which reads as a dead key -- so it
+            # toggles whichever radio column was last actually toggled in.
+            column = self._radio_column
+        return row, column
+
+    def action_toggle(self) -> None:
+        cell = self._cell_under_cursor()
+        if cell is None:
+            return
+        row, which = cell
+        # The column the user is choosing in, whether it came from the cursor
+        # itself or from the fallback above.
+        self._radio_column = which
+        at_least = which == 1
+        if at_least and row == 0:
+            # At least *nothing* matches everything, which is not a filter.
+            # Blank in the table as well as dead under the cursor: a cell
+            # that looks empty and toggles anyway is the worst of both.
+            return
+        # Toggling the cell that is already on clears the filter; toggling any
+        # other one moves it. Either way exactly one cell is on afterwards,
+        # or none is.
+        on = (
+            self._current is not None
+            and self._current.stars == row
+            and self._current.at_least == at_least
+        )
+        self._current = None if on else RatingFilter(stars=row, at_least=at_least)
+        self._fill()
+
+    def action_clear(self) -> None:
+        self._current = None
+        self._fill()
+
+    def action_accept(self) -> None:
+        self.dismiss(self._current)
+
+    def action_cancel(self) -> None:
+        # The filter as it was when the screen opened, not as the cursor has
+        # left it: escape discards what was picked *in this screen* and
+        # changes nothing on the table behind it. Clearing is `x` and then
+        # enter -- a choice, not the same as walking away from one.
+        self.dismiss(self._opened_with)

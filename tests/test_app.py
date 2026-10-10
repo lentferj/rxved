@@ -34,6 +34,8 @@ from rxved.app import (
     MultiScreen,
     PatchPickerScreen,
     PerformanceScreen,
+    RatingFilter,
+    RatingFilterScreen,
     ReportScreen,
     RxvedApp,
     StoreScreen,
@@ -394,6 +396,362 @@ class TestTheRatingColumn:
             await pilot.press("f")
             await settle(pilot)
             assert self._cells(app)["rating"] == "★★★··"
+
+
+class TestRatingFilter:
+    """`V` -- narrow the list by rating, exactly or at least.
+
+    The third filter, after the favourites view and the categories, and it
+    *stacks* on both rather than replacing either. "3 and up" means one thing
+    inside a favourites view and another inside a whole bank, and a filter
+    whose meaning changed with the view would be a keypress you cannot
+    predict.
+    """
+
+    async def _apply(self, app, pilot, row, column):
+        await pilot.press("V")
+        await pilot.pause()
+        assert isinstance(app.screen, RatingFilterScreen)
+        table = app.screen.query_one("#ratings", DataTable)
+        table.cursor_coordinate = Coordinate(row, column)
+        await pilot.pause()
+        await pilot.press("space")
+        await pilot.pause()
+        await pilot.press("enter")
+        await settle(pilot)
+
+    async def _shown(self, app):
+        return [s.number for s in app._current_slots]
+
+    async def test_V_offers_both_widths_side_by_side(self, app):
+        async with app.run_test() as pilot:
+            await pilot.press("V")
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, RatingFilterScreen)
+            table = screen.query_one("#ratings", DataTable)
+            labels = [str(column.label) for column in table.columns.values()]
+            assert labels == ["=", "≥", "rating"]
+            # Six rows: no rating, then one to five stars.
+            assert [str(key.value) for key in table.rows] == [
+                str(stars) for stars in range(6)
+            ]
+            assert str(table.get_row("3")[2]) == "★★★··"
+            assert str(table.get_row("0")[2]) == "no rating"
+
+    async def test_at_least_narrows_to_the_rated_and_up(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            for number, rating in ((1, 5), (2, 3), (3, 3)):
+                app.favorites.add("USER", number, name=f"n{number}", rating=rating)
+            app._refresh_current_bank()
+            await pilot.pause()
+            assert await self._shown(app) == list(range(1, 129))
+            await self._apply(app, pilot, 3, 1)  # ≥ ★★★
+            assert await self._shown(app) == [1, 2, 3]
+
+    async def test_exactly_zero_is_the_unrated_favourites(self, app):
+        """The question this filter answers most often, and the reason it
+        stacks: inside a favourites view, "=0" is what I have not rated
+        yet. In a whole bank it would be every slot nobody rated, which is
+        a different and far less interesting answer."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="Velvet Bell", rating=5)
+            app.favorites.add("USER", 2, name="Rusty Pad")
+            await pilot.press("tab")
+            await pilot.press("v")  # this bank's favourites
+            await settle(pilot)
+            assert await self._shown(app) == [1, 2]
+            await self._apply(app, pilot, 0, 0)  # = no rating
+            assert await self._shown(app) == [2]
+
+    async def test_it_stacks_on_the_category_filter(self, app, tmp_path):
+        catalog = cat.Catalog(
+            [
+                cat.Entry("USER", 1, "Velvet Bell", "KEY"),
+                cat.Entry("USER", 2, "Rusty Pad", "KEY"),
+                cat.Entry("USER", 3, "Tin Whistle", "ORG"),
+            ]
+        )
+        bridge = DemoBridge()
+        favourites = Favorites(str(tmp_path / "f.db"))
+        application = RxvedApp(
+            bridge,
+            favorites=favourites,
+            catalog=catalog,
+            backup_dir=str(tmp_path / "backups"),
+            live_names_path=str(tmp_path / "live-names.json"),
+            read_banks_at_startup=False,
+        )
+        try:
+            async with application.run_test() as pilot:
+                await pilot.pause()
+                for number, rating in ((1, 4), (2, 3), (3, 5)):
+                    application.favorites.add(
+                        "USER", number, name=f"n{number}", rating=rating
+                    )
+                application._refresh_current_bank()
+                await pilot.pause()
+                application.action_pick_categories()
+                await pilot.pause()
+                cats = application.screen.query_one("#cats", DataTable)
+                # KEY only: Tin Whistle is ORG and goes.
+                cats.cursor_coordinate = Coordinate(0, 0)
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+                await pilot.press("enter")
+                await settle(pilot)
+                # Tin Whistle is rated five and would survive the rating filter
+                # on its own -- that it is gone is the stack, not the filter.
+                assert await self._shown(application) == [1, 2]
+                # And ≥ ★★★★ on top of that leaves only Velvet Bell.
+                await self._apply(application, pilot, 4, 1)
+                assert await self._shown(application) == [1]
+        finally:
+            favourites.close()
+
+    async def test_rerating_under_a_live_filter_drops_the_row(self, app):
+        """The row has stopped matching, so it leaves.
+
+        `_mark_favorite` only knew how to drop a row from inside a favourites
+        view. A rating filter makes rows leave from the all-slots view too --
+        un-favourite a rated slot there and its rating goes with it -- and a
+        row left sitting in a filtered list is a row the filter does not
+        describe.
+        """
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="Velvet Bell", rating=4)
+            app._refresh_current_bank()
+            await pilot.pause()
+            await self._apply(app, pilot, 1, 1)  # ≥ ★
+            assert await self._shown(app) == [1]
+            await pilot.press("tab")
+            await pilot.press("f")
+            await settle(pilot)
+            assert await self._shown(app) == []
+
+    async def test_clearing_brings_everything_back(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="Velvet Bell", rating=4)
+            app._refresh_current_bank()
+            await pilot.pause()
+            await self._apply(app, pilot, 4, 1)
+            assert await self._shown(app) == [1]
+            await pilot.press("V")
+            await pilot.pause()
+            await pilot.press("x")
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+            assert app.rating_filter is None
+            assert await self._shown(app) == list(range(1, 129))
+
+    async def test_escape_leaves_the_filter_alone(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="Velvet Bell", rating=4)
+            app._refresh_current_bank()
+            await pilot.pause()
+            await self._apply(app, pilot, 4, 1)
+            assert await self._shown(app) == [1]
+            await pilot.press("V")
+            await pilot.pause()
+            await pilot.press("escape")
+            await settle(pilot)
+            assert await self._shown(app) == [1]
+
+    async def test_at_least_nothing_is_not_offered(self, app):
+        """At least *nothing* matches everything, which is not a filter.
+
+        Offered, it would be a control whose only effect is to print
+        `rating ≥0` in the subtitle. Exactly-nothing stays: it is a real
+        question.
+        """
+        async with app.run_test() as pilot:
+            await pilot.press("V")
+            await pilot.pause()
+            table = app.screen.query_one("#ratings", DataTable)
+            table.cursor_coordinate = Coordinate(0, 1)
+            await pilot.pause()
+            await pilot.press("space")
+            await pilot.pause()
+            assert app.screen._current is None
+            assert str(table.get_row("0")[1]) == " "
+
+    async def test_the_subtitle_names_the_filter(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="Velvet Bell", rating=4)
+            app._refresh_current_bank()
+            await pilot.pause()
+            await self._apply(app, pilot, 4, 1)
+            assert "rating ≥4" in app.sub_title
+            await self._apply(app, pilot, 4, 0)
+            assert "rating =4" in app.sub_title
+            assert "≥" not in app.sub_title
+
+    async def test_the_filter_comes_back_after_a_restart(self, app, tmp_path):
+        catalog = cat.Catalog([cat.Entry("USER", 1, "Velvet Bell")])
+        favourites = Favorites(str(tmp_path / "f.db"))
+        favourites.add("USER", 1, name="Velvet Bell", rating=4)
+        config = str(tmp_path / "config.toml")
+
+        def built():
+            return RxvedApp(
+                DemoBridge(),
+                favorites=favourites,
+                catalog=catalog,
+                backup_dir=str(tmp_path / "backups"),
+                live_names_path=str(tmp_path / "live-names.json"),
+                read_banks_at_startup=False,
+                config_path=config,
+            )
+
+        try:
+            first = built()
+            async with first.run_test() as pilot:
+                await pilot.pause()
+                await self._apply(first, pilot, 4, 1)
+                assert first.rating_filter == RatingFilter(stars=4, at_least=True)
+                assert "rating ≥4" in first.sub_title
+
+            second = built()
+            async with second.run_test() as pilot:
+                await pilot.pause()
+                assert second.rating_filter == RatingFilter(stars=4, at_least=True)
+                assert [s.number for s in second._current_slots] == [1]
+        finally:
+            favourites.close()
+
+    async def test_a_boolean_in_the_file_is_not_a_one_star_filter(self, app, tmp_path):
+        """`isinstance(True, int)` is True, so a TOML `true` in the stars key
+        would load as one star -- the same trap the channel setting has, on
+        the one key where it would look like a filter rather than a wrong
+        MIDI channel."""
+        from xv.config import load_ui_state, save_ui_state
+
+        path = str(tmp_path / "config.toml")
+        save_ui_state(path, rating_stars=True, rating_at_least=True)  # type: ignore[arg-type]
+        assert "rating_stars" not in load_ui_state(path)
+        save_ui_state(path, rating_stars=9)
+        assert "rating_stars" not in load_ui_state(path)
+        save_ui_state(path, rating_stars=2, rating_at_least=True)
+        assert load_ui_state(path)["rating_stars"] == 2
+        assert load_ui_state(path)["rating_at_least"] is True
+
+    async def test_right_steps_into_the_at_least_column(self, app):
+        """What the user could not do: pick "3 and up".
+
+        The table was built with ``cursor_type="row"``, and
+        ``DataTable.action_cursor_right`` only moves the cursor for a "cell"
+        or "column" cursor -- otherwise it calls
+        ``super().action_scroll_right()`` and just scrolls. So right scrolled
+        a table that was never wider than its own frame, the column never
+        left 0, and `≥` was a column of dead code the first cut never
+        reached.
+        """
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            for number, rating in ((1, 5), (2, 3), (3, 3)):
+                app.favorites.add("USER", number, name=f"n{number}", rating=rating)
+            app._refresh_current_bank()
+            await pilot.pause()
+            assert await self._shown(app) == list(range(1, 129))
+            await pilot.press("V")
+            await pilot.pause()
+            table = app.screen.query_one("#ratings", DataTable)
+            assert table.cursor_coordinate == Coordinate(0, 0)
+            # Driven with the keys, not with a coordinate assigned behind the
+            # screen's back: the bug was in the key path.
+            await pilot.press("right")
+            await pilot.pause()
+            assert table.cursor_coordinate == Coordinate(0, 1)
+            await pilot.press("down", "down", "down")
+            await pilot.pause()
+            assert table.cursor_coordinate == Coordinate(3, 1)
+            await pilot.press("space")
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+            assert app.rating_filter == RatingFilter(stars=3, at_least=True)
+            assert await self._shown(app) == [1, 2, 3]
+
+    async def test_a_toggle_keeps_the_column_it_was_made_in(self, app):
+        """`table.clear()` resets the cursor to ``(0, 0)`` -- both halves of
+        the coordinate, not just the row -- so `_fill` has to save and
+        restore the column too. Otherwise every toggle threw the user back
+        to `=` and each one cost another press of right."""
+        async with app.run_test() as pilot:
+            await pilot.press("V")
+            await pilot.pause()
+            table = app.screen.query_one("#ratings", DataTable)
+            await pilot.press("right")
+            await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("space")
+            await pilot.pause()
+            assert table.cursor_coordinate == Coordinate(1, 1)
+            # A second toggle, one row further down: the second one is where
+            # a row-only restore would have already lost the column.
+            await pilot.press("down")
+            await pilot.press("space")
+            await pilot.pause()
+            assert table.cursor_coordinate == Coordinate(2, 1)
+            assert app.screen._current == RatingFilter(stars=2, at_least=True)
+            # And the cell the cursor is on is the one that is marked.
+            assert "x" in str(table.get_row("2")[1])
+
+    async def test_space_on_the_stars_label_toggles_the_last_column(self, app):
+        """The label is read-only, and it is reachable now the cursor moves.
+
+        On a row cursor nothing to the right of `=` was reachable at all; on
+        a cell cursor the user can walk onto the stars to read the row they
+        are about to choose in, and `space` there used to do nothing at
+        all -- which reads as a broken key. It goes to whichever radio column
+        was last actually toggled in instead.
+        """
+        async with app.run_test() as pilot:
+            await pilot.press("V")
+            await pilot.pause()
+            table = app.screen.query_one("#ratings", DataTable)
+            # Choose in `≥` first: that is the column the screen remembers.
+            await pilot.press("down")
+            await pilot.press("right")
+            await pilot.pause()
+            assert table.cursor_coordinate == Coordinate(1, 1)
+            await pilot.press("space")
+            await pilot.pause()
+            assert app.screen._current == RatingFilter(stars=1, at_least=True)
+            # Now walk right onto the label of the row below.
+            await pilot.press("down")
+            await pilot.press("right", "right")
+            await pilot.pause()
+            assert table.cursor_coordinate == Coordinate(2, 2)
+            await pilot.press("space")
+            await pilot.pause()
+            assert app.screen._current == RatingFilter(stars=2, at_least=True)
+            assert "x" in str(table.get_row("2")[1])
+            assert " " in str(table.get_row("1")[1])
+
+    async def test_space_on_the_stars_label_defaults_to_exact(self, app):
+        """Nothing has been toggled yet, so the fallback is the `=` column
+        rather than nowhere."""
+        async with app.run_test() as pilot:
+            await pilot.press("V")
+            await pilot.pause()
+            table = app.screen.query_one("#ratings", DataTable)
+            await pilot.press("down")
+            await pilot.press("right", "right")
+            await pilot.pause()
+            assert table.cursor_coordinate == Coordinate(1, 2)
+            await pilot.press("space")
+            await pilot.pause()
+            assert app.screen._current == RatingFilter(stars=1, at_least=False)
+            assert "x" in str(table.get_row("1")[0])
 
 
 class TestCursorIsSilent:

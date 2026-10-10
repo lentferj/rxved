@@ -38,6 +38,7 @@ EXTRA_HINTS = (
     "m multi setup",
     "M sound mode",
     "* rating",
+    "V rating filter",
     "z undo",
     "Z undo all",
 )

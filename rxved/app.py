@@ -157,6 +157,20 @@ from rxved.screens import (  # noqa: E402
 # --- the application --------------------------------------------------------
 
 
+#: How a rating reads in the slot table: the filled stars, then the remainder
+#: dim, so a value *and* its scale are both visible -- `★★★··` cannot be
+#: misread as three-of-three, where a bare `★★★` can. Zero is blank rather
+#: than five dots, matching the `fav` column's blank-means-absent.
+#:
+#: `*` is deliberately not this: two columns over it already means "this name
+#: disagrees with the catalogue", and one glyph meaning two things in one
+#: table is how the favourite marker came to be a heart (see on_mount).
+def _rating_cell(rating: int) -> str:
+    if not rating:
+        return ""
+    return "★" * rating + "·" * (5 - rating)
+
+
 @dataclass(frozen=True)
 class _Change:
     """One recorded change to the favourites store, enough to undo it.
@@ -401,6 +415,7 @@ class RxvedApp(App):
             ("♥", "fav"),
             ("#", "num"),
             ("name", "name"),
+            ("★", "rating"),
             ("PC", "pc"),
             ("LSB", "lsb"),
             ("MSB", "msb"),
@@ -629,7 +644,12 @@ class RxvedApp(App):
         self._current_bank = bank_id
         self._current_slots = self._visible_slots(bank_id)
         across_banks = self.view_mode == VIEW_ALL_FAVOURITES
-        favorited = self.favorites.keys()
+        # One query for both the heart set and the ratings, rather than a
+        # `keys()` and a `get()` per row: a bank is over a hundred rows
+        # redrawn on every cursor move, and the store is behind a lock.
+        everything = self.favorites.all()
+        favorited = {fav.key for fav in everything}
+        ratings = {fav.key: fav.rating for fav in everything}
         # When nothing in this bank agrees with the printed list any more --
         # the normal state of a USER bank somebody works in -- marking every
         # row tells the eye nothing. The printed name moves to the detail
@@ -662,6 +682,7 @@ class RxvedApp(App):
                         else f"{slot.number:03d}"
                     ),
                     shown,
+                    _rating_cell(ratings.get(slot.key, 0)),
                     str(slot.program_change),
                     str(slot.lsb),
                     str(slot.msb),
@@ -960,6 +981,19 @@ class RxvedApp(App):
 
         try:
             slot_table.update_cell(slot.key, "fav", "[b]♥[/b]" if now else "")
+            # Un-favouriting blanks the rating too: the row carrying it is no
+            # longer active, so the store stops reporting it and the cell
+            # would otherwise show a rating on a slot with no heart. Going
+            # the other way, `toggle` restores whatever the slot was carrying
+            # -- the whole point of `remove` keeping the row -- so a
+            # re-favourite has to read the rating back rather than assume
+            # blank.
+            restored = self.favorites.get(slot.bank_id, slot.number)
+            slot_table.update_cell(
+                slot.key,
+                "rating",
+                _rating_cell(restored.rating if restored is not None else 0),
+            )
         except (KeyError, ValueError, LookupError, AttributeError):
             # The row is gone (the bank changed under us); a full rebuild is
             # the honest fallback and costs one frame.
@@ -1122,7 +1156,17 @@ class RxvedApp(App):
         self._record_change(
             _Change("rating", slot.bank_id, slot.number, old=old, new=value)
         )
-        self._update_detail(self.query_one("#slot-table", DataTable).cursor_row)
+        table = self.query_one("#slot-table", DataTable)
+        # The cell is updated in place rather than the table rebuilt: `clear()`
+        # resets the cursor and posts a RowHighlighted, which is the jump
+        # `f` avoids for the same reason.
+        try:
+            table.update_cell(slot.key, "rating", _rating_cell(value))
+        except (KeyError, ValueError, LookupError, AttributeError):
+            # The row is gone (the bank changed under us); a full rebuild is
+            # the honest fallback and costs one frame.
+            self._refresh_current_bank()
+        self._update_detail(table.cursor_row)
         self.notify_status(
             f"{slot} rated {value}" if value else f"{slot} rating cleared"
         )

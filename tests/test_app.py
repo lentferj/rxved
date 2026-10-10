@@ -273,10 +273,10 @@ class TestTheThreeNumbers:
             await pilot.pause()
             table = app.query_one("#slot-table", DataTable)
             labels = [str(column.label) for column in table.columns.values()]
-            # The favourite marker leads the row; PC, LSB and MSB stay in
-            # the order an MPC's MIDI track asks for them, which is the
-            # whole point of this test.
-            assert labels == ["♥", "#", "name", "PC", "LSB", "MSB", "cat"]
+            # The favourite marker leads the row and the rating follows the
+            # name; PC, LSB and MSB stay in the order an MPC's MIDI track
+            # asks for them, which is the whole point of this test.
+            assert labels == ["♥", "#", "name", "★", "PC", "LSB", "MSB", "cat"]
             assert labels[labels.index("PC") : labels.index("PC") + 3] == [
                 "PC",
                 "LSB",
@@ -298,6 +298,102 @@ class TestTheThreeNumbers:
             # are never the same column -- see xv/banks.py.
             assert cells["num"] == f"{slot.number:03d}"
             assert slot.number == slot.program_change + 1
+
+
+class TestTheRatingColumn:
+    """The `★` column, between the name and the wire numbers.
+
+    The rating was set with `*` and undone with `z` from the day it landed,
+    but the only place it was ever *shown* was the detail line, so a rating
+    you could not see while scrolling was a rating you did not use. `*`
+    itself is not this glyph: two columns over it already means "this name
+    disagrees with the catalogue".
+    """
+
+    @staticmethod
+    def _cells(app):
+        table = app.query_one("#slot-table", DataTable)
+        row = table.get_row(app._current_slots[0].key)
+        keys = [str(key.value) for key in table.columns]
+        return dict(zip(keys, row))
+
+    async def _rate_to(self, app, pilot, stars):
+        await pilot.press("tab")
+        await pilot.press("asterisk")
+        await pilot.pause()
+        app.screen.query_one("#choices").cursor_coordinate = Coordinate(stars, 0)
+        await pilot.pause()
+        await pilot.press("enter")
+        await settle(pilot)
+
+    async def test_a_rated_favourite_shows_the_stars(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="Velvet Bell", rating=4)
+            app._refresh_current_bank()
+            await pilot.pause()
+            cells = self._cells(app)
+            # Value *and* scale: three-of-three and three-of-five must not
+            # read the same.
+            assert cells["rating"] == "★★★★·"
+
+    async def test_an_unrated_slot_is_blank(self, app):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="Velvet Bell")
+            app._refresh_current_bank()
+            await pilot.pause()
+            assert self._cells(app)["rating"] == ""
+
+    async def test_asterisk_fills_the_cell_in_place(self, app):
+        """Without moving the cursor: `clear()` posts a RowHighlighted, and a
+        rating should not scroll the list out from under you."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="Velvet Bell")
+            app.favorites.add("USER", 2, name="Rusty Pad")
+            app._refresh_current_bank()
+            await pilot.pause()
+            await pilot.press("tab")
+            await pilot.press("down")  # row 1, slot 2
+            await pilot.pause()
+            before = app.query_one("#slot-table").cursor_row
+            assert before == 1
+            await self._rate_to(app, pilot, 3)
+            table = app.query_one("#slot-table", DataTable)
+            assert table.cursor_row == before
+            assert table.get_row("USER:002")[3] == "★★★··"
+
+    async def test_unfavouriting_blanks_the_rating(self, app):
+        """Not a stale cell: `remove` keeps the row and `get` stops seeing
+        it, so a rating left showing would be a rating on a slot with no
+        heart."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="Velvet Bell", rating=5)
+            app._refresh_current_bank()
+            await pilot.pause()
+            assert self._cells(app)["rating"] == "★★★★★"
+            await pilot.press("tab")
+            await pilot.press("f")
+            await settle(pilot)
+            assert self._cells(app)["rating"] == ""
+
+    async def test_refavouriting_brings_the_rating_back(self, app):
+        """`toggle` restores what the slot was carrying -- the whole point of
+        `remove` keeping the row -- so the cell has to read it back."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="Velvet Bell", rating=3)
+            app._refresh_current_bank()
+            await pilot.pause()
+            await pilot.press("tab")
+            await pilot.press("f")
+            await settle(pilot)
+            assert self._cells(app)["rating"] == ""
+            await pilot.press("f")
+            await settle(pilot)
+            assert self._cells(app)["rating"] == "★★★··"
 
 
 class TestCursorIsSilent:

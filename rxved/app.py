@@ -417,17 +417,22 @@ class RxvedApp(App):
         # gutter mark the eye runs down; a heart, because an asterisk
         # already means "this name disagrees with the catalog" two columns
         # over, and one glyph should not mean two things in one table.
-        for label, key in (
-            ("♥", "fav"),
-            ("#", "num"),
-            ("name", "name"),
-            ("★", "rating"),
-            ("PC", "pc"),
-            ("LSB", "lsb"),
-            ("MSB", "msb"),
-            ("cat", "cat"),
+        # The rating column is pinned to five rather than fitted to its
+        # content: fitted, it is five wide in a bank you have rated and one
+        # wide in a bank you have not, so the same column changes shape
+        # depending on data that has nothing to do with it -- and the row
+        # you just rated would jump sideways as it appeared.
+        for label, key, width in (
+            ("♥", "fav", None),
+            ("#", "num", None),
+            ("name", "name", None),
+            ("★", "rating", 5),
+            ("PC", "pc", None),
+            ("LSB", "lsb", None),
+            ("MSB", "msb", None),
+            ("cat", "cat", None),
         ):
-            slot_table.add_column(label, key=key)
+            slot_table.add_column(label, key=key, width=width)
         # Use saved slot cursor on first fill
         saved_cursor = getattr(self, "_saved_slot_cursor", 0)
         self._fill_slots(self._current_bank, cursor=saved_cursor or 0)

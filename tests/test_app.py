@@ -636,6 +636,28 @@ class TestRatingFilter:
             assert app.screen._current is None
             assert str(table.get_row("0")[1]) == " "
 
+    async def test_the_rating_column_is_five_wide_whatever_is_rated(self, app):
+        """Fitted to its content, the column changes shape with the data.
+
+        With nothing rated it collapses to one cell -- the width of its own
+        `★` header -- and with something rated it is five. So the same column
+        is a different width depending on data that has nothing to do with how
+        wide a column should be, and the row you just rated jumps sideways as
+        it appears. Pinned at five instead: that is what a rating costs,
+        whether or not one is showing.
+        """
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.query_one("#slot-table", DataTable)
+            assert table.columns.get("rating").width == 5
+            assert "★" in table.render_line(0).text
+            # And a rated row renders the full scale in it, not clipped.
+            app.favorites.add("USER", 1, name="Velvet Bell", rating=4)
+            app._refresh_current_bank()
+            await pilot.pause()
+            assert table.columns.get("rating").width == 5
+            assert "★★★★·" in table.render_line(1).text
+
     async def test_the_subtitle_names_the_filter(self, app):
         async with app.run_test() as pilot:
             await pilot.pause()

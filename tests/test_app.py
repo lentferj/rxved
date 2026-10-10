@@ -21,6 +21,8 @@ difference between a tool you can leave open next to a running sequencer and
 one you cannot.
 """
 
+import time
+
 import pytest
 from textual.widgets import DataTable, Input, Static
 
@@ -164,8 +166,8 @@ class TestStartupBankRead:
         await app.workers.wait_for_complete()
         await pilot.pause()
 
-    def _app(self, tmp_path, **kwargs):
-        bridge = DemoBridge()
+    def _app(self, tmp_path, bridge=None, **kwargs):
+        bridge = bridge if bridge is not None else DemoBridge()
         favorites = Favorites(str(tmp_path / "f.db"))
         application = RxvedApp(
             bridge,
@@ -239,6 +241,57 @@ class TestStartupBankRead:
             assert application.last_status_refused, "the read was not refused"
             assert not application.catalog.is_live("USER", 1)
         favorites.close()
+
+    async def test_a_refusal_survives_the_progress_ticks(self, tmp_path):
+        """A refusal outlives the worker's running total.
+
+        The startup read of the three writable banks posts a tick per patch
+        and takes about three seconds against real hardware, and those ticks
+        used to drive the same status line as everything else -- so a refusal
+        keyed inside that window was overwritten milliseconds later. `*` on a
+        slot that was not a favourite came back as total silence, which is
+        the one thing a refusal must never do. This is that bug, pinned.
+
+        A slow bridge rather than a sleep in the test: the ticks have to
+        arrive from a real worker thread while the keypress is already
+        standing, which is the ordering the bug needed.
+        """
+
+        class SlowBridge(DemoBridge):
+            """About six seconds for USER, the way a real XV-2020 is over USB."""
+
+            def read_user_bank(self, bank_id, *, on_progress=None, timeout=None):
+                out = {}
+                entries = banks.slots(bank_id)
+                for index, entry in enumerate(entries):
+                    time.sleep(0.05)
+                    out[entry.number] = self.user_patch_name(entry.number)
+                    if on_progress is not None:
+                        on_progress(index + 1, len(entries))
+                return out
+
+        application, favorites = self._app(
+            tmp_path, bridge=SlowBridge(), read_banks_at_startup=True
+        )
+        try:
+            async with application.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("tab")
+                await pilot.pause()
+                assert not application.last_status_refused
+                await pilot.press("asterisk")  # USER 1 is not a favourite
+                await pilot.pause()
+                assert application.last_status_refused, "the key was not refused"
+                refused = str(application.query_one("#status")._Static__content)
+                # Long enough for at least one progress tick to have been
+                # posted, and the read is still running when this asserts.
+                await pilot.pause(0.6)
+                assert application.last_status_refused, "a tick cleared the refusal"
+                assert (
+                    str(application.query_one("#status")._Static__content) == refused
+                ), "a tick overwrote the refusal"
+        finally:
+            favorites.close()
 
     async def test_the_startup_read_holds_busy_while_it_runs(self, tmp_path):
         """Otherwise a keypress would open a second exchange on one port."""

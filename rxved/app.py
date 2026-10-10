@@ -69,6 +69,7 @@ from xv.params import INITIALISING_SOUND_MODES, SOUND_MODES
 from xv.config import load_ui_state, save_ui_state
 
 from rxved import livenames
+from rxved.favorites import rating_cell
 
 __all__ = [
     "RxvedApp",
@@ -161,20 +162,6 @@ from rxved.screens import (  # noqa: E402
 # --- the application --------------------------------------------------------
 
 
-#: How a rating reads in the slot table: the filled stars, then the remainder
-#: dim, so a value *and* its scale are both visible -- `★★★··` cannot be
-#: misread as three-of-three, where a bare `★★★` can. Zero is blank rather
-#: than five dots, matching the `fav` column's blank-means-absent.
-#:
-#: `*` is deliberately not this: two columns over it already means "this name
-#: disagrees with the catalogue", and one glyph meaning two things in one
-#: table is how the favourite marker came to be a heart (see on_mount).
-def _rating_cell(rating: int) -> str:
-    if not rating:
-        return ""
-    return "★" * rating + "·" * (5 - rating)
-
-
 @dataclass(frozen=True)
 class _Change:
     """One recorded change to the favourites store, enough to undo it.
@@ -228,7 +215,13 @@ class RxvedApp(App):
     DataTable { height: 1fr; }
     #status { height: 1; background: $boost; color: $text; padding: 0 1; }
     #detail { height: 4; padding: 0 1; border-top: solid $panel; }
-    .refused { background: $error; color: $text; }
+    /* The ID has to be repeated or this rule never paints. `.refused` on its
+       own was dead CSS: an ID selector outranks a class, so every refusal in
+       the program -- and there are two dozen -- was drawn in the same $boost
+       grey as a success, which is the whole reason a refused keypress could
+       be missed. Bold as well as red, because one 1-high line at the bottom
+       of a wall of key hints has to be legible at a glance. */
+    #status.refused { background: $error; color: $text; text-style: bold; }
     """
 
     # The legend is drawn by KeyHints, not by Textual's Footer, so nothing
@@ -522,7 +515,7 @@ class RxvedApp(App):
 
             def progress(done: int, total: int, _bank=bank_id) -> None:
                 self.call_from_thread(
-                    self.notify_status, f"reading {_bank} names: {done}/{total}"
+                    self.notify_progress, f"reading {_bank} names: {done}/{total}"
                 )
 
             try:
@@ -725,7 +718,7 @@ class RxvedApp(App):
                         else f"{slot.number:03d}"
                     ),
                     shown,
-                    _rating_cell(ratings.get(slot.key, 0)),
+                    rating_cell(ratings.get(slot.key, 0)),
                     str(slot.program_change),
                     str(slot.lsb),
                     str(slot.msb),
@@ -972,6 +965,51 @@ class RxvedApp(App):
         widget.update(message)
         widget.set_class(refused, "refused")
 
+    def notify_progress(self, message: str) -> None:
+        """Report a background worker's running total, which is not news.
+
+        Progress ticks are barred from overwriting a refusal. The startup
+        read of the three writable banks posts one tick per patch and takes
+        about three seconds against real hardware, so anything the user keyed
+        in that window used to be erased milliseconds later -- `*` on a slot
+        that was not a favourite came back as total silence, which is the one
+        thing a refusal must never do. The tick is dropped rather than
+        queued: the worker's own summary follows it and is the message that
+        should be left standing.
+        """
+        if self.last_status_refused:
+            return
+        self.last_status = message
+        self.query_one("#status", Static).update(message)
+
+    def _refuse_no_favourite(self, slot: banks.Slot, key: str) -> None:
+        """Why `t`, `n` and `*` did nothing, and the two keys that fix it.
+
+        Three keys write to a favourite and only to a favourite, and they
+        shared this refusal by having the same sentence pasted three times --
+        which is how one of them can drift from the other two. Naming both
+        the key that was pressed and the key to press next is the difference
+        between "the program is broken" and "oh, it wants a favourite first".
+        """
+        self.notify_status(
+            f"{slot} is not a favourite yet -- {key} writes to a favourite, "
+            f"so press f first and {key} again",
+            refused=True,
+        )
+
+    def _refuse_no_slot(self, what: str) -> None:
+        """`_current_slot()` returned None, so there is nothing to act on.
+
+        The favourites views can be empty by design, and a keypress that
+        returns without a word is indistinguishable from a key that was never
+        wired up at all. This is the message that keeps the two apart.
+        """
+        self.notify_status(
+            f"nothing under the cursor to {what} -- this view has no slots; "
+            f"press v to step to another view",
+            refused=True,
+        )
+
     # --- helpers ------------------------------------------------------------
 
     def _focused_table(self) -> DataTable:
@@ -1037,7 +1075,7 @@ class RxvedApp(App):
             slot_table.update_cell(
                 slot.key,
                 "rating",
-                _rating_cell(restored.rating if restored is not None else 0),
+                rating_cell(restored.rating if restored is not None else 0),
             )
         except (KeyError, ValueError, LookupError, AttributeError):
             # The row is gone (the bank changed under us); a full rebuild is
@@ -1103,6 +1141,7 @@ class RxvedApp(App):
     def action_toggle_favorite(self) -> None:
         slot = self._current_slot()
         if slot is None:
+            self._refuse_no_slot("favourite")
             return
         name = self.catalog.display_name(slot.bank_id, slot.number)
         label = "" if name == cat.UNNAMED else name
@@ -1122,12 +1161,11 @@ class RxvedApp(App):
     def action_edit_tags(self) -> None:
         slot = self._current_slot()
         if slot is None:
+            self._refuse_no_slot("tag")
             return
         existing = self.favorites.get(slot.bank_id, slot.number)
         if existing is None:
-            self.notify_status(
-                f"{slot} is not a favourite yet -- press f first", refused=True
-            )
+            self._refuse_no_favourite(slot, "t")
             return
 
         def apply(value: Optional[str]) -> None:
@@ -1149,12 +1187,11 @@ class RxvedApp(App):
     def action_edit_note(self) -> None:
         slot = self._current_slot()
         if slot is None:
+            self._refuse_no_slot("write a note on")
             return
         existing = self.favorites.get(slot.bank_id, slot.number)
         if existing is None:
-            self.notify_status(
-                f"{slot} is not a favourite yet -- press f first", refused=True
-            )
+            self._refuse_no_favourite(slot, "n")
             return
 
         def apply(value: Optional[str]) -> None:
@@ -1180,12 +1217,11 @@ class RxvedApp(App):
         """
         slot = self._current_slot()
         if slot is None:
+            self._refuse_no_slot("rate")
             return
         existing = self.favorites.get(slot.bank_id, slot.number)
         if existing is None:
-            self.notify_status(
-                f"{slot} is not a favourite yet -- press f first", refused=True
-            )
+            self._refuse_no_favourite(slot, "*")
             return
         options = [(stars, "*" * stars or "no rating") for stars in range(6)]
         self.push_screen(
@@ -1206,7 +1242,7 @@ class RxvedApp(App):
         # resets the cursor and posts a RowHighlighted, which is the jump
         # `f` avoids for the same reason.
         try:
-            table.update_cell(slot.key, "rating", _rating_cell(value))
+            table.update_cell(slot.key, "rating", rating_cell(value))
         except (KeyError, ValueError, LookupError, AttributeError):
             # The row is gone (the bank changed under us); a full rebuild is
             # the honest fallback and costs one frame.
@@ -1496,7 +1532,7 @@ class RxvedApp(App):
 
             def progress(done: int, total: int) -> None:
                 self.call_from_thread(
-                    self.notify_status, f"reading {bank_id}: {done}/{total}"
+                    self.notify_progress, f"reading {bank_id}: {done}/{total}"
                 )
 
             with self._bridge_lock:
@@ -1583,7 +1619,8 @@ class RxvedApp(App):
 
             def progress(done: int, total: int, name: str) -> None:
                 self.call_from_thread(
-                    self.notify_status, f"scanning {bank_id}: {done}/{total}  {name}"
+                    self.notify_progress,
+                    f"scanning {bank_id}: {done}/{total}  {name}",
                 )
 
             with self._bridge_lock:
@@ -1662,7 +1699,7 @@ class RxvedApp(App):
 
             def progress(lsb: int, name: Optional[str]) -> None:
                 self.call_from_thread(
-                    self.notify_status,
+                    self.notify_progress,
                     f"probing SRX LSB {lsb}" + (f": {name}" if name else ""),
                 )
 
@@ -1825,7 +1862,7 @@ class RxvedApp(App):
 
             def progress(done, total):
                 self.call_from_thread(
-                    self.notify_status, f"reading part {done}/{total}"
+                    self.notify_progress, f"reading part {done}/{total}"
                 )
 
             with self._bridge_lock:
@@ -1863,7 +1900,7 @@ class RxvedApp(App):
 
             def progress(done, total):
                 self.call_from_thread(
-                    self.notify_status, f"reading part {done}/{total}"
+                    self.notify_progress, f"reading part {done}/{total}"
                 )
 
             with self._bridge_lock:
@@ -1927,7 +1964,7 @@ class RxvedApp(App):
 
             def progress(done, total):
                 self.call_from_thread(
-                    self.notify_status, f"reading part {done}/{total}"
+                    self.notify_progress, f"reading part {done}/{total}"
                 )
 
             with self._bridge_lock:
@@ -2167,7 +2204,7 @@ class RxvedApp(App):
 
             def progress(done, total):
                 self.call_from_thread(
-                    self.notify_status, f"writing block {done}/{total}"
+                    self.notify_progress, f"writing block {done}/{total}"
                 )
 
             with self._bridge_lock:

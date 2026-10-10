@@ -272,7 +272,13 @@ def _cmd_favorites(_bridge, args) -> None:
             else:
                 rating, tags, note = existing.rating, existing.tags, existing.note
             if args.rating is not None:
-                rating = args.rating
+                # Validated here rather than left to `add`: the store has no
+                # CHECK constraint on the column, so an out-of-range rating is
+                # stored happily and then breaks the rating column's
+                # value-and-scale invariant -- seven stars with no scale, or a
+                # negative one that renders as dots and that
+                # `--rating-exactly 0` cannot find.
+                rating = _rating_stars(args.rating, "--rating")
             if args.tags is not None:
                 tags = args.tags
             if args.note is not None:

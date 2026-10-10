@@ -124,6 +124,21 @@ class TestAddIsNotAWipe:
             found = store.get(*_api(USER_1))
             assert (found.rating, found.note) == (1, "top")
 
+    def test_add_rejects_a_rating_outside_zero_to_five(self, tmp_path):
+        """The store has no CHECK constraint on the column, so this is the
+        only thing standing between a typing slip and a rating that breaks the
+        column's value-and-scale invariant -- seven stars with no scale, or a
+        negative one that renders as dots and that ``--rating-exactly 0``
+        cannot find."""
+        for bad in ("7", "-1"):
+            args = _args(tmp_path, "fav", "--add", USER_1, "--rating", bad)
+            with pytest.raises(SystemExit) as caught:
+                cli._cmd_favorites(None, args)
+            assert "--rating wants 0-5" in str(caught.value)
+        args = _args(tmp_path, "fav")
+        with _fav(args) as store:
+            assert store.get(*_api(USER_1)) is None
+
 
 class TestRatingFilters:
     """``--rating-at-least`` and ``--rating-exactly``."""

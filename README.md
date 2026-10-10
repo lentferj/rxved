@@ -698,6 +698,7 @@ against real hardware to find. `DISCLAIMER.md` has the full account.
 
 ```sh
 make check                       # everything: lint, types, tests, audit
+make test-hardware               # the tests that need a real XV-2020
 ```
 
 See **Development checks** below.
@@ -741,11 +742,40 @@ make check            # lint, types, tests, audit — fails on any error
 | `make format-check` | **ruff** — is anything unformatted? Runs in `check` |
 | `make typecheck` | **mypy** — non-strict; `typecheck-strict` counts per module |
 | `make test` | **pytest** + **pytest-cov** — term-missing, no threshold yet |
+| `make test-hardware` | the same, against a real XV-2020 — opens MIDI ports, so not part of `check` |
 | `make audit` | **pip-audit**, **vulture**, **deptry**, **detect-secrets** |
 
 The same checks run as pre-commit hooks on the files you touched, pinned
 to the same tool versions as the `dev` extra so a hook and `make check`
 can never disagree.
+
+### The hardware suite
+
+`tests/test_hardware.py` needs a real XV-2020 on a MIDI port, so it is
+**not** part of `make check`: only one session may drive the synth at a time,
+and CI must not be it. Ask for it with `make test-hardware` (or
+`RXVED_HARDWARE=1`), and without that every test in the file *skips* — a
+skip with a reason, never a pass, so "the synth was off" and "the offsets are
+wrong" cannot look the same.
+
+It exists because the rest of the suite runs against the demo synth, and a
+demo agrees with whatever rxved believes. Every offset below the API surface
+had only ever been checked against rxved's own transcription of Roland's
+documents — and against the editor script, which is a second transcription
+rather than the instrument. So it asks the machine:
+
+- **every block size and address** in the temporary performance, round-tripped
+  against what the synth reports — the check the editor cross-check cannot do
+- **every read** the browser and CLI depend on, structurally: the mode is one
+  the manual lists, there are sixteen parts, the voice reserves number sixteen
+- **writes, read back and restored** — Temporary Performance first, and the
+  Sound Mode byte last, moving between PATCH and PERFORM only and putting back
+  whichever it started in
+
+It never asserts on a patch, rhythm or performance name — Roland's ROM
+contents are not this project's to redistribute — never touches a user slot,
+and never sends a scan: the operations that make the instrument play stay
+behind their own confirmations, which is not something a test should bypass.
 
 Everything is configured in `pyproject.toml`. **No existing finding was
 mass-fixed to get here**: 856 ruff findings and 222 mypy findings are

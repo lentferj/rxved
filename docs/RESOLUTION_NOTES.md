@@ -509,6 +509,12 @@ The capability is now proven and one `rxvcli` verb away. It stays unbuilt
 until asked for, and if built it should be an explicit verb that prints the
 current mode before sending — never a key in the part table.
 
+*(Superseded 2026-10-09: it was asked for, and built. `M` in the browser and
+`rxvcli mode` both set it; see TODO item 13. The "not Temporary Performance"
+reservation above is the one that still holds, which is why the hardware
+suite exercises the write with a restore rather than leaving the machine
+wherever the assertions happened to stop.)*
+
 ---
 
 ## §10 — Every Bank Select triple confirmed on hardware (2026-09-11)

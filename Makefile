@@ -99,6 +99,13 @@ strict-modules: ## Add strict = true for a module to pyproject.toml
 test: ## pytest with coverage, no threshold yet
 	$(PYTEST)
 
+# The hardware suite is a separate target, not part of `check`: CLAUDE.md
+# says only one session drives the synth at a time, so it is opt-in twice
+# over and CI never reaches it. `--hardware` and RXVED_HARDWARE=1 open the
+# ports; without them every test in the file skips with a reason.
+test-hardware: ## tests that need a real XV-2020 (opens MIDI ports)
+	$(PYTEST) tests/test_hardware.py --hardware -p no:cacheprovider
+
 # --- audit -------------------------------------------------------------------
 
 audit: audit-deps audit-dead audit-secrets  ## Dependencies, dead code, secrets

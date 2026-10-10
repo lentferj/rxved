@@ -152,7 +152,10 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   machine cannot play".
 - **Names**, from two sources kept deliberately distinct: the printed lists,
   and what the synth itself says. A name read from the hardware is shown in
-  bold; one that *disagrees* with the printed list gets a `*`.
+  bold; one that *disagrees* with the printed list gets a `*`. The rating,
+  where there is one, is a separate `★` column beside the name — stars then
+  dots, so three-of-five cannot be misread as three-of-three. `*` is not the
+  rating: it already means one thing in this table.
 
   The `*` is worth a glance exactly when it is rare — somebody saved over
   slot 42, and the marker says so. Once **nothing** in a bank agrees, the
@@ -204,9 +207,14 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
 
   `f` favourites the slot under the cursor, `t` and `n` set its tags and note,
   and `*` rates it 0–5 — all three behind the same chooser, and all three
-  undone by `z`. `v` cycles the list to this bank's favourites and then to
-  every favourite. `rxvcli fav --rate USER:29 4` does the same from the
-  command line, and `--order rating` sorts by it.
+  undone by `z`. The rating shows as a `★` column beside the name, stars
+  then dots so three-of-five cannot be misread as three-of-three. `v` cycles
+  the list to this bank's favourites and then to every favourite, and `V`
+  narrows whichever view is showing by rating — exactly, or that many and
+  up — stacking on the favourites view and on the categories.
+  `rxvcli fav --rate USER:29 4` does the same from the command line,
+  `--rating-at-least 3` and `--rating-exactly 0` filter it ("0" being the
+  ones you have not rated yet), and `--order rating` sorts by it.
 
   A printed patch list you marked up at the keyboard becomes favourites too:
   see [Reading a marked-up printout into
@@ -447,6 +455,7 @@ taking it, because two XV-2020s on one chain is worth refusing over.
 | `enter` | select this slot **on the synth** — it will sound |
 | `f` | favourite this slot |
 | `t` / `n` / `*` | tags / note / rating, 0–5 stars (on a favourite) |
+| `V` | filter by rating — exactly, or that many and up (stacks on the view and the categories) |
 | `/` | search names |
 | `r` | read this bank's names from the synth (`USER`/`R-USER`/`P-USER`; read-only) |
 | `s` | scan this bank by selecting every slot (**plays the synth**, PATCH mode only) |
@@ -476,6 +485,8 @@ rxvcli status                     # ask the synth who it is
 rxvcli channels                   # what each MIDI channel currently selects
 rxvcli mode                       # read the sound mode; pass a name to set it
 rxvcli fav --rate USER:29 4       # rate a favourite you already have
+rxvcli fav --rating-at-least 3    # every favourite rated 3 or better
+rxvcli fav --rating-exactly 0     # the ones you have not rated yet
 rxvcli multi                      # all 16 parts, and why a channel is silent
 rxvcli read USER                  # read USER names (read-only)
 rxvcli select PST-B:29            # select it on the synth

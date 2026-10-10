@@ -66,7 +66,7 @@ from vinsynlib.spec import flag_help
 from xv import banks
 from xv import catalog as cat
 from xv.params import INITIALISING_SOUND_MODES, SOUND_MODES
-from xv.config import load_ui_state, save_ui_state
+from xv.config import UNSET, load_ui_state, save_ui_state
 
 from rxved import livenames
 from rxved.favorites import rating_cell
@@ -1800,14 +1800,20 @@ class RxvedApp(App):
     def _save_ui_state(
         self,
         *,
-        bank_index: Optional[int] = None,
-        slot_cursor: Optional[int] = None,
-        view_mode: Optional[str] = None,
-        categories: Optional[List[str]] = None,
-        rating_stars: Optional[int] = None,
-        rating_at_least: Optional[bool] = None,
+        bank_index=UNSET,
+        slot_cursor=UNSET,
+        view_mode=UNSET,
+        categories=UNSET,
+        rating_stars=UNSET,
+        rating_at_least=UNSET,
     ) -> None:
-        """Persist UI state (bank, slot cursor, view mode, categories)."""
+        """Persist UI state (bank, slot cursor, view mode, categories).
+
+        :data:`UNSET` forwards nothing, so saving the view leaves the bank
+        position alone. ``None`` on a rating key is not that: it removes the
+        key, which is how clearing a filter stops it coming back next launch.
+        Both states have to exist, and only one of them is ``None``.
+        """
         if self._config_path is None:
             return
         try:

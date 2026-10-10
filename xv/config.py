@@ -63,6 +63,7 @@ from vinsynlib.config import Settings
 
 __all__ = [
     "DEFAULT_CONFIG_PATH",
+    "UNSET",
     "load_channel",
     "load_device_id",
     "load_last_ports",
@@ -77,6 +78,13 @@ __all__ = [
 #: Local settings, gitignored. Named the way this project has always named
 #: it; the library calls the same thing ``DEFAULT_PATH``.
 DEFAULT_CONFIG_PATH = "config.toml"
+
+#: "Leave this key alone", as distinct from ``None``, which the settings
+#: writer reads as *unset it*. A setting that can be switched off needs all
+#: three states -- untouched, changed, removed -- and a rating filter is the
+#: first thing here that can be switched off. Collapsing "untouched" into
+#: ``None`` is what let clearing a filter leave the old value in the file.
+UNSET: Any = object()
 
 #: One store for this application. Exposed so a caller that needs a key the
 #: convenience wrappers below do not cover -- a test writing a fixture, a
@@ -131,30 +139,32 @@ def save_channel(channel: int, path: str = DEFAULT_CONFIG_PATH) -> None:
 def save_ui_state(
     path: str = DEFAULT_CONFIG_PATH,
     *,
-    bank_index: Optional[int] = None,
-    slot_cursor: Optional[int] = None,
-    view_mode: Optional[str] = None,
-    categories: Optional[list[str]] = None,
-    rating_stars: Optional[int] = None,
-    rating_at_least: Optional[bool] = None,
+    bank_index: Any = UNSET,
+    slot_cursor: Any = UNSET,
+    view_mode: Any = UNSET,
+    categories: Any = UNSET,
+    rating_stars: Any = UNSET,
+    rating_at_least: Any = UNSET,
 ) -> None:
-    """Save UI state (bank position, slot cursor, view mode, categories)."""
-    changes = {}
-    if bank_index is not None:
-        changes["bank_index"] = bank_index
-    if slot_cursor is not None:
-        changes["slot_cursor"] = slot_cursor
-    if view_mode is not None:
-        changes["view_mode"] = view_mode
-    if categories is not None:
-        changes["categories"] = sorted(categories)
-    # Two keys rather than one table: `load_ui_state` reads a flat dict, and
-    # absence is what "no filter" means. `rating_at_least` alone writes the
-    # comparison for a filter already in the file.
-    if rating_stars is not None:
-        changes["rating_stars"] = rating_stars
-    if rating_at_least is not None:
-        changes["rating_at_least"] = rating_at_least
+    """Save UI state (bank position, slot cursor, view mode, categories).
+
+    Anything left at :data:`UNSET` is not passed on, so a caller that saves
+    the view does not also rewrite the bank position. Passing ``None`` for a
+    rating key is *not* the same thing: it removes it, which is what clearing
+    a filter has to do -- the file otherwise keeps the old value and the
+    filter comes back on the next launch.
+    """
+    changes: Dict[str, Any] = {}
+    for key, value in (
+        ("bank_index", bank_index),
+        ("slot_cursor", slot_cursor),
+        ("view_mode", view_mode),
+        ("categories", categories),
+        ("rating_stars", rating_stars),
+        ("rating_at_least", rating_at_least),
+    ):
+        if value is not UNSET:
+            changes[key] = value
     if changes:
         settings.update(path, **changes)
 

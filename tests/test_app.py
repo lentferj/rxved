@@ -49,6 +49,7 @@ from rxved.favorites import Favorites
 from xv import banks
 from xv import catalog as cat
 from xv import params
+from xv.config import load_ui_state, save_ui_state
 
 pytestmark = pytest.mark.asyncio
 
@@ -664,8 +665,6 @@ class TestRatingFilter:
         favourites.add("USER", 1, name="Velvet Bell", rating=4)
         favourites.add("USER", 2, name="Rusty Pad", rating=5)
         config = str(tmp_path / "config.toml")
-        from xv.config import save_ui_state
-
         save_ui_state(config, rating_stars=3, rating_at_least=True)
 
         def built(config_path=None):
@@ -734,6 +733,80 @@ class TestRatingFilter:
                 assert [s.number for s in second._current_slots] == [1]
         finally:
             favourites.close()
+
+    async def test_clearing_the_filter_stops_it_coming_back(self, app, tmp_path):
+        """Clearing must reach the file, not only the memory.
+
+        The filter is remembered between runs, which is the point of it -- so
+        a clear that only unset the in-memory copy left ``rating_stars = 3``
+        in ``config.toml`` and the filter was back, active, on the next
+        launch, with nothing on screen saying why. ``save_ui_state`` used
+        ``None`` to mean "not passed", and the settings writer reads ``None``
+        as "unset this key", so the two collided and removing the key was
+        impossible.
+        """
+        catalog = cat.Catalog([cat.Entry("USER", 1, "Velvet Bell")])
+        favourites = Favorites(str(tmp_path / "f.db"))
+        favourites.add("USER", 1, name="Velvet Bell", rating=3)
+        config = str(tmp_path / "config.toml")
+        save_ui_state(config, rating_stars=3, rating_at_least=False)
+        assert load_ui_state(config)["rating_stars"] == 3, "fixture did not persist"
+
+        def built():
+            return RxvedApp(
+                DemoBridge(),
+                favorites=favourites,
+                catalog=catalog,
+                backup_dir=str(tmp_path / "backups"),
+                live_names_path=str(tmp_path / "live-names.json"),
+                read_banks_at_startup=False,
+                config_path=config,
+            )
+
+        try:
+            first = built()
+            async with first.run_test() as pilot:
+                await pilot.pause()
+                assert first.rating_filter == RatingFilter(3, at_least=False)
+                # x clears the filter, enter applies the clearing.
+                await pilot.press("V")
+                await pilot.pause()
+                await pilot.press("x")
+                await pilot.pause()
+                await pilot.press("enter")
+                await settle(pilot)
+                assert first.rating_filter is None
+                assert "rating" not in first.sub_title
+            assert "rating_stars" not in load_ui_state(config), (
+                "clearing left the key in config.toml"
+            )
+
+            # A fresh app on the same file must come up unfiltered.
+            second = built()
+            async with second.run_test() as pilot:
+                await pilot.pause()
+                assert second.rating_filter is None
+                assert "★" not in second.sub_title
+                assert len(second._current_slots) == 128
+        finally:
+            favourites.close()
+
+    async def test_saving_the_view_leaves_the_other_keys_alone(self, app, tmp_path):
+        """The sentinel that makes clearing possible must not turn every
+        ``None`` into a deletion: saving the view still leaves the bank
+        position, the cursor and any filter exactly where they were."""
+        config = str(tmp_path / "config.toml")
+        save_ui_state(config, bank_index=2, slot_cursor=7, rating_stars=3)
+        save_ui_state(config, view_mode="all-favourites")
+        saved = load_ui_state(config)
+        assert saved["bank_index"] == 2, "saving the view wiped the bank position"
+        assert saved["slot_cursor"] == 7, "saving the view wiped the cursor"
+        assert saved["rating_stars"] == 3, "saving the view wiped the filter"
+        # And removing the filter does not disturb the position either.
+        save_ui_state(config, rating_stars=None, rating_at_least=None)
+        saved = load_ui_state(config)
+        assert "rating_stars" not in saved
+        assert saved["bank_index"] == 2
 
     async def test_a_boolean_in_the_file_is_not_a_one_star_filter(self, app, tmp_path):
         """`isinstance(True, int)` is True, so a TOML `true` in the stars key

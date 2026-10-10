@@ -44,6 +44,7 @@ from xv.params import INITIALISING_SOUND_MODES, SOUND_MODES, SOUND_MODES_BY_NAME
 from xv import catalog as cat
 
 from rxved import livenames
+from rxved.favorites import rating_cell
 
 __all__ = ["main", "build_parser"]
 
@@ -81,6 +82,40 @@ def _favorites(args):
     from rxved.favorites import Favorites
 
     return Favorites(getattr(args, "favorites", None))
+
+
+def _rating_stars(value: object, flag: str) -> int:
+    """A 0-5 rating from the command line, or a usage error naming the flag.
+
+    ``set_rating`` raises a bare ``ValueError`` outside 0-5, which reached
+    the shell as a traceback. A rating is a small number and every way of
+    getting it wrong is a typing slip worth one clean line.
+    """
+    try:
+        stars = int(value)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        raise SystemExit(f"error: {flag} wants 0-5, not {value!r}")
+    if not 0 <= stars <= 5:
+        raise SystemExit(f"error: {flag} wants 0-5, not {stars}")
+    return stars
+
+
+def _rated(args, rows):
+    """Narrow to the rating flags. Neither given is every row.
+
+    The two are mutually exclusive at the parser, so at most one is not None
+    here; the second branch is kept so a caller assembling ``args`` by hand
+    still gets the same answer. A post-filter rather than a fourth selection
+    branch, because ``--tag lead --rating-at-least 4`` has to mean what it
+    says -- the same stacking the browser's ``V`` does.
+    """
+    if args.rating_at_least is not None:
+        stars = _rating_stars(args.rating_at_least, "--rating-at-least")
+        return [row for row in rows if row.rating >= stars]
+    if args.rating_exactly is not None:
+        stars = _rating_stars(args.rating_exactly, "--rating-exactly")
+        return [row for row in rows if row.rating == stars]
+    return rows
 
 
 # --- offline commands -------------------------------------------------------
@@ -254,8 +289,9 @@ def _cmd_favorites(_bridge, args) -> None:
                 raise SystemExit(
                     f"error: {bank_id} {number:03d} is not a favourite; add it first"
                 )
-            favorites.set_rating(bank_id, number, args.rate[1])
-            print(f"rated {bank_id} {number:03d} {args.rate[1]}")
+            stars = _rating_stars(args.rate[1], "--rate")
+            favorites.set_rating(bank_id, number, stars)
+            print(f"rated {bank_id} {number:03d} {stars}")
             return
         if args.remove:
             bank_id, number = _parse_slot(args.remove)
@@ -270,6 +306,10 @@ def _cmd_favorites(_bridge, args) -> None:
             rows = favorites.search(args.search)
         else:
             rows = favorites.all(order=args.order)
+        # A rating filter is a post-filter over whichever of the three ran,
+        # not a fourth branch: `--tag lead --rating-at-least 4` has to mean
+        # what it says, and the browser stacks its `V` filter the same way.
+        rows = _rated(args, rows)
         if not rows:
             print("no favourites", file=sys.stderr)
             return
@@ -287,7 +327,7 @@ def _cmd_favorites(_bridge, args) -> None:
                     f"{fav.number:03d}",
                     fav.name or catalog.display_name(fav.bank_id, fav.number),
                     *wire,
-                    "*" * fav.rating if fav.rating else "",
+                    rating_cell(fav.rating),
                     fav.tags,
                     fav.note,
                 ]
@@ -1150,6 +1190,24 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--note", default=None)
     sp.add_argument("--tag", default=None, help="list favourites with this tag")
     sp.add_argument("--search", default=None)
+    # Mutually exclusive rather than last-one-wins: two different floors and
+    # an exact match together is a usage error, which argparse says out loud,
+    # rather than silently picking whichever happened to be parsed last.
+    ratings = sp.add_mutually_exclusive_group()
+    ratings.add_argument(
+        "--rating-at-least",
+        type=int,
+        default=None,
+        metavar="0-5",
+        help="list favourites rated this or higher",
+    )
+    ratings.add_argument(
+        "--rating-exactly",
+        type=int,
+        default=None,
+        metavar="0-5",
+        help="list favourites rated exactly this (0 = not rated yet)",
+    )
     sp.add_argument(
         "--order", default="added", choices=["added", "rating", "bank", "name"]
     )

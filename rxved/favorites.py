@@ -34,6 +34,13 @@ rxved has nothing to declare beyond that. It keys a favourite on the
 bank id and the displayed number (``PST-B:029``), which is the family's
 scheme, and the ``PST-``/``RHY-``/``PRF-`` bank ids come from
 :mod:`xv.banks` -- this instrument's business, not the family's.
+
+The one thing added beyond the name is :func:`rating_cell`, which is here
+rather than beside either front end because *both* front ends show a rating
+and a second copy of a glyph is exactly the kind of thing that drifts. It
+lives in this module rather than in :mod:`rxved.screens` because the
+headless front door must not pay for Textual: importing screens costs about
+300ms, against about 75ms for the whole of ``rxved.cli`` today.
 """
 
 from __future__ import annotations
@@ -51,6 +58,7 @@ __all__ = [
     "Favorites",
     "data_dir",
     "default_path",
+    "rating_cell",
 ]
 
 #: The directory name used under whichever per-platform data root applies.
@@ -78,6 +86,23 @@ def default_path() -> str:
     folder can say so.
     """
     return _favorites.default_path(APP_NAME, DB_NAME)
+
+
+def rating_cell(rating: int) -> str:
+    """How a rating reads in a table: the filled stars, then the rest dim.
+
+    Value *and* scale, because ``★★★`` is ambiguous where ``★★★··`` is not,
+    and zero is blank rather than five dots -- blank for "not rated", the
+    same blank-means-absent the favourite marker column uses.
+
+    ``*`` is deliberately not this. In the slot table it already means "this
+    name disagrees with the catalogue" two columns over, and one glyph
+    meaning two things in one table is how the favourite marker came to be a
+    heart.
+    """
+    if not rating:
+        return ""
+    return "★" * rating + "·" * (5 - rating)
 
 
 class Favorites(_favorites.Favorites):

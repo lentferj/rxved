@@ -647,6 +647,61 @@ class TestRatingFilter:
             assert "rating =4" in app.sub_title
             assert "≥" not in app.sub_title
 
+    async def test_a_restored_filter_says_so_and_counts_against_the_bank(
+        self, app, tmp_path
+    ):
+        """The one that gets asked after a restart.
+
+        A rating filter is remembered between runs and a send channel is not,
+        so coming back three days later the list is short and nothing on
+        screen says why. The subtitle has to lead with the filter and count
+        what is shown against what the view would hold unfiltered -- "2 of 128
+        patches" reads as "I am looking at part of something", where "2
+        patches" reads as "a small bank".
+        """
+        catalog = cat.Catalog([cat.Entry("USER", 1, "Velvet Bell")])
+        favourites = Favorites(str(tmp_path / "f.db"))
+        favourites.add("USER", 1, name="Velvet Bell", rating=4)
+        favourites.add("USER", 2, name="Rusty Pad", rating=5)
+        config = str(tmp_path / "config.toml")
+        from xv.config import save_ui_state
+
+        save_ui_state(config, rating_stars=3, rating_at_least=True)
+
+        def built(config_path=None):
+            return RxvedApp(
+                DemoBridge(),
+                favorites=favourites,
+                catalog=catalog,
+                backup_dir=str(tmp_path / "backups"),
+                live_names_path=str(tmp_path / "live-names.json"),
+                read_banks_at_startup=False,
+                config_path=config_path if config_path is not None else config,
+            )
+
+        try:
+            application = built()
+            async with application.run_test() as pilot:
+                await pilot.pause()
+                assert application.rating_filter == RatingFilter(3, at_least=True)
+                subtitle = application.sub_title
+                # The filter is the first thing on the line, ahead of the bank
+                # and of the channel.
+                assert subtitle.startswith("★ rating ≥3"), subtitle
+                assert "2 of 128 patches" in subtitle, subtitle
+                assert subtitle.index("ch 1") > subtitle.index("rating ≥3")
+
+            # And with no filter at all there is no "of", so the denominator
+            # is noise only when it means something.
+            unfiltered = built(str(tmp_path / "config2.toml"))
+            async with unfiltered.run_test() as pilot:
+                await pilot.pause()
+                assert unfiltered.rating_filter is None
+                assert "of 128" not in unfiltered.sub_title
+                assert "★" not in unfiltered.sub_title
+        finally:
+            favourites.close()
+
     async def test_the_filter_comes_back_after_a_restart(self, app, tmp_path):
         catalog = cat.Catalog([cat.Entry("USER", 1, "Velvet Bell")])
         favourites = Favorites(str(tmp_path / "f.db"))
@@ -1650,6 +1705,32 @@ class TestFavouritesView:
             await pilot.pause(0.3)
             assert app.view_mode == "all-favourites"
             assert {s.bank_id for s in app._current_slots} == {"USER", "PST-B", "GM"}
+
+    async def test_the_all_favourites_view_orders_banks_like_the_left_pane(self, app):
+        """USER first, because the left pane puts it first.
+
+        The view used `favorites.all(order="bank")`, which is
+        `ORDER BY bank_id` -- and U sorts after P, so every preset bank came
+        before the bank you actually work in. The two halves of one screen
+        disagreed about which bank leads, and a user cannot tell which of them
+        is the wrong one.
+        """
+        async with app.run_test() as pilot:
+            await pilot.pause(0.4)
+            app.favorites.add("PST-B", 29)
+            app.favorites.add("USER", 1)
+            app.favorites.add("PST-A", 1)
+            app._fill_slots(app._current_bank)
+            await pilot.press("v")
+            await pilot.pause(0.2)
+            await pilot.press("v")
+            await pilot.pause(0.3)
+            assert app.view_mode == "all-favourites"
+            position = {bank_id: i for i, bank_id in enumerate(app._bank_ids)}
+            seen = [(position[s.bank_id], s.number) for s in app._current_slots]
+            assert seen == sorted(seen)
+            assert app._current_slots[0].bank_id == "USER"
+            assert {s.bank_id for s in app._current_slots} <= set(app._bank_ids)
 
     async def test_a_third_press_returns_to_the_full_bank(self, app):
         async with app.run_test() as pilot:

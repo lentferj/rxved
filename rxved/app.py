@@ -626,6 +626,16 @@ class RxvedApp(App):
                     # A favourite for a bank this build no longer defines.
                     # Skipped rather than crashing the view.
                     continue
+            # In the bank pane's order, not the store's alphabetical one.
+            # `order="bank"` is `ORDER BY bank_id`, and U sorts after P, so a
+            # USER favourite lands below every PST- favourite -- while the pane
+            # the bank came from puts USER first because it is the bank you
+            # actually work in. Two halves of one screen disagreeing about
+            # which bank comes first reads as a bug in one of them, and the
+            # user cannot tell which.
+            position = {bank_id: index for index, bank_id in enumerate(self._bank_ids)}
+            unseen = len(position)
+            rows.sort(key=lambda s: (position.get(s.bank_id, unseen), s.number))
         return self._by_rating(self._by_category(rows))
 
     def _by_rating(self, rows: List[banks.Slot]) -> List[banks.Slot]:
@@ -748,29 +758,54 @@ class RxvedApp(App):
     def _update_subtitle(self) -> None:
         entry = banks.bank(self._current_bank)
         shown = len(self._current_slots)
+        # The denominator is the same view with the two filters lifted, which
+        # is what turns "12 patches" into "12 of 128 patches" -- a count alone
+        # reads as "a small bank", where a count against a larger one reads as
+        # "I am looking at part of something". That distinction is the whole
+        # answer to "why is this list shorter than I remember", and it is
+        # asked most often after a restart, because a rating filter is
+        # remembered between runs and a channel is not something you would
+        # guess at three days later.
+        saved_categories, saved_rating = self.categories, self.rating_filter
+        self.categories, self.rating_filter = set(), None
+        try:
+            total = len(self._visible_slots(self._current_bank))
+        finally:
+            self.categories, self.rating_filter = saved_categories, saved_rating
+
+        # "12 of 128" rather than "128 of 12": the denominator belongs with the
+        # thing it counts, which is the row word, not the number.
+        counted = f"{shown} of {total}" if shown != total else f"{shown}"
+
         if self.view_mode == VIEW_ALL:
             plural = {
                 "patch": "patches",
                 "rhythm": "rhythm sets",
                 "performance": "performances",
             }[entry.kind]
-            what = f"{entry.label} ({self._current_bank}) — {shown} {plural}"
+            what = f"{entry.label} ({self._current_bank}) — {counted} {plural}"
         elif self.view_mode == VIEW_BANK_FAVOURITES:
             what = (
-                f"{entry.label} ({self._current_bank}) — {shown} "
+                f"{entry.label} ({self._current_bank}) — {counted} "
                 f"favourite{'' if shown == 1 else 's'}"
             )
         else:
             what = (
-                f"all favourites — {shown} "
+                f"all favourites — {counted} "
                 f"across {len({s.bank_id for s in self._current_slots})} "
                 f"bank(s)"
             )
-        if self.categories:
-            what += "   ·   " + "/".join(sorted(self.categories))
+        # The filters lead rather than trailing the send channel, which is the
+        # one piece of state you always want and would not think to ask about.
+        # A rating filter is exceptional state -- it is the only thing that can
+        # come back from a restart and quietly take rows away -- so it is first,
+        # and `ch` stays last where it reads as a permanent setting.
+        filters = ""
         if self.rating_filter is not None:
-            what += f"   ·   {self.rating_filter.label}"
-        line = f"{what}   ·   ch {self.target_channel + 1}"
+            filters += f"★ {self.rating_filter.label}   "
+        if self.categories:
+            filters += "/".join(sorted(self.categories)) + "   "
+        line = f"{filters}{what}   ·   ch {self.target_channel + 1}"
         if self._changes:
             line += f"   ·   Δ{len(self._changes)}"
         self.sub_title = line

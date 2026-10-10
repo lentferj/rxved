@@ -244,9 +244,6 @@ class RxvedApp(App):
         # `m` was already multi-mode setup, so the shift pair is this one --
         # the same convention as C for categories and W for the store screen.
         Binding("M", "set_mode", "Sound mode"),
-        # `m` was already multi-mode setup, so the shift pair is this one --
-        # the same convention as C for categories and W for the store screen.
-        Binding("M", "set_mode", "Sound mode"),
         Binding("i", "device_info", "Device"),
         Binding("question_mark", "help", "Help"),
         Binding("tab", "switch_pane", "Switch pane"),

@@ -208,12 +208,6 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   every favourite. `rxvcli fav --rate USER:29 4` does the same from the
   command line, and `--order rating` sorts by it.
 
-  `f` favourites the slot under the cursor, `t` and `n` set its tags and note,
-  and `*` rates it 0–5 — all three behind the same chooser, and all three
-  undone by `z`. `v` cycles the list to this bank's favourites and then to
-  every favourite. `rxvcli fav --rate USER:29 4` does the same from the
-  command line, and `--order rating` sorts by it.
-
   A printed patch list you marked up at the keyboard becomes favourites too:
   see [Reading a marked-up printout into
   favourites](#reading-a-marked-up-printout-into-favourites).
@@ -463,7 +457,6 @@ taking it, because two XV-2020s on one chain is worth refusing over.
 | `R` | re-read the synth's mode, channels and all 16 parts |
 | `m` | multi-mode setup: all 16 parts, **editable**, and why a channel is silent |
 | `M` | set the synth's sound mode: PATCH, PERFORM, GM1, GM2, GS — **a write**, and GM/GS initialise the sound generator |
-| `M` | set the synth's sound mode: PATCH, PERFORM, GM1, GM2, GS — **a write**, and GM/GS initialise the sound generator |
 | `p` | (in `m`) load a stored performance into the edit buffer |
 | `c` | (in `m`) edit the performance common: name, solo, effect sources — `⏎`, a digit, or `+`/`-` for the ranged rows |
 | `e` | (in `m`) edit the effects: MFX type/sends/control, chorus and reverb |
@@ -481,8 +474,6 @@ rxvcli find "bass" --kind patch   # search names
 rxvcli resolve 87 65 28           # what does this MSB/LSB/PC select?
 rxvcli status                     # ask the synth who it is
 rxvcli channels                   # what each MIDI channel currently selects
-rxvcli mode                       # read the sound mode; pass a name to set it
-rxvcli fav --rate USER:29 4       # rate a favourite you already have
 rxvcli mode                       # read the sound mode; pass a name to set it
 rxvcli fav --rate USER:29 4       # rate a favourite you already have
 rxvcli multi                      # all 16 parts, and why a channel is silent

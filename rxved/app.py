@@ -1073,6 +1073,21 @@ class RxvedApp(App):
         table = self.query_one("#slot-table", DataTable)
         self._fill_slots(self._current_bank, cursor=table.cursor_row)
 
+    def _relist_without(self, slot: banks.Slot, table) -> None:
+        """Rebuild after a row stopped matching, holding the cursor put.
+
+        The cursor stays at the same *position*, which is now the row that
+        took the old one's place -- the same thing a mail client does when you
+        delete out of a filtered list. It does not follow the row out, because
+        the row is gone and there is nothing to follow.
+        """
+        row = table.cursor_row
+        self._fill_slots(self._current_bank)
+        remaining = len(self._current_slots)
+        if remaining:
+            table.move_cursor(row=min(row, remaining - 1))
+        self._update_detail(table.cursor_row)
+
     def _mark_favorite(self, slot: banks.Slot, now: bool) -> None:
         """Reflect a favourite toggle, without moving the cursor."""
         slot_table = self.query_one("#slot-table", DataTable)
@@ -1085,16 +1100,7 @@ class RxvedApp(App):
             pass
 
         if not now and not self._still_shown(slot):
-            # The row no longer matches the filter, so it has to go. Rebuild
-            # and hold the cursor at the same position, which is now the row
-            # that took its place -- the same thing a mail client does when
-            # you delete out of a filtered list.
-            row = slot_table.cursor_row
-            self._fill_slots(self._current_bank)
-            remaining = len(self._current_slots)
-            if remaining:
-                slot_table.move_cursor(row=min(row, remaining - 1))
-            self._update_detail(slot_table.cursor_row)
+            self._relist_without(slot, slot_table)
             return
 
         try:
@@ -1273,9 +1279,22 @@ class RxvedApp(App):
             _Change("rating", slot.bank_id, slot.number, old=old, new=value)
         )
         table = self.query_one("#slot-table", DataTable)
-        # The cell is updated in place rather than the table rebuilt: `clear()`
-        # resets the cursor and posts a RowHighlighted, which is the jump
-        # `f` avoids for the same reason.
+        # Rating can take the row *out* of the filtered list: rate a 3-star
+        # down to nothing under a ">= 2" filter and it no longer belongs
+        # there. The cell is updated in place while it does -- `clear()`
+        # resets the cursor and posts a RowHighlighted, which is the jump `f`
+        # avoids for the same reason -- and the table is rebuilt when it does
+        # not, because a row the filter does not describe is worse than a
+        # stale cell: it is the row that makes the list a lie.
+        if not self._still_shown(slot):
+            self._relist_without(slot, table)
+            self._update_subtitle()
+            self.notify_status(
+                f"{slot} rated {value} — no longer matches the filter"
+                if value
+                else f"{slot} rating cleared — no longer matches the filter"
+            )
+            return
         try:
             table.update_cell(slot.key, "rating", rating_cell(value))
         except (KeyError, ValueError, LookupError, AttributeError):

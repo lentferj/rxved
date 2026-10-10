@@ -648,6 +648,83 @@ class TestRatingFilter:
             assert "rating =4" in app.sub_title
             assert "≥" not in app.sub_title
 
+    async def test_a_rating_change_takes_the_row_out_of_the_filter(self, app):
+        """Rating can un-match a row, and a stale row makes the list a lie.
+
+        `f` had the "did the row stop matching?" check and `*` did not: rate a
+        3-star down to nothing under a ">= 2" filter and the row sat there
+        until you cycled the view, which is the one gesture nobody thinks to
+        make to find out why their list is wrong.
+        """
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="one", rating=2)
+            app.favorites.add("USER", 2, name="two", rating=5)
+            app._refresh_current_bank()
+            await pilot.pause()
+            await self._apply(app, pilot, 2, 1)  # >= **
+            assert [s.number for s in app._current_slots] == [1, 2]
+
+            # Cursor on USER 001, which is rated 2 and so matches.
+            await pilot.press("tab")
+            await pilot.pause()
+            await pilot.press("asterisk")
+            await pilot.pause()
+            app.screen.query_one("#choices").cursor_coordinate = Coordinate(0, 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+
+            assert [s.number for s in app._current_slots] == [2]
+            assert "1 of 128" in app.sub_title
+            assert "no longer matches" in app.last_status
+            # And the cursor held its position rather than following the row.
+            assert app.query_one("#slot-table").cursor_row == 0
+
+    async def test_a_rating_change_that_still_matches_updates_in_place(self, app):
+        """The other half: no rebuild when the row still belongs, so the
+        cursor does not jump on an ordinary rating edit."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="one", rating=2)
+            app._refresh_current_bank()
+            await pilot.pause()
+            await self._apply(app, pilot, 2, 1)  # >= **
+            assert [s.number for s in app._current_slots] == [1]
+            await pilot.press("tab")
+            await pilot.pause()
+            row = app.query_one("#slot-table").cursor_row
+            await pilot.press("asterisk")
+            await pilot.pause()
+            app.screen.query_one("#choices").cursor_coordinate = Coordinate(5, 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+            # 5 still matches ">= 2", so the row stayed and the cell changed.
+            assert [s.number for s in app._current_slots] == [1]
+            assert app.query_one("#slot-table").get_row("USER:001")[3] == "★★★★★"
+            assert app.query_one("#slot-table").cursor_row == row
+            assert "no longer matches" not in app.last_status
+
+    async def test_an_exact_match_also_drops_the_row(self, app):
+        """Going *up* can un-match too: `= **` stops matching a 3-star."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("USER", 1, name="one", rating=2)
+            app._refresh_current_bank()
+            await pilot.pause()
+            await self._apply(app, pilot, 2, 0)  # = **
+            assert [s.number for s in app._current_slots] == [1]
+            await pilot.press("tab")
+            await pilot.pause()
+            await pilot.press("asterisk")
+            await pilot.pause()
+            app.screen.query_one("#choices").cursor_coordinate = Coordinate(3, 0)
+            await pilot.pause()
+            await pilot.press("enter")
+            await settle(pilot)
+            assert [s.number for s in app._current_slots] == []
+
     async def test_a_restored_filter_says_so_and_counts_against_the_bank(
         self, app, tmp_path
     ):

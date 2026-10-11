@@ -36,6 +36,7 @@ import os
 import sys
 from typing import Callable, Dict, List, Optional
 
+from vinsynlib import render
 from vinsynlib.cli import add_common_arguments, make_parser, validate_common
 from vinsynlib.spec import flag_help
 
@@ -944,7 +945,7 @@ def _backup_dir(args) -> str:
 
 def _progress(label: str):
     def report(done: int, total: int) -> None:
-        print(f"\r  {label} {done}/{total}", end="", file=sys.stderr)
+        print(render.progress(label, done, total), end="", file=sys.stderr)
 
     return report
 

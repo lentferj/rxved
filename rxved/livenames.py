@@ -49,22 +49,16 @@ over one would be the wrong trade.
 
 from __future__ import annotations
 
-import json
 import os
-import sys
 from typing import Dict, Optional
+
+from vinsynlib import livenames as _livenames
+from vinsynlib.catalog import split_key
+from vinsynlib.livenames import FILE_NAME, key
 
 from rxved.favorites import data_dir
 
 __all__ = ["FILE_NAME", "default_path", "load", "save", "key", "apply_to"]
-
-#: The filename, in the data directory beside ``favorites.db``.
-FILE_NAME = "live-names.json"
-
-
-def key(bank_id: str, number: int) -> str:
-    """The storage key for one slot. Same shape `Catalog` uses internally."""
-    return f"{bank_id}:{number:03d}"
 
 
 def default_path() -> str:
@@ -78,29 +72,15 @@ def default_path() -> str:
 
 
 def load(path: Optional[str] = None) -> Dict[str, str]:
-    """Previously-read names, keyed ``"BANK:NNN"``. Empty if there are none."""
-    target = path or default_path()
-    try:
-        with open(target, encoding="utf-8") as handle:
-            raw = json.load(handle)
-    except FileNotFoundError:
-        return {}
-    except (OSError, ValueError) as exc:
-        # Not worth refusing to start over. The alternative is a browser
-        # that will not open because a cache it can rebuild in three
-        # seconds is malformed -- and it *can* be rebuilt, because the
-        # synth is right there.
-        print(
-            f"rxved: ignoring {target}: {exc}. It is a cache of names read "
-            f"from the synth; delete it and press r to read them again.",
-            file=sys.stderr,
-        )
-        return {}
-    if not isinstance(raw, dict):
-        return {}
-    # Keep only what the rest of the program can use: a str key and a str
-    # value. Anything else came from a hand-edit or a future version.
-    return {k: v for k, v in raw.items() if isinstance(k, str) and isinstance(v, str)}
+    """Previously-read names, keyed ``"BANK:NNN"``. Empty if there are none.
+
+    A thin binding: the library's reader wants an explicit path, and both
+    front ends default to the sidecar beside the favourites database, so the
+    default is supplied here rather than at every call site. Everything
+    else -- the lenient decode, the warning on a malformed cache, dropping
+    entries that are not strings -- is the library's and lives in one place.
+    """
+    return _livenames.load(path or default_path())
 
 
 def apply_to(catalog, path: Optional[str] = None) -> int:
@@ -110,12 +90,20 @@ def apply_to(catalog, path: Optional[str] = None) -> int:
     the part worth sharing: a key that does not parse is skipped rather than
     guessed at, because a name attached to the wrong slot is worse than a
     missing one -- it is a plausible wrong answer.
+
+    Kept here rather than delegated because the library's version records a
+    *kind* alongside the name, and this instrument's catalog has none -- its
+    banks are patches, rhythm sets and performances, not two kinds sharing
+    one id. The key grammar is the library's all the same.
     """
     applied = 0
     for stored, name in load(path).items():
-        bank_id, _, number = stored.rpartition(":")
-        if bank_id and number.isdigit():
-            catalog.set_live_name(bank_id, int(number), name)
+        try:
+            bank_id, _kind, number = split_key(stored)
+        except ValueError:
+            continue
+        if bank_id:
+            catalog.set_live_name(bank_id, number, name)
             applied += 1
     return applied
 
@@ -123,24 +111,9 @@ def apply_to(catalog, path: Optional[str] = None) -> int:
 def save(names: Dict[str, str], path: Optional[str] = None) -> None:
     """Write the live layer out. Best effort -- a cache is not required.
 
-    Read-modify-write rather than replace, so a `--live-names` file that
-    also holds something else keeps it. Losing the whole file because one
-    bank could not be read would be a poor way to lose one bank's names.
+    The library merges rather than replaces, so a ``--live-names`` file that
+    also holds something else keeps it, and writes through a temporary plus
+    ``os.replace`` so a crash mid-write leaves the previous file intact.
+    Only the default path is added here.
     """
-    target = path or default_path()
-    existing = load(target)
-    existing.update(names)
-    try:
-        os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
-        # Write-then-rename: a crash or a full disk mid-write leaves the
-        # previous file intact rather than a half-written one, which json
-        # would then refuse to parse.
-        temp = target + ".tmp"
-        with open(temp, "w", encoding="utf-8") as handle:
-            json.dump(existing, handle, indent=1, sort_keys=True, ensure_ascii=False)
-            handle.write("\n")
-        os.replace(temp, target)
-    except OSError:
-        # Same reasoning as `_update_config`: the names are still on screen,
-        # they just will not survive a restart.
-        pass
+    _livenames.save(path or default_path(), names)

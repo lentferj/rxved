@@ -62,6 +62,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import DataTable, Header, Static, Checkbox
 from vinsynlib.cli import add_common_arguments, make_parser, validate_common
 from vinsynlib.spec import flag_help
+from vinsynlib.ui.work import QUIET_BRIDGE_ERRORS
 
 from xv import banks
 from xv import catalog as cat
@@ -114,12 +115,19 @@ PERFORMANCE_LOAD_SETTLE = 0.2
 #: are at fault. Workers catch exactly this -- not bare ``Exception`` -- so
 #: a programming error (AttributeError, TypeError, ...) still fails loudly
 #: instead of surfacing as a status-line "read failed".
+#:
+#: The family's quiet set (a lost connection, a timeout, an OS error) is the
+#: part every tool shares and comes from :mod:`vinsynlib.ui.work`; the rest
+#: are this instrument's own bridge raising for a request the device cannot
+#: serve -- an out-of-range slot, a performance on a control channel set to
+#: OFF, a reply that does not parse. Those must be caught and reported, not
+#: allowed to escape a worker, so they are added here rather than dropped in
+#: favour of the shared set alone.
 _BRIDGE_ERRORS = (
-    TimeoutError,
+    *QUIET_BRIDGE_ERRORS,
     ValueError,
     LookupError,
     RuntimeError,
-    OSError,
     SystemError,
 )
 

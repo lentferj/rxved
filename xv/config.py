@@ -59,7 +59,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
 
-from vinsynlib.config import Settings
+from vinsynlib.config import UNSET, bind
 
 __all__ = [
     "DEFAULT_CONFIG_PATH",
@@ -79,18 +79,12 @@ __all__ = [
 #: it; the library calls the same thing ``DEFAULT_PATH``.
 DEFAULT_CONFIG_PATH = "config.toml"
 
-#: "Leave this key alone", as distinct from ``None``, which the settings
-#: writer reads as *unset it*. A setting that can be switched off needs all
-#: three states -- untouched, changed, removed -- and a rating filter is the
-#: first thing here that can be switched off. Collapsing "untouched" into
-#: ``None`` is what let clearing a filter leave the old value in the file.
-UNSET: Any = object()
-
-#: One store for this application. Exposed so a caller that needs a key the
-#: convenience wrappers below do not cover -- a test writing a fixture, a
-#: bridge recording what it found -- can use ``settings.update(path, ...)``
-#: rather than growing another private TOML reader beside it.
-settings = Settings("rxved", DEFAULT_CONFIG_PATH)
+#: One store for this application, by the family's own constructor. Exposed
+#: so a caller that needs a key the convenience wrappers below do not cover
+#: -- a test writing a fixture, a bridge recording what it found -- can use
+#: ``settings.update(path, ...)`` rather than growing another private TOML
+#: reader beside it.
+settings = bind("rxved", DEFAULT_CONFIG_PATH)
 
 #: The panel numbers this synth displays, which is what it is remembered as.
 #: See :func:`xv.messages.device_id_byte` for the conversion to the wire.

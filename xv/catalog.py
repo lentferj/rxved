@@ -58,6 +58,8 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 from xv import banks
 
+from vinsynlib.catalog import UNNAMED, make_key
+
 __all__ = [
     "Entry",
     "Catalog",
@@ -142,11 +144,6 @@ def category_code(byte: int) -> Optional[str]:
 #: every SRX slot today, since the expansion lists have not been extracted.
 UNCATEGORISED = "(none)"
 
-#: What a slot is called when nothing knows its name. Not an empty string:
-#: an empty cell in the browser reads as a rendering fault, and this reads as
-#: a missing catalog, which is what it is.
-UNNAMED = "--"
-
 
 @dataclass(frozen=True)
 class Entry:
@@ -165,7 +162,7 @@ class Entry:
 
     @property
     def key(self) -> str:
-        return f"{self.bank_id}:{self.number:03d}"
+        return make_key(self.bank_id, self.number)
 
 
 class Catalog:
@@ -190,7 +187,7 @@ class Catalog:
     # --- printed names ------------------------------------------------------
 
     def entry(self, bank_id: str, number: int) -> Optional[Entry]:
-        return self._entries.get(f"{bank_id}:{number:03d}")
+        return self._entries.get(make_key(bank_id, number))
 
     def name(self, bank_id: str, number: int) -> Optional[str]:
         """The name the manual prints for this slot, if the catalog has it."""
@@ -211,7 +208,7 @@ class Catalog:
         A scan supplies names only, so category and voices are carried over
         from whatever the slot already had; passing them replaces that.
         """
-        key = f"{bank_id}:{number:03d}"
+        key = make_key(bank_id, number)
         existing = self._entries.get(key)
         self._entries[key] = Entry(
             bank_id=bank_id,
@@ -244,10 +241,10 @@ class Catalog:
 
     def set_live_name(self, bank_id: str, number: int, name: str) -> None:
         """Record a name read from the device for this slot."""
-        self._live[f"{bank_id}:{number:03d}"] = name
+        self._live[make_key(bank_id, number)] = name
 
     def live_name(self, bank_id: str, number: int) -> Optional[str]:
-        return self._live.get(f"{bank_id}:{number:03d}")
+        return self._live.get(make_key(bank_id, number))
 
     def clear_live(self, bank_id: Optional[str] = None) -> None:
         """Forget device-read names, for one bank or all of them."""
@@ -271,7 +268,7 @@ class Catalog:
         between "the manual says this shipped as X" and "the machine says
         this is X" is the whole question.
         """
-        return f"{bank_id}:{number:03d}" in self._live
+        return make_key(bank_id, number) in self._live
 
     def differs(self, bank_id: str, number: int) -> bool:
         """A slot whose hardware name is not the one the manual prints."""

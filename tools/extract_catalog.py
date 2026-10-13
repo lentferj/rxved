@@ -92,14 +92,18 @@ from xv import catalog as cat  # noqa: E402
 #: preset patch would end up relabelled by one.
 CATEGORIES = tuple(code for code, _name in cat.CATEGORIES)
 
-DEFAULT_EDITOR = (
-    "/home/lentferj/.wine64_roland/drive_c/Program Files (x86)/Roland/"
-    "XVEditor/XV-2020Editor.exe"
+#: Defaults, not requirements: every one is a `--flag` away from being
+#: overridden. They are `~`-relative because these files live wherever the
+#: reader keeps theirs -- there is no shared location to guess -- and a
+#: home-relative path is at least portable across the two of us. The
+#: tool says which path it could not find, so a wrong guess costs one
+#: line of output rather than a stack trace.
+DEFAULT_EDITOR = os.path.expanduser(
+    "~/.wine64_roland/drive_c/Program Files (x86)/Roland/XVEditor/XV-2020Editor.exe"
 )
-DEFAULT_PATCH_LIST = "/home/lentferj/Dokumente/SYNTHS/XV2020/xv2020patch.pdf"
-DEFAULT_MANUAL = (
-    "/home/lentferj/Seafile/Bibliothek/Handbücher/"
-    "Audio-Daws_and_Plugins/Synthesizer/XV-2020_OM.pdf"
+DEFAULT_PATCH_LIST = os.path.expanduser("~/Dokumente/SYNTHS/XV2020/xv2020patch.pdf")
+DEFAULT_MANUAL = os.path.expanduser(
+    "~/Seafile/Bibliothek/Handbücher/Audio-Daws_and_Plugins/Synthesizer/XV-2020_OM.pdf"
 )
 DEFAULT_OUTPUT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

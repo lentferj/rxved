@@ -53,8 +53,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from xv import bridge as b  # noqa: E402
 
-DEFAULT_SCRIPT = (
-    "/home/lentferj/.wine64_roland/drive_c/Program Files (x86)/Roland/"
+#: A default, not a requirement -- `--script` overrides it. `~`-relative
+#: because the editor installs wherever the reader put it; the error below
+#: names the path it tried, so a miss is one line, not a traceback.
+DEFAULT_SCRIPT = os.path.expanduser(
+    "~/.wine64_roland/drive_c/Program Files (x86)/Roland/"
     "XVEditor/Script/XV-2020EditorScript.xml"
 )
 

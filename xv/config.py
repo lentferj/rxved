@@ -139,6 +139,7 @@ def save_ui_state(
     categories: Any = UNSET,
     rating_stars: Any = UNSET,
     rating_at_least: Any = UNSET,
+    scan_offer_dismissed: Any = UNSET,
 ) -> None:
     """Save UI state (bank position, slot cursor, view mode, categories).
 
@@ -156,6 +157,7 @@ def save_ui_state(
         ("categories", categories),
         ("rating_stars", rating_stars),
         ("rating_at_least", rating_at_least),
+        ("scan_offer_dismissed", scan_offer_dismissed),
     ):
         if value is not UNSET:
             changes[key] = value
@@ -184,6 +186,14 @@ def load_ui_state(path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]:
         result["rating_stars"] = stars
         at_least = data.get("rating_at_least")
         result["rating_at_least"] = at_least is True
+    # A TOML boolean is not an integer, and `isinstance(True, int)` is True:
+    # check the bool before anything that could widen it, or a `1` in the
+    # file would come back as a preference the user never set. `type(...) is
+    # bool` is the narrowest check and the one the comment above the stars
+    # key warns about.
+    dismissed = data.get("scan_offer_dismissed")
+    if type(dismissed) is bool:
+        result["scan_offer_dismissed"] = dismissed
     return result
 
 

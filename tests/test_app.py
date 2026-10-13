@@ -44,6 +44,7 @@ from rxved.app import (
     TextPromptScreen,
 )
 from rxved.screens import ConfirmScreen
+from rxved.scan import ScanOfferScreen, ScanScreen
 from rxved.demo import DemoBridge
 from rxved.favorites import Favorites
 from xv import banks
@@ -1545,6 +1546,165 @@ class TestScanAsksFirst:
             await pilot.press("escape")
             await pilot.pause(0.2)
             assert app.bridge.selected_log == []
+
+
+class TestScanDevice:
+    """`S`: the whole device, and `D`: discard and rebuild.
+
+    The empty-catalog offer is the entry point; `S` is what it leads to.
+    The user banks are silent; every SRX bank has no address in the
+    parameter map, so its names can only be read by selecting each patch,
+    which plays the instrument -- hence a confirmation, always.
+    """
+
+    def _app(self, tmp_path, *, catalog=None, offer_scan=True, config=None, demo=False):
+        favorites = Favorites(str(tmp_path / "f.db"))
+        application = RxvedApp(
+            DemoBridge(),
+            favorites=favorites,
+            catalog=catalog if catalog is not None else cat.empty(),
+            backup_dir=str(tmp_path / "backups"),
+            live_names_path=str(tmp_path / "live-names.json"),
+            read_banks_at_startup=False,
+            config_path=config,
+            demo=demo,
+            offer_scan=offer_scan,
+        )
+        return application, favorites
+
+    async def test_it_offers_when_there_is_no_catalog(self, tmp_path):
+        application, favorites = self._app(tmp_path)
+        try:
+            async with application.run_test() as pilot:
+                await pilot.pause(0.8)
+                assert isinstance(application.screen, ScanOfferScreen)
+        finally:
+            favorites.close()
+
+    async def test_it_does_not_offer_when_not_asked(self, tmp_path):
+        application, favorites = self._app(tmp_path, offer_scan=False)
+        try:
+            async with application.run_test() as pilot:
+                await pilot.pause(0.8)
+                assert not isinstance(application.screen, ScanOfferScreen)
+        finally:
+            favorites.close()
+
+    async def test_it_does_not_offer_when_the_catalog_knows_names(self, tmp_path):
+        catalog = cat.Catalog([cat.Entry("USER", 1, "Velvet Bell")])
+        application, favorites = self._app(tmp_path, catalog=catalog)
+        try:
+            async with application.run_test() as pilot:
+                await pilot.pause(0.8)
+                assert not isinstance(application.screen, ScanOfferScreen)
+        finally:
+            favorites.close()
+
+    async def test_never_is_remembered(self, tmp_path):
+        config = str(tmp_path / "config.toml")
+        application, favorites = self._app(tmp_path, config=config)
+        try:
+            async with application.run_test() as pilot:
+                await pilot.pause(0.8)
+                assert isinstance(application.screen, ScanOfferScreen)
+                await pilot.press("d")
+                await pilot.pause(0.2)
+        finally:
+            favorites.close()
+        assert load_ui_state(config)["scan_offer_dismissed"] is True
+
+        second, second_favorites = self._app(tmp_path, config=config)
+        try:
+            async with second.run_test() as pilot:
+                await pilot.pause(0.8)
+                assert not isinstance(second.screen, ScanOfferScreen)
+        finally:
+            second_favorites.close()
+
+    async def test_escape_defers_without_remembering(self, tmp_path):
+        config = str(tmp_path / "config.toml")
+        application, favorites = self._app(tmp_path, config=config)
+        try:
+            async with application.run_test() as pilot:
+                await pilot.pause(0.8)
+                assert isinstance(application.screen, ScanOfferScreen)
+                await pilot.press("escape")
+                await pilot.pause(0.2)
+        finally:
+            favorites.close()
+        assert "scan_offer_dismissed" not in load_ui_state(config)
+
+    async def test_answering_scan_starts_a_device_scan(self, tmp_path):
+        application, favorites = self._app(tmp_path)
+        try:
+            async with application.run_test() as pilot:
+                await pilot.pause(0.8)
+                assert isinstance(application.screen, ScanOfferScreen)
+                await pilot.press("y")
+                await pilot.pause(0.2)
+                # The user banks are silent but the SRX banks play, so the
+                # offer hands off to the same confirmation `S` shows.
+                assert isinstance(application.screen, ConfirmScreen)
+                await pilot.press("y")
+                await pilot.pause(0.2)
+                assert isinstance(application.screen, ScanScreen)
+                # A silent read of the writable banks is what the offer
+                # promises first, and the demo bridge answers it.
+                await settle(pilot, seconds=15)
+                assert application.catalog.is_live("USER", 1)
+                assert not isinstance(application.screen, ScanScreen)
+        finally:
+            favorites.close()
+
+    async def test_S_on_the_demo_is_refused(self, tmp_path):
+        """The demo invents its names; scanning it would write fiction."""
+        application, favorites = self._app(tmp_path, offer_scan=False, demo=True)
+        try:
+            async with application.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("S")
+                await pilot.pause(0.1)
+                assert application.last_status_refused
+                assert application.bridge.selected_log == []
+        finally:
+            favorites.close()
+
+    async def test_D_asks_twice_and_cancelling_changes_nothing(self, tmp_path):
+        catalog = cat.Catalog([cat.Entry("USER", 1, "Velvet Bell")])
+        application, favorites = self._app(tmp_path, catalog=catalog, offer_scan=False)
+        try:
+            async with application.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("D")
+                await pilot.pause(0.1)
+                assert isinstance(application.screen, ConfirmScreen)
+                await pilot.press("n")
+                await pilot.pause(0.1)
+                assert not isinstance(application.screen, ConfirmScreen)
+                assert application.catalog.name("USER", 1) == "Velvet Bell"
+        finally:
+            favorites.close()
+
+    async def test_D_empties_the_catalog_after_both_confirmations(self, tmp_path):
+        catalog = cat.Catalog([cat.Entry("USER", 1, "Velvet Bell")])
+        application, favorites = self._app(tmp_path, catalog=catalog, offer_scan=False)
+        try:
+            async with application.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("D")
+                await pilot.pause(0.1)
+                assert isinstance(application.screen, ConfirmScreen)
+                await pilot.press("y")
+                await pilot.pause(0.1)
+                # The second screen is the one that means it.
+                assert isinstance(application.screen, ConfirmScreen)
+                assert application.catalog.name("USER", 1) == "Velvet Bell"
+                await pilot.press("y")
+                await pilot.pause(0.2)
+                assert not application.catalog
+                assert application.catalog.display_name("USER", 1) == cat.UNNAMED
+        finally:
+            favorites.close()
 
 
 class TestChannels:

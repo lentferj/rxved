@@ -72,6 +72,7 @@ from xv.config import UNSET, load_ui_state, save_ui_state
 
 from rxved import livenames
 from rxved.favorites import rating_cell
+from rxved.scan import ScanOfferScreen, ScanScreen
 
 __all__ = [
     "RxvedApp",
@@ -260,6 +261,11 @@ class RxvedApp(App):
         Binding("slash", "search", "Search"),
         Binding("r", "read_names", "Read names"),
         Binding("s", "scan_bank", "Scan bank"),
+        # `S` is the shift of `s`: the whole device rather than this bank.
+        # `R` is already "re-read the synth", so the rebuild takes a letter
+        # that is free and reads as what it does.
+        Binding("S", "scan_device", "Scan device"),
+        Binding("D", "rebuild_catalog", "Discard & rebuild"),
         Binding("x", "probe_srx", "Probe SRX"),
         Binding("m", "multi_setup", "Multi-mode setup"),
         # `m` was already multi-mode setup, so the shift pair is this one --
@@ -282,6 +288,8 @@ class RxvedApp(App):
         config_path: Optional[str] = None,
         live_names_path: Optional[str] = None,
         read_banks_at_startup: bool = True,
+        demo: bool = False,
+        offer_scan: bool = False,
     ) -> None:
         super().__init__()
         self.bridge = bridge
@@ -299,6 +307,23 @@ class RxvedApp(App):
         #: the catalog it was handed and writes the result into the real
         #: data directory.
         self._read_banks_at_startup = read_banks_at_startup
+        #: Whether this is the demo synth. It invents its names, so a scan
+        #: of it is meaningless and must never write the real catalog.
+        self._demo = demo
+        #: Whether to offer a scan when there is no catalog at all. Off by
+        #: default so a test never gets a modal it did not ask for.
+        self._offer_scan = offer_scan
+        #: Raised by the scan modal's Cancel, checked between banks.
+        self._scan_cancel = threading.Event()
+        #: Whether the empty-catalog offer was answered "don't ask again".
+        #: Loaded from config below; remembered so a restart does not ask.
+        self._scan_offer_dismissed = False
+        #: Where the generated catalog lives, if this run has a file for it.
+        #: `main()` stows the resolved path here rather than passing it
+        #: through the constructor, whose shape the tests share and whose
+        #: fixtures hand over a `Catalog` object with no file behind it. None
+        #: means a rebuild's names live only for this session.
+        self._catalog_path: Optional[str] = None
         self.favorites = favorites
         #: Where performance backups are written. Injected rather than
         #: looked up inside the worker so that tests -- which exercise the
@@ -379,6 +404,8 @@ class RxvedApp(App):
                     stars=ui_state["rating_stars"],
                     at_least=bool(ui_state.get("rating_at_least", False)),
                 )
+            if "scan_offer_dismissed" in ui_state:
+                self._scan_offer_dismissed = bool(ui_state["scan_offer_dismissed"])
         else:
             self._saved_slot_cursor = None
 
@@ -466,6 +493,11 @@ class RxvedApp(App):
             self.notify_status(
                 f"{len(self.catalog)} names from {self.catalog.source or 'catalog'}"
             )
+
+        if self._offer_scan:
+            # Deferred: the first status line should be readable before a
+            # modal lands on top of it.
+            self.set_timer(0.6, self._maybe_offer_scan)
 
     @work(thread=True)
     def _read_channels_worker(self) -> None:
@@ -1728,6 +1760,249 @@ class RxvedApp(App):
             message += f"; relabelled {changed} favourite(s)"
         self.notify_status(message)
 
+    # --- the empty-catalog offer and a whole-device scan --------------------
+
+    def _maybe_offer_scan(self) -> None:
+        """Ask to build a catalog, once, when there is none at all.
+
+        Only when there is *nothing*: a catalog that knows any bank means
+        the browser is usable and a modal would be an interruption. The
+        demo is skipped because its names are invented -- scanning it would
+        write fiction into the real catalog -- and a test that presses keys
+        before the timer fires must not have a screen land on them, which is
+        why `_busy` is checked too.
+        """
+        if self._demo or self._busy or self.catalog:
+            return
+        if self._scan_offer_dismissed:
+            return
+        self.push_screen(ScanOfferScreen(), self._scan_offer_answered)
+
+    def _scan_offer_answered(self, answer) -> None:
+        """Act on the offer's three answers.
+
+        Only "never" is remembered. Escape and the "Not now" button arrive
+        as "later", and a key pressed to make a dialog go away must not
+        quietly change a preference -- hence the three-way answer rather
+        than a yes/no.
+        """
+        if answer == "never":
+            self._scan_offer_dismissed = True
+            self._save_ui_state(scan_offer_dismissed=True)
+            return
+        if answer == "scan":
+            self.action_scan_device()
+        # "later" and a bare dismissal change nothing.
+
+    def action_scan_device(self) -> None:
+        """Scan the whole device: the user banks, then every SRX bank.
+
+        The user banks are read directly and silently. Every SRX bank has no
+        address in the parameter map, so its name can only be read by
+        selecting the patch -- which plays the instrument -- so this asks
+        first, always. The preset banks are not swept: their names are in
+        the catalog already, and re-reading them would play them for no
+        information the file does not already hold.
+
+        The scan is refused outright on the demo synth: it invents its
+        names, so scanning it would overwrite the real catalog with fiction.
+        """
+        if self._busy:
+            self.notify_status("already talking to the synth", refused=True)
+            return
+        if self._demo:
+            self.notify_status(
+                "this is the demo synth -- it invents its names, and scanning "
+                "it would write fiction into the real catalog. Nothing has "
+                "been sent.",
+                refused=True,
+            )
+            return
+
+        writable = [b for b in self.STARTUP_BANKS if b in self._bank_ids]
+        expansion = [b for b in self._bank_ids if b.startswith("SRX")]
+        device_banks = writable + expansion
+
+        def go(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            if self._busy:
+                self.notify_status("already talking to the synth", refused=True)
+                return
+            # Set on the main thread, not in the worker, for the reason every
+            # other write says: a @work(thread=True) method returns at once,
+            # and the flag would be set on its own thread.
+            self._busy = True
+            self._scan_cancel = threading.Event()
+            self.push_screen(ScanScreen(self._scan_cancel))
+            self._scan_worker(device_banks)
+
+        self.push_screen(
+            ConfirmScreen(
+                f"Scan the whole device for names -- {len(device_banks)} "
+                f"bank(s)?\n\n"
+                f"The user banks ({', '.join(writable)}) are read silently: "
+                f"nothing there is selected and nothing sounds. The "
+                f"{len(expansion)} SRX banks have no address in the parameter "
+                f"map, so their names can only be read by selecting each "
+                f"patch in turn -- which [b]plays the synth[/b], one program "
+                f"change per slot, for as long as that takes. rxved puts the "
+                f"synth back on the patch it was on when the scan finishes."
+            ),
+            go,
+        )
+
+    @work(thread=True)
+    def _scan_worker(self, device_banks: List[str]) -> None:
+        """**MIDI only.** Read each bank, then hand the names to the app.
+
+        A read already in flight is not interrupted: the cancel flag is
+        checked between banks, so cancelling stops at the next boundary and
+        never leaves a half-read bank behind. The names come back through
+        the bridge, the applying and the saving are the main thread's.
+        """
+        done = 0
+        total = len(device_banks)
+        try:
+            for bank_id in device_banks:
+                if self._scan_cancel.is_set():
+                    break
+
+                def progress(step: int, count: int, _bank=bank_id) -> None:
+                    self.call_from_thread(self._scan_progress, _bank, step, count)
+
+                try:
+                    with self._bridge_lock:
+                        if bank_id in self.STARTUP_BANKS:
+                            names = self.bridge.read_user_bank(
+                                bank_id, on_progress=progress
+                            )
+                        else:
+                            names = self.bridge.scan_bank(bank_id, on_progress=progress)
+                except _BRIDGE_ERRORS as exc:
+                    self.call_from_thread(
+                        self.notify_status, f"scan {bank_id}: {exc}", refused=True
+                    )
+                    continue
+                self.call_from_thread(self._scan_apply, bank_id, names)
+                done += 1
+        finally:
+            self.call_from_thread(self._scan_finished, done, total)
+
+    def _scan_progress(self, bank_id: str, done: int, total: int) -> None:
+        """Main thread. Show the running bank, if its screen is up.
+
+        The worker starts and the screen is pushed in the same breath, so
+        the first report can outrun the mount; `set_progress` keeps the line
+        itself and this only reaches it when it exists.
+        """
+        screen = self.screen
+        if isinstance(screen, ScanScreen):
+            screen.set_progress(f"scanning {bank_id}: {done}/{total}")
+
+    def _scan_apply(self, bank_id: str, names: Dict[int, str]) -> None:
+        """Main thread. Take one bank's names into the catalog and store."""
+        for number, name in names.items():
+            self.catalog.set_live_name(bank_id, number, name)
+        self._save_live_names(bank_id, names)
+        self.favorites.refresh_names(lambda b, n: self.catalog.live_name(b, n))
+        if bank_id == self._current_bank:
+            self._refresh_current_bank()
+
+    def _scan_finished(self, done: int, total: int) -> None:
+        """Main thread. Close the progress screen and say what happened.
+
+        The live names are already persisted, one bank at a time, by
+        :meth:`_scan_apply`; this only redraws the counts and reports. The
+        cancel flag is read here rather than passed in, because the screen
+        that raised it is being torn down.
+        """
+        self._busy = False
+        self._fill_banks()
+        if isinstance(self.screen, ScanScreen):
+            self.screen.dismiss(None)
+        if self._scan_cancel.is_set():
+            self.notify_status(f"scan cancelled after {done} of {total} bank(s)")
+        else:
+            self.notify_status(f"scanned {done} of {total} bank(s)")
+
+    def action_rebuild_catalog(self) -> None:
+        """Throw the names away and scan them back. Asks twice.
+
+        Names only: favourites, ratings, tags and notes live in the
+        favourites database, keyed by bank and slot, which the catalog
+        cannot reach -- so a rebuild loses none of them. Two confirmations
+        rather than one because this is the only key that empties the
+        catalog, and the second is what a person means when they have read
+        the first and still pressed on.
+        """
+        if self._demo:
+            self.notify_status(
+                "this is the demo synth -- it invents its names, so rebuilding "
+                "from it would write fiction into the real catalog. Nothing "
+                "has been done.",
+                refused=True,
+            )
+            return
+
+        def rebuild(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            self.catalog.clear()
+            self._save_catalog()
+            self._fill_slots(self._current_bank)
+            self.notify_status(
+                "catalog emptied -- favourites, ratings, tags and notes are "
+                "untouched; scanning the device to fill the names back in"
+            )
+            self.action_scan_device()
+
+        def warn(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            self.push_screen(
+                ConfirmScreen(
+                    "Really discard every name?\n\n"
+                    "This empties the name catalog, printed and read. "
+                    "[b]Favourites, ratings, tags and notes are not "
+                    "touched[/b] -- they live in the favourites database, "
+                    "not here. After this the sounds show as numbers until "
+                    "the scan that follows puts names back, and the scan "
+                    "plays the synth for the SRX banks."
+                ),
+                rebuild,
+            )
+
+        self.push_screen(
+            ConfirmScreen(
+                "Discard the whole name catalog and rebuild it from the "
+                "synth?\n\n"
+                "Every name is forgotten and read back by scanning: the user "
+                "banks silently, and every SRX bank by playing the synth. "
+                "Favourites, ratings, tags and notes are untouched."
+            ),
+            warn,
+        )
+
+    def _save_catalog(self) -> None:
+        """Write the name catalog back out, if this run knows where it is.
+
+        `main()` resolves the path and stows it on the app rather than
+        passing it through the constructor: the fixtures hand over a
+        `Catalog` object with no file behind it, and a test must not write
+        into the real data directory. With no path the rebuilt names live
+        only for this session -- the same as a catalog built from nothing.
+        """
+        if self._catalog_path is None:
+            return
+        try:
+            cat.dump(self.catalog, self._catalog_path)
+        except OSError as exc:
+            self.notify_status(
+                f"could not save the catalog to {self._catalog_path} ({exc})",
+                refused=True,
+            )
+
     def action_probe_srx(self) -> None:
         """Find which SRX Bank Select LSBs the fitted card answers on."""
         if self._busy:
@@ -1839,6 +2114,7 @@ class RxvedApp(App):
         categories=UNSET,
         rating_stars=UNSET,
         rating_at_least=UNSET,
+        scan_offer_dismissed=UNSET,
     ) -> None:
         """Persist UI state (bank, slot cursor, view mode, categories).
 
@@ -1858,6 +2134,7 @@ class RxvedApp(App):
                 categories=categories,
                 rating_stars=rating_stars,
                 rating_at_least=rating_at_least,
+                scan_offer_dismissed=scan_offer_dismissed,
             )
         except OSError:
             pass
@@ -2701,7 +2978,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         backup_dir=args.backup_dir,
         config_path=config_path,
         live_names_path=args.live_names or livenames.default_path(),
+        demo=args.demo,
+        offer_scan=not args.demo,
     )
+    # Where `D` writes a rebuilt catalog back. The default when no --catalog
+    # was given is the same file `cat.load` read, so a rebuild replaces what
+    # it started from rather than a path nobody named.
+    app._catalog_path = args.catalog or cat.DEFAULT_CATALOG_PATH
     try:
         app.run()
     finally:

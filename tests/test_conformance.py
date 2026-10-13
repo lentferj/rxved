@@ -32,6 +32,8 @@ from xv.terms import TERMS
 #: are meant to be ours and which are the family's.
 EXTRA_HINTS = (
     "s scan bank",
+    "S scan device",
+    "D discard & rebuild",
     "x probe SRX",
     "C categories",
     "R re-read",

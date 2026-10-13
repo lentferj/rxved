@@ -278,6 +278,8 @@ KEY_HINTS = _view_key(
             # than from the catalog, the two that re-read its whole state, and
             # the one that changes what the synth itself is doing.
             "s scan bank",
+            "S scan device",
+            "D discard & rebuild",
             "x probe SRX",
             "C categories",
             "R re-read",

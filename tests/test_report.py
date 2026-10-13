@@ -19,8 +19,9 @@ from textual.containers import VerticalScroll
 from textual.widgets import Static, Label
 
 from rxved.screens import ReportScreen
+from rxved import app as rxved_app
 from rxved.app import _build_line
-from vinsynlib.build import Build
+from vinsynlib.build import Build, build_of
 
 
 class ReportApp(App[None]):
@@ -73,7 +74,7 @@ class TestTheAdoptedFrame:
             scroll = screen.query_one(VerticalScroll)
             assert scroll.scroll_offset.y > 0, "the body scrolled"
 
-    async def test_the_box_is_78_by_28_thick(self):
+    async def test_the_box_is_84_by_32_thick(self):
         async with ReportApp(ReportScreen("rxved", "Two panes.")).run_test(
             size=(100, 40)
         ) as pilot:
@@ -137,12 +138,17 @@ class TestTheBuildLine:
         assert "rxved" in line
         assert "vinsynlib" in line
 
-    def test_library_half_has_no_commit_in_this_venv(self):
+    def test_the_real_environment_prints_what_it_knows(self):
+        # Not "the library half has no sha" -- that is true of a wheel and
+        # false of an editable checkout, so asserting it would fail on a
+        # contributor's machine for the right install and the wrong reason.
+        # Assert the *rule* instead: a commit is printed exactly when one
+        # could be proved, whichever way each half was installed.
         line = _build_line()
-        # The library is a release wheel (0.4.2), so no sha.
-        # The rxved half, being editable, carries a sha.
         parts = line.split(" and ")
-        library_part = next(p for p in parts if "vinsynlib" in p)
         rxved_part = next(p for p in parts if "rxved" in p)
-        assert "(" not in library_part, "library half should have no commit"
-        assert "(" in rxved_part, "rxved half should have a sha"
+        library_part = next(p for p in parts if "vinsynlib" in p)
+        rxved_commit = build_of("rxved", origin=rxved_app.__file__).commit
+        library_commit = build_of("vinsynlib").commit
+        assert ("(" in rxved_part) == (rxved_commit is not None)
+        assert ("(" in library_part) == (library_commit is not None)

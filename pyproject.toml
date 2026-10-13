@@ -55,7 +55,8 @@ dependencies = [
     # settings cache, the favourites database, the keymap and legend, the
     # parser, the port listing -- and, from 0.4.0, the rating glyph, the
     # live-name sidecar, the backup envelope, the modals, the undo log and
-    # the MIDI transport. Pinned at the version that first carries them.
+    # the MIDI transport. Pinned at the installed 0.4.2, which carries all
+    # of them.
     "vinsynlib>=0.4.2",
 ]
 

@@ -56,7 +56,7 @@ dependencies = [
     # parser, the port listing -- and, from 0.4.0, the rating glyph, the
     # live-name sidecar, the backup envelope, the modals, the undo log and
     # the MIDI transport. Pinned at the version that first carries them.
-    "vinsynlib>=0.4.0",
+    "vinsynlib>=0.4.2",
 ]
 
 [project.optional-dependencies]

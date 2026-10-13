@@ -30,7 +30,7 @@ below and re-exported so every existing call site reads exactly as it did.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Dict, Optional, Tuple
+from typing import Any, ClassVar, Dict, Optional, Tuple
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -40,6 +40,7 @@ from textual.widgets import DataTable, Input, Label, Static, Checkbox
 from vinsynlib import keys
 from vinsynlib.keys import wrap_blocks
 from vinsynlib.ui.hints import KeyHints
+from vinsynlib.ui.report import ReportScreen as _Frame
 
 from xv import banks
 from xv import effects
@@ -230,37 +231,20 @@ class SearchScreen(ModalScreen[Optional[Tuple[str, Dict[str, bool]]]]):
         self.dismiss(None)
 
 
-class ReportScreen(ModalScreen[None]):
-    """A scrollable block of text: device details, help, scan results."""
+#: rxved's shape: ``enter`` closes as well. Three lines, no rewrite --
+#: so the frame's words are the library's and the only difference is the
+#: key that closes it, which is what vinsynlib's own
+#: tests/test_report.py:103 (``RvReportScreen``) documents and proves.
 
-    DEFAULT_CSS = """
-    ReportScreen { align: center middle; }
-    ReportScreen > Vertical {
-        width: 84; height: 80%; border: thick $accent;
-        background: $surface; padding: 1 2;
-    }
-    ReportScreen .body { height: 1fr; overflow-y: auto; }
-    """
 
-    BINDINGS = [
-        Binding("escape", "close", "Close"),
-        Binding("q", "close", "Close"),
-        Binding("enter", "close", "Close"),
+class ReportScreen(_Frame):
+    """rxved's shape: ``enter`` closes as well. Three lines, no rewrite."""
+
+    BINDINGS: ClassVar[list[Any]] = [
+        ("escape", "close", "Close"),
+        ("q", "close", "Close"),
+        ("enter", "close", "Close"),
     ]
-
-    def __init__(self, title: str, body: str) -> None:
-        super().__init__()
-        self._title = title
-        self._body = body
-
-    def compose(self) -> ComposeResult:
-        with Vertical():
-            yield Label(f"[b]{self._title}[/b]")
-            yield Static(self._body, classes="body")
-            yield Static("[dim]esc / q to close[/dim]")
-
-    def action_close(self) -> None:
-        self.dismiss(None)
 
 
 #: The legend. Every binding the app has, in the order somebody meets them.

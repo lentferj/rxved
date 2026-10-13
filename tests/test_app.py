@@ -1724,7 +1724,7 @@ class TestDeviceInfo:
             app.favorites.add("USER", 1, name="Velvet Bell")
             await pilot.press("i")
             await pilot.pause(0.5)
-            body = app.screen._body
+            body = app.screen.body
             assert "device ID" in body
             assert "favourites" in body
             assert "sound mode" in body

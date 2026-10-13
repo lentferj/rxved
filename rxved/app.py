@@ -61,6 +61,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import DataTable, Header, Static, Checkbox
 from vinsynlib.cli import add_common_arguments, make_parser, validate_common
+from vinsynlib.build import build_of
 from vinsynlib.spec import flag_help
 from vinsynlib.ui.work import QUIET_BRIDGE_ERRORS
 
@@ -2466,7 +2467,36 @@ class RxvedApp(App):
         self.push_screen(ReportScreen("Device", "\n".join(rows)))
 
     def action_help(self) -> None:
-        self.push_screen(ReportScreen("rxved", _HELP))
+        self.push_screen(ReportScreen("rxved", f"{_build_line()}\n\n{_HELP}"))
+
+
+def _build_line() -> str:
+    """One line naming both builds: this tool, and the library under it.
+
+    Both, because they are installed separately and only one of them is
+    usually the bug -- one version number would send a reader down the
+    wrong path. The words are rxved's; the facts are the library's
+    (:func:`vinsynlib.build.build_of`), so the command line and the help
+    screen cannot disagree later.
+
+    A checkout names its commit. A release names its version, which is
+    the identity the family tags -- there is no commit to name, and
+    nothing here invents one.
+    """
+    parts = []
+    for name, origin in (("rxved", __file__), ("vinsynlib", None)):
+        build = build_of(name, origin=origin)
+        where = build.version or "an unknown version"
+        if build.commit:
+            # The tag, when there is one pointing at the commit: "you are
+            # on v0.4.1 exactly" answers a support question in a way a
+            # sha alone does not.
+            tagged = ""
+            if build.tag:
+                tagged = f", {build.tag.removeprefix('refs/tags/')}"
+            where += f" ({build.commit[:7]}{tagged})"
+        parts.append(f"{name} {where}")
+    return "built from " + " and ".join(parts)
 
 
 _HELP = """\

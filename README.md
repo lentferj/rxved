@@ -111,11 +111,9 @@ Full account in [DISCLAIMER.md](DISCLAIMER.md).
 
 ---
 
----
-
 ## ⚠️ Use at your own risk — back up first
 
- is provided **as is, with absolutely no warranty and no liability**
+rxved is provided **as is, with absolutely no warranty and no liability**
 for data loss or **hardware damage**. You assume all risk. Full terms:
 [DISCLAIMER.md](DISCLAIMER.md).
 

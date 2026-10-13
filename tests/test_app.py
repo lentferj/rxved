@@ -2628,11 +2628,43 @@ class TestPatchPicker:
             # The index is not all that survived: the view it names is shown.
             assert reopened.query_one("#picker-slots", DataTable).row_count == 1
 
+    async def test_the_cursors_survive_closing_and_reopening_the_picker(self, app):
+        """Both panes' cursors are kept for the session, not just the view.
+
+        The bank and slot are remembered by key, not row number: the row at
+        a given index is a different sound in another view, and a key names
+        the sound wherever it sits.
+        """
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            screen = await self._picker(app, pilot)
+            banks_table = screen.query_one("#picker-banks", DataTable)
+            # Row 3 is PST-C, a 128-slot bank -- deep enough to move within.
+            banks_table.move_cursor(row=3)
+            await pilot.pause()
+            await pilot.press("tab")  # focus the slots
+            await pilot.pause()
+            screen.query_one("#picker-slots", DataTable).move_cursor(row=5)
+            await pilot.pause()
+            remembered = screen.position
+            assert remembered.bank == "PST-C"
+            assert remembered.focus == "picker-slots"
+            await pilot.press("q")  # leave the picker
+            await pilot.pause()
+            await pilot.press("s")  # open it again, same session
+            await pilot.pause()
+            reopened = app.screen
+            assert isinstance(reopened, PatchPickerScreen)
+            assert reopened.position == remembered
+            assert reopened.query_one("#picker-banks", DataTable).cursor_row == 3
+            assert reopened.query_one("#picker-slots", DataTable).cursor_row == 5
+
     async def test_a_new_multi_session_starts_the_picker_fresh(self, app):
         """The only other half of the rule: nothing is persisted.
 
-        A view kept across reopenings within one `m` session must not leak
-        into the next, or "kept in the session" would really be "stored".
+        A view and cursors kept across reopenings within one `m` session
+        must not leak into the next, or "kept in the session" would really
+        be "stored".
         """
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -2640,6 +2672,8 @@ class TestPatchPicker:
             await pilot.press("v")
             await pilot.pause()
             assert screen.view == 1
+            screen.query_one("#picker-banks", DataTable).move_cursor(row=3)
+            await pilot.pause()
             await pilot.press("q")  # leave the picker
             await pilot.pause()
             await pilot.press("q")  # leave the multi screen
@@ -2652,6 +2686,7 @@ class TestPatchPicker:
             reopened = app.screen
             assert isinstance(reopened, PatchPickerScreen)
             assert reopened.view == 0  # back to "all slots"
+            assert reopened.query_one("#picker-banks", DataTable).cursor_row == 0
 
     async def test_a_favourite_can_be_picked_across_banks(self, app):
         async with app.run_test() as pilot:

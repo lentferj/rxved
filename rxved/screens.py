@@ -944,6 +944,25 @@ class CommonScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
+@dataclass(frozen=True)
+class PickerPosition:
+    """Where the patch picker was left, so reopening it resumes there.
+
+    The bank and slot are held by key rather than row index: the same view
+    can be reached from a different bank or another favourites list, where
+    the row at a given index is a different sound. The focused pane is kept
+    too -- landing back on the bank pane when the person was working down
+    the slots is its own small reset.
+    """
+
+    #: The selected bank's id (``PST-B``), or ``None``.
+    bank: Optional[str] = None
+    #: The selected slot's key (``PST-B:029``), or ``None``.
+    slot: Optional[str] = None
+    #: The id of the focused pane.
+    focus: str = "picker-banks"
+
+
 class PatchPickerScreen(ModalScreen[Optional[banks.Slot]]):
     """Pick a sound for a part by name, not by Program Change number.
 
@@ -977,7 +996,9 @@ class PatchPickerScreen(ModalScreen[Optional[banks.Slot]]):
         Binding("v", "cycle_view", "Favourites view", show=False),
     ]
 
-    def __init__(self, catalog, current=None, favorites=None, view=0) -> None:
+    def __init__(
+        self, catalog, current=None, favorites=None, view=0, position=None
+    ) -> None:
         super().__init__()
         self._catalog = catalog
         #: The slot the part is on now, marked in the list.
@@ -992,11 +1013,28 @@ class PatchPickerScreen(ModalScreen[Optional[banks.Slot]]):
         #: than module state on purpose: it belongs to one `m` session, not
         #: to the program.
         self._view = view
+        #: Where to put both cursors on mount, seeded by the caller like
+        #: `view`; see the `position` property.
+        self._position = position
+        #: The bank the slot pane currently lists. A highlight the bank table
+        #: posts for a bank whose slots are already drawn must not rebuild
+        #: them, or the slot cursor is lost -- which is exactly what happens
+        #: while restoring a saved position.
+        self._filled_bank: Optional[str] = None
 
     @property
     def view(self) -> int:
         """The view index the picker is on, for a caller that reopens it."""
         return self._view
+
+    @property
+    def position(self) -> PickerPosition:
+        """The two cursors and the focus, for a caller that reopens it."""
+        return PickerPosition(
+            bank=self._bank_id(),
+            slot=self._cursor_key("#picker-slots"),
+            focus=self._focused_pane(),
+        )
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -1021,14 +1059,49 @@ class PatchPickerScreen(ModalScreen[Optional[banks.Slot]]):
                 table.add_row(f"{bank.label} ({bank.id})", key=bank.id)
         table.focus()
         self._fill_slots()
+        self._restore_position()
 
     def _bank_id(self) -> Optional[str]:
-        table = self.query_one("#picker-banks", DataTable)
+        return self._cursor_key("#picker-banks")
+
+    def _cursor_key(self, table_id: str) -> Optional[str]:
+        """The row key under a pane's cursor, or ``None`` if it is empty."""
+        table = self.query_one(table_id, DataTable)
         if not table.row_count:
             return None
         return table.coordinate_to_cell_key(table.cursor_coordinate)[0].value
 
+    def _select_row(self, table_id: str, key: Optional[str]) -> None:
+        """Put a pane's cursor on the row with this key, when it has it."""
+        if key is None:
+            return
+        table = self.query_one(table_id, DataTable)
+        for index, row_key in enumerate(table.rows):
+            if row_key.value == key:
+                table.move_cursor(row=index)
+                return
+
+    def _focused_pane(self) -> str:
+        focused = self.focused
+        if isinstance(focused, DataTable) and focused.id is not None:
+            return focused.id
+        return "picker-banks"
+
+    def _restore_position(self) -> None:
+        position = self._position
+        if position is None:
+            return
+        self._select_row("#picker-banks", position.bank)
+        # The move above posts its own bank highlight; draw the slots for the
+        # restored bank now, so the redundant event is skipped and the slot
+        # cursor survives.
+        self._fill_slots()
+        self._select_row("#picker-slots", position.slot)
+        if position.focus in ("picker-banks", "picker-slots"):
+            self.query_one(f"#{position.focus}", DataTable).focus()
+
     def _fill_slots(self) -> None:
+        self._filled_bank = self._bank_id()
         table = self.query_one("#picker-slots", DataTable)
         table.clear(columns=True)
         table.add_column("bank / #", key="number")
@@ -1097,6 +1170,11 @@ class PatchPickerScreen(ModalScreen[Optional[banks.Slot]]):
         # The bank pane only chooses rows in the two bank-scoped views; in
         # the all-favourites view every bank is already listed.
         if VIEW_CYCLE[self._view] == VIEW_ALL_FAVOURITES:
+            return
+        # A highlight for the bank already drawn -- including the one our
+        # own _restore_position posts -- must not rebuild the slots, or the
+        # slot cursor would be dropped.
+        if self._bank_id() == self._filled_bank:
             return
         self._fill_slots()
 
@@ -1585,11 +1663,13 @@ class MultiScreen(ModalScreen[None]):
         self._catalog = catalog
         #: Index into COLUMN_VIEWS. Cycled by `tab`.
         self._view = 0
-        #: Where the patch picker's own `v` view was last left, so opening it
-        #: again in this same `m` session resumes it rather than snapping back
-        #: to "all slots". Deliberately in-memory only: it is a property of
-        #: this session, not something to persist.
+        #: Where the patch picker's own `v` view and both cursors were last
+        #: left, so opening it again in this same `m` session resumes them
+        #: rather than snapping back to all slots and the top rows.
+        #: Deliberately in-memory only: a property of this session, not
+        #: something to persist.
         self._picker_view = 0
+        self._picker_position: Optional[PickerPosition] = None
         #: ``on_write(part, offset, value, adopt)``. The screen never touches
         #: MIDI: it runs on the main thread, and workers do MIDI.
         self._on_write = on_write
@@ -2119,10 +2199,11 @@ class MultiScreen(ModalScreen[None]):
             return
 
         def chosen(slot) -> None:
-            # Remember the view even when the pick was cancelled with `q`:
-            # the person set the view, and cancelling the pick is not a
-            # reason to throw that away.
+            # Remember the view and both cursors even when the pick was
+            # cancelled with `q`: the person set them, and cancelling the
+            # pick is not a reason to throw that away.
             self._picker_view = picker.view
+            self._picker_position = picker.position
             if slot is not None and self._on_pick_patch is not None:
                 self._on_pick_patch(part.part, slot, self._adopt_part)
 
@@ -2131,6 +2212,7 @@ class MultiScreen(ModalScreen[None]):
             part.slot,
             self.app.favorites,
             view=self._picker_view,
+            position=self._picker_position,
         )
         self.app.push_screen(picker, chosen)
 

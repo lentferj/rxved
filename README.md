@@ -111,9 +111,11 @@ Full account in [DISCLAIMER.md](DISCLAIMER.md).
 
 ---
 
+---
+
 ## ⚠️ Use at your own risk — back up first
 
-rxved is provided **as is, with absolutely no warranty and no liability**
+ is provided **as is, with absolutely no warranty and no liability**
 for data loss or **hardware damage**. You assume all risk. Full terms:
 [DISCLAIMER.md](DISCLAIMER.md).
 
@@ -192,6 +194,8 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
 
   ![Favourites filter](docs/screenshots/favourites.png)
 
+  ![Category filter](docs/screenshots/categories.png)
+
   | | |
   |---|---|
   | Linux / BSD | `$XDG_DATA_HOME/rxved/favorites.db`, else `~/.local/share/rxved/favorites.db` |
@@ -218,6 +222,8 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   from the command line, `--rating-at-least 3` and `--rating-exactly 0`
   filter it ("0" being the ones you have not rated yet), and
   `--order rating` sorts by it.
+
+  ![Rating filter](docs/screenshots/rating-filter.png)
 
   A printed patch list you marked up at the keyboard becomes favourites too:
   see [Reading a marked-up printout into
@@ -285,7 +291,10 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   open next to a running sequencer.
 
   `p` loads a stored performance into the edit buffer — the same buffer `W`
+  ![Store screen](docs/screenshots/store.png)
   writes, so it is how you start from a factory performance instead of from
+  ![Performance picker](docs/screenshots/performance-picker.png)
+
   whatever happened to be loaded.
 
   The LSB/MSB/PC columns are the wire truth, but nobody knows which program
@@ -297,7 +306,10 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   and Program Change — in that order, because the bank select only latches on
   the Program Change — then reads the part back.
 
-  `c` opens the **Performance Common**: the settings that belong to the
+  
+  ![Patch picker](docs/screenshots/patch-picker.png)
+
+`c` opens the **Performance Common**: the settings that belong to the
   performance rather than to any one part. Three of them decide which effect
   a part borrows — **MFX Source**, **Chorus Source** and **Reverb Source**
   are `PERFORM` (use the performance's own effect) or the number of a part
@@ -306,7 +318,10 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   the one byte that silences fifteen parts at once, and the name is the
   performance's own. The five ranged rows take `⏎`, a digit or `+`/`-`
   exactly as the part table does, and `⏎` on one opens the list of parts;
-  the name has no range, so `⏎` is the way in. Writes go to the edit buffer
+  the name has no range, so `⏎` is the way in. 
+  ![Performance common](docs/screenshots/performance-common.png)
+
+Writes go to the edit buffer
   with everything else.
 
   `e` opens the **effects**: the MFX type, its dry/chorus/reverb sends, its
@@ -318,12 +333,16 @@ rxved is a terminal browser for the Roland XV-2020 that displays the three numbe
   parameters through the editor's own display tables (`0.05 Hz`, `200 Hz`,
   `BYPASS`, `ROOM1`), because the steps are not a formula: the chorus rate
   runs 0.05–5.00 Hz in 0.05 steps, then 5.10–7.00 in 0.10, then 7.50–10.00
-  in 0.50. The same `⏎` / digit / `+`/`-` gestures apply, except that a field
+  in 0.50. 
+  ![Effects editor](docs/screenshots/effects.png)
+
+The same `⏎` / digit / `+`/`-` gestures apply, except that a field
   whose values are words — the MFX type, the outputs, the filter, the reverb
   character, the control sources — opens a list to pick from with `⏎` rather
   than a number prompt.
 
   `M` sets the **sound mode** itself — PATCH, PERFORM, GM1, GM2 or GS, from a
+  ![Sound mode](docs/screenshots/sound-mode.png)
   list marking the current one. This is rxved's one write that is *not* to
   Temporary Performance: the mode is global machine state, which is what makes
   it worth having and what makes it worth confirming. Entering GM or GS
@@ -461,8 +480,10 @@ taking it, because two XV-2020s on one chain is worth refusing over.
 | `V` | filter by rating — exactly, or that many and up (stacks on the view and the categories) |
 | `z` / `Z` | undo / undo all — the favourites store, back to its first state |
 | `/` | search names |
-| `r` | read this bank's names from the synth (`USER`/`R-USER`/`P-USER`; read-only) |
-| `s` | scan this bank by selecting every slot (**plays the synth**, PATCH mode only) |
+
+  ![Search](docs/screenshots/search.png)
+
+### Command line
 | `x` | probe for a fitted SRX board (**plays the synth**) |
 | `v` | cycle: all slots → this bank's favourites → every favourite |
 | `C` | filter by category (multi-select), on top of whichever view is showing |
@@ -699,6 +720,9 @@ and the XV-2020 answers a wrongly addressed request with **silence** —
 indistinguishable from powered-off, wrong-port or busy. Every synthetic test
 passed, because they all shared the same wrong convention. It took one read
 against real hardware to find. `DISCLAIMER.md` has the full account.
+
+![Device identity report](docs/screenshots/device.png)
+![Help report](docs/screenshots/help.png)
 
 ## Development
 

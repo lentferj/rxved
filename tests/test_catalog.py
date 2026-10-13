@@ -148,3 +148,33 @@ class TestLoading:
         payload = json.loads(path.read_text(encoding="utf-8"))
         numbers = [row["n"] for row in payload["banks"]["USER"]]
         assert numbers == sorted(numbers)
+
+
+class TestKnows:
+    """The union of printed and live names, where a bank may have only one."""
+
+    def test_knows_a_bank_with_only_a_printed_name(self, catalog):
+        assert catalog.knows("USER")
+
+    def test_knows_a_bank_with_only_a_live_name(self, catalog):
+        catalog.set_live_name("PST-D", 7, "Amber Hum")
+        assert not catalog.has("PST-D")
+        assert catalog.knows("PST-D")
+
+    def test_does_not_know_an_unknown_bank(self, catalog):
+        assert not catalog.knows("PST-Z")
+
+
+class TestClear:
+    """A rebuild starts by throwing the names away, not the favourites."""
+
+    def test_empties_the_catalog(self, catalog):
+        catalog.clear()
+        assert len(catalog) == 0
+        assert not catalog
+        assert catalog.name("USER", 1) is None
+
+    def test_drops_live_names_too(self, catalog):
+        catalog.set_live_name("USER", 1, "Iron Drone")
+        catalog.clear()
+        assert catalog.live_name("USER", 1) is None

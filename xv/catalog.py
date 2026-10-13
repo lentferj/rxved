@@ -231,11 +231,36 @@ class Catalog:
         prefix = f"{bank_id}:"
         return any(key.startswith(prefix) for key in self._entries)
 
+    def knows(self, bank_id: str) -> bool:
+        """Whether the catalog has any name for this bank, printed or read.
+
+        :meth:`has` answers for the printed half alone. Once a name has been
+        read off the machine for a bank the manual never named, that half is
+        not the whole answer, and this is.
+        """
+        prefix = f"{bank_id}:"
+        return any(
+            key.startswith(prefix) for key in list(self._entries) + list(self._live)
+        )
+
     def __len__(self) -> int:
         return len(self._entries)
 
     def __bool__(self) -> bool:
         return bool(self._entries)
+
+    def clear(self) -> None:
+        """Forget every name, printed and read.
+
+        The first step of a deliberate rebuild: throw the catalog's contents
+        away and let a scan fill them again.
+
+        It touches names only. Favourites, ratings, tags and notes live in
+        the favourites database, keyed by bank and slot, where this object
+        has no way to reach them -- so a rebuild loses none of that.
+        """
+        self._entries.clear()
+        self._live.clear()
 
     # --- names read from the hardware ---------------------------------------
 

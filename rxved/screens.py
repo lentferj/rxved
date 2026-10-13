@@ -977,7 +977,7 @@ class PatchPickerScreen(ModalScreen[Optional[banks.Slot]]):
         Binding("v", "cycle_view", "Favourites view", show=False),
     ]
 
-    def __init__(self, catalog, current=None, favorites=None) -> None:
+    def __init__(self, catalog, current=None, favorites=None, view=0) -> None:
         super().__init__()
         self._catalog = catalog
         #: The slot the part is on now, marked in the list.
@@ -986,8 +986,17 @@ class PatchPickerScreen(ModalScreen[Optional[banks.Slot]]):
         #: does not care about favourites; the cycle then only has "all".
         self._favorites = favorites
         #: Index into VIEW_CYCLE, cycled by `v` -- the same three views the
-        #: browser's own table has.
-        self._view = 0
+        #: browser's own table has. Seeded from the caller so a caller that
+        #: reopens the picker resumes where it left off; see the `view`
+        #: property and MultiScreen.action_pick_patch. A parameter rather
+        #: than module state on purpose: it belongs to one `m` session, not
+        #: to the program.
+        self._view = view
+
+    @property
+    def view(self) -> int:
+        """The view index the picker is on, for a caller that reopens it."""
+        return self._view
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -1576,6 +1585,11 @@ class MultiScreen(ModalScreen[None]):
         self._catalog = catalog
         #: Index into COLUMN_VIEWS. Cycled by `tab`.
         self._view = 0
+        #: Where the patch picker's own `v` view was last left, so opening it
+        #: again in this same `m` session resumes it rather than snapping back
+        #: to "all slots". Deliberately in-memory only: it is a property of
+        #: this session, not something to persist.
+        self._picker_view = 0
         #: ``on_write(part, offset, value, adopt)``. The screen never touches
         #: MIDI: it runs on the main thread, and workers do MIDI.
         self._on_write = on_write
@@ -2105,12 +2119,20 @@ class MultiScreen(ModalScreen[None]):
             return
 
         def chosen(slot) -> None:
+            # Remember the view even when the pick was cancelled with `q`:
+            # the person set the view, and cancelling the pick is not a
+            # reason to throw that away.
+            self._picker_view = picker.view
             if slot is not None and self._on_pick_patch is not None:
                 self._on_pick_patch(part.part, slot, self._adopt_part)
 
-        self.app.push_screen(
-            PatchPickerScreen(self._catalog, part.slot, self.app.favorites), chosen
+        picker = PatchPickerScreen(
+            self._catalog,
+            part.slot,
+            self.app.favorites,
+            view=self._picker_view,
         )
+        self.app.push_screen(picker, chosen)
 
     def action_common(self) -> None:
         """Edit the Performance Common block (name, solo, effect sources)."""

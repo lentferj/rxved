@@ -2603,6 +2603,56 @@ class TestPatchPicker:
             await pilot.pause()
             assert slots.row_count == 3  # every favourite
 
+    async def test_the_view_survives_closing_and_reopening_the_picker(self, app):
+        """`v`, then `q`, then `s` comes back on the same view.
+
+        The view belongs to the `m` session, so it outlives the picker that
+        carried it -- the bug being that a fresh picker reset it to "all
+        slots".
+        """
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.favorites.add("PST-B", 29)
+            screen = await self._picker(app, pilot)
+            await pilot.press("v")
+            await pilot.press("v")
+            await pilot.pause()
+            assert screen.view == 2  # every favourite
+            await pilot.press("q")  # leave the picker
+            await pilot.pause()
+            await pilot.press("s")  # open it again, same session
+            await pilot.pause()
+            reopened = app.screen
+            assert isinstance(reopened, PatchPickerScreen)
+            assert reopened.view == 2
+            # The index is not all that survived: the view it names is shown.
+            assert reopened.query_one("#picker-slots", DataTable).row_count == 1
+
+    async def test_a_new_multi_session_starts_the_picker_fresh(self, app):
+        """The only other half of the rule: nothing is persisted.
+
+        A view kept across reopenings within one `m` session must not leak
+        into the next, or "kept in the session" would really be "stored".
+        """
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            screen = await self._picker(app, pilot)
+            await pilot.press("v")
+            await pilot.pause()
+            assert screen.view == 1
+            await pilot.press("q")  # leave the picker
+            await pilot.pause()
+            await pilot.press("q")  # leave the multi screen
+            await pilot.pause()
+            await pilot.press("m")  # a new session
+            await pilot.pause()
+            await pilot.pause()
+            await pilot.press("s")
+            await pilot.pause()
+            reopened = app.screen
+            assert isinstance(reopened, PatchPickerScreen)
+            assert reopened.view == 0  # back to "all slots"
+
     async def test_a_favourite_can_be_picked_across_banks(self, app):
         async with app.run_test() as pilot:
             await pilot.pause()

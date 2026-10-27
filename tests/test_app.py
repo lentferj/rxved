@@ -1557,10 +1557,19 @@ class TestScanDevice:
     which plays the instrument -- hence a confirmation, always.
     """
 
-    def _app(self, tmp_path, *, catalog=None, offer_scan=True, config=None, demo=False):
+    def _app(
+        self,
+        tmp_path,
+        *,
+        catalog=None,
+        offer_scan=True,
+        config=None,
+        demo=False,
+        bridge=None,
+    ):
         favorites = Favorites(str(tmp_path / "f.db"))
         application = RxvedApp(
-            DemoBridge(),
+            bridge if bridge is not None else DemoBridge(),
             favorites=favorites,
             catalog=catalog if catalog is not None else cat.empty(),
             backup_dir=str(tmp_path / "backups"),
@@ -1635,7 +1644,27 @@ class TestScanDevice:
         assert "scan_offer_dismissed" not in load_ui_state(config)
 
     async def test_answering_scan_starts_a_device_scan(self, tmp_path):
-        application, favorites = self._app(tmp_path)
+        import threading
+
+        gate = threading.Event()
+
+        class GatedBridge(DemoBridge):
+            """Hold the scan's first read until the test has seen the screen.
+
+            Against the plain demo the whole device reads in milliseconds,
+            so `ScanScreen` can come and go before the assertion below --
+            the same wall-clock guess `settle` replaced elsewhere in this
+            file. The gate holds the worker on its first bank; the screen
+            cannot be dismissed before it is released.
+            """
+
+            def read_user_bank(self, bank_id, *, on_progress=None, timeout=None):
+                assert gate.wait(15), "the scan never started"
+                return super().read_user_bank(
+                    bank_id, on_progress=on_progress, timeout=timeout
+                )
+
+        application, favorites = self._app(tmp_path, bridge=GatedBridge())
         try:
             async with application.run_test() as pilot:
                 await pilot.pause(0.8)
@@ -1646,14 +1675,21 @@ class TestScanDevice:
                 # offer hands off to the same confirmation `S` shows.
                 assert isinstance(application.screen, ConfirmScreen)
                 await pilot.press("y")
-                await pilot.pause(0.2)
+                # The progress screen mounts asynchronously, and the gate
+                # holds the worker, so this waits as long as it needs.
+                for _ in range(100):
+                    if isinstance(application.screen, ScanScreen):
+                        break
+                    await pilot.pause(0.05)
                 assert isinstance(application.screen, ScanScreen)
                 # A silent read of the writable banks is what the offer
                 # promises first, and the demo bridge answers it.
+                gate.set()
                 await settle(pilot, seconds=15)
                 assert application.catalog.is_live("USER", 1)
                 assert not isinstance(application.screen, ScanScreen)
         finally:
+            gate.set()
             favorites.close()
 
     async def test_S_on_the_demo_is_refused(self, tmp_path):

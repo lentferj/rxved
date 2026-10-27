@@ -88,7 +88,7 @@ tools = [
     # rejects while targeting this project's floor of 3.11. 2.4.6 is the last
     # release whose stubs parse there, so it is the pin until the floor moves.
     "numpy==2.4.6",    # numpy: upgrade with `pip install -U numpy`
-    "pillow==12.3.0",  # pillow: upgrade with `pip install -U pillow`
+    "pillow==13.0.0",  # pillow: upgrade with `pip install -U pillow`
 ]
 
 [project.urls]

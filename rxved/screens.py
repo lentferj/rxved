@@ -39,7 +39,7 @@ from textual.screen import ModalScreen
 from textual.widgets import DataTable, Input, Label, Static, Checkbox
 from vinsynlib import keys
 from vinsynlib.keys import wrap_blocks
-from vinsynlib.ui.hints import KeyHints
+from vinsynlib.ui.hints import KeyHints as _LibraryKeyHints
 from vinsynlib.ui.report import ReportScreen as _Frame
 
 from xv import banks
@@ -248,8 +248,10 @@ class ReportScreen(_Frame):
 
 
 #: The legend. Every binding the app has, in the order somebody meets them.
-#: Nothing is omitted, because :class:`vinsynlib.ui.hints.KeyHints` wraps
-#: rather than truncating.
+#: Nothing is omitted from the program's key documentation: the on-screen
+#: legend is capped at ``KeyHints.MAX_LINES`` lines, and the help screen
+#: lists every key, so a truncated legend still leaves nothing
+#: discoverable only from the source.
 #:
 #: Built from the family's shared legend rather than hand-written. It used to
 #: be a tuple of its own, in its own order, and it had already drifted: the
@@ -294,6 +296,20 @@ KEY_HINTS = _view_key(
         )
     )
 )
+
+
+class KeyHints(_LibraryKeyHints):
+    """rxved's legend: the library's widget, with room for the whole list.
+
+    The library caps at two lines, which fits a short legend and hid most
+    of this one's -- 26 blocks wrap to five lines at eighty columns, so
+    five is the cap. A narrower terminal still truncates with the pointer,
+    and the help screen lists every key, so nothing is discoverable only
+    from the source. Re-measure if hints are added: the cap is the line
+    count of ``wrap_blocks(KEY_HINTS, 78)``.
+    """
+
+    MAX_LINES = 5
 
 
 #: What the right-hand pane is showing. Cycled by `v`.

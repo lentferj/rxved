@@ -45,6 +45,36 @@ class TestKeyLegend:
             }.get(binding.key, binding.key)
             assert key in legend, f"{binding.key} is not in the legend"
 
+    def test_every_binding_is_documented_in_help(self):
+        """The legend's pointer promises `?` lists all keys, so it must."""
+        from rxved.app import _HELP, RxvedApp
+
+        for binding in RxvedApp.BINDINGS:
+            key = {
+                "left_square_bracket": "[",
+                "right_square_bracket": "]",
+                "slash": "/",
+                "question_mark": "?",
+                "enter": "enter",
+                "asterisk": "*",
+            }.get(binding.key, binding.key)
+            assert key in _HELP, f"{binding.key} is not documented in help"
+
+    def test_help_lists_the_keys_the_legend_hides(self):
+        """The six keys that postdate the help's Keys section.
+
+        Single letters occur everywhere, so a bare `in` would pass on the
+        old text too; the Keys section indents every entry two spaces, so
+        an entry-leading key is what is pinned.
+        """
+        from rxved.app import _HELP
+
+        keys_section = _HELP.split("Keys\n", 1)[1]
+        for key in ("*", "V", "S", "D", "m", "M"):
+            assert f"\n  {key} " in keys_section, (
+                f"{key!r} has no entry in the help's Keys section"
+            )
+
     def test_it_wraps_rather_than_dropping_blocks(self):
         from rxved.app import KEY_HINTS, wrap_blocks
 

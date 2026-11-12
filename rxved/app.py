@@ -235,9 +235,10 @@ class RxvedApp(App):
     """
 
     # The legend is drawn by KeyHints, not by Textual's Footer, so nothing
-    # here needs shortening to fit and nothing is hidden -- see KeyHints for
-    # why that matters. `priority` on enter is still load-bearing: a focused
-    # DataTable consumes Enter for its own row selection.
+    # is lost off the edge -- a narrow terminal truncates to MAX_LINES with
+    # a pointer, and the help screen lists every key. `priority` on enter
+    # is still load-bearing: a focused DataTable consumes Enter for its own
+    # row selection.
     BINDINGS = [
         # Deliberately NOT a priority binding, and not a binding at all for
         # the key itself -- see on_data_table_row_selected. A priority Enter
@@ -2816,12 +2817,18 @@ Keys
   arrows / tab   move; tab switches pane
   [ / ]          previous / next send channel      c  type a channel
   R              re-read everything, including each part's receive channel
+  m              multi-mode setup: the 16 parts' patches and channels
+                 (PERFORM mode only)
+  M              sound mode: PATCH, PERFORM, GM1, GM2 or GS
   enter          select this slot ON THE SYNTH -- it will sound
   f              favourite / un-favourite
   v              cycle the right pane: all slots → this bank's favourites →
                  every favourite. The filtered views are the real table, so
                  enter still selects and f still un-favourites.
   t / n          tags / note (favourites only)
+  *              rate this favourite, 0 to 5 stars (favourites only)
+  V              filter by rating, exactly or at least -- and it stacks on
+                 the favourites view and the category filter
   z / Z          undo / undo all (favourite toggles, tags, notes)
   C              filter by category — multi-select, and it stacks on top of
                  whichever favourites view is showing
@@ -2830,6 +2837,10 @@ Keys
                  read-only, nothing is selected)
   s              scan this bank by selecting every slot -- the only way to
                  read preset and SRX names, and it plays the synth
+  S              scan the whole device: the user banks, then every SRX
+                 bank. The user banks are silent; the SRX banks play.
+  D              discard the catalog and rebuild it from the synth. Asks
+                 twice; favourites, ratings, tags and notes are untouched.
   x              probe for a fitted SRX card
   i              device identity     ?  this screen     q  quit
 

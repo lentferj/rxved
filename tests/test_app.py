@@ -1858,7 +1858,11 @@ class TestChannelSelector:
 
 
 class TestKeyLegend:
-    """The legend wraps; it never truncates. See tests/test_legend.py."""
+    """The legend wraps, and a narrow terminal truncates it with a pointer.
+
+    The full list fits at eighty columns; see tests/test_legend.py for the
+    wrapping itself and the help screen's key list.
+    """
 
     async def test_the_app_renders_the_legend_not_a_footer(self, app):
         from textual.widgets import DataTable, Footer
@@ -1869,6 +1873,49 @@ class TestKeyLegend:
             await pilot.pause()
             assert app.query(KeyHints)
             assert not app.query(Footer)
+
+    @staticmethod
+    def _text(app) -> str:
+        """The legend's rendered text as a plain string."""
+        from textual.content import Content
+
+        from rxved.app import KeyHints
+
+        content = app.query_one(KeyHints).content
+        assert isinstance(content, (Content, str))
+        return str(content.plain if isinstance(content, Content) else content)
+
+    async def _render(self, width: int) -> str:
+        """This tool's legend at a terminal width, headlessly."""
+        from textual.app import App, ComposeResult
+
+        from rxved.app import KEY_HINTS, KeyHints
+
+        class LegendApp(App[None]):
+            def compose(self) -> ComposeResult:
+                yield KeyHints(KEY_HINTS)
+
+        app = LegendApp()
+        async with app.run_test(size=(width, 24)) as pilot:
+            await pilot.pause()
+            return self._text(app)
+
+    async def test_the_full_legend_shows_at_eighty_columns(self):
+        """26 blocks need five lines there, which is exactly the cap."""
+        from rxved.app import KEY_HINTS, KeyHints
+
+        text = await self._render(80)
+        for block in KEY_HINTS:
+            assert block in text, f"{block!r} hidden at 80 columns"
+        assert KeyHints.MORE not in text
+
+    async def test_a_narrow_terminal_truncates_with_a_pointer(self):
+        """Eleven lines would eat half the screen; two plus a pointer do."""
+        from rxved.app import KeyHints
+
+        text = await self._render(40)
+        assert len(text.splitlines()) <= KeyHints.MAX_LINES
+        assert KeyHints.MORE in text
 
 
 class TestSweepsPutTheSynthBack:
